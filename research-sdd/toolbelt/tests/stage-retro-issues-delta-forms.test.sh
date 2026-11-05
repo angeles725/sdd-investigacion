@@ -21,7 +21,7 @@ SUT="$HERE/../stage-retro-issues.sh"
 FIX="$HERE/fixtures/stage-retro-issues"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 [ -d "$FIX" ] || { echo "FATAL: fixtures not found: $FIX" >&2; exit 2; }
-for _l in retro-status retro-grammar target-paths scrub-issue-text; do
+for _l in retro-status retro-grammar target-paths; do
   [ -f "$HERE/../lib/$_l.sh" ] || { echo "FATAL: helper lib/$_l.sh not found" >&2; exit 2; }
 done
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
