@@ -90,10 +90,7 @@ func exitCode(rc int) int {
 // firstLine is the first line of text cut to max bytes (cut -c1-N counted bytes).
 func firstLine(text string, max int) string {
 	line, _, _ := strings.Cut(text, "\n")
-	if len(line) > max {
-		return line[:max]
-	}
-	return line
+	return line[:min(len(line), max)]
 }
 
 // statusScriptPath is the script C4 runs: RSDD_STATUS_SCRIPT, else research-sdd-status.sh beside the shim

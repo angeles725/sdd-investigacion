@@ -23,17 +23,23 @@ func (s *scorer) afterStop(stopEpoch int64) (after, unwitnessed int64, err error
 		entries = res.entries
 	}
 	graceEnd := graceDeadline(stopEpoch, s.cfg.GraceMin)
+	after, unwitnessed = splitAfterStop(entries, stopEpoch, graceEnd, s.facts.LastEpoch, s.opt.windowExplicit)
+	return after, unwitnessed, nil
+}
+
+// splitAfterStop sums the weight of the block commits at or after the STOP: those the run can have made (an explicit
+// window, inside the grace, or inside the transcript span) count as after, the rest are unwitnessed.
+func splitAfterStop(entries []blockEntry, stop, graceEnd, lastEpoch int64, explicit bool) (after, unwitnessed int64) {
 	for _, b := range entries {
-		if b.epoch < stopEpoch {
-			continue
-		}
-		if s.opt.windowExplicit || b.epoch <= graceEnd || b.epoch <= s.facts.LastEpoch {
+		switch {
+		case b.epoch < stop:
+		case explicit || b.epoch <= graceEnd || b.epoch <= lastEpoch:
 			after += b.weight
-		} else {
+		default:
 			unwitnessed += b.weight
 		}
 	}
-	return after, unwitnessed, nil
+	return after, unwitnessed
 }
 
 // graceDeadline is stop + minutes*60 seconds, saturating at the int64 maximum.

@@ -119,6 +119,26 @@ func TestGraceDeadline(t *testing.T) {
 	}
 }
 
+func TestSplitAfterStop(t *testing.T) {
+	e := []blockEntry{{99, 1}, {100, 2}, {160, 4}, {161, 8}, {200, 16}, {201, 32}}
+	for _, c := range []struct {
+		name                       string
+		grace, last                int64
+		explicit                   bool
+		wantAfter, wantUnwitnessed int64
+	}{
+		{"grace edge is inside, one past is outside", 160, 0, false, 2 + 4, 8 + 16 + 32},
+		{"span edge is inside, one past is outside", 100, 200, false, 2 + 4 + 8 + 16, 32},
+		{"an explicit window counts everything from the stop", 100, 0, true, 2 + 4 + 8 + 16 + 32, 0},
+		{"before the stop never counts", 0, 0, false, 0, 2 + 4 + 8 + 16 + 32},
+	} {
+		a, u := splitAfterStop(e, 100, c.grace, c.last, c.explicit)
+		if a != c.wantAfter || u != c.wantUnwitnessed {
+			t.Errorf("%s: after %d unwitnessed %d, want %d %d", c.name, a, u, c.wantAfter, c.wantUnwitnessed)
+		}
+	}
+}
+
 func TestC4Verdict(t *testing.T) {
 	stopOK := nextVerdict{zeroOpen: true}
 	drained, none := queueState{declared: true, empty: true}, queueState{}

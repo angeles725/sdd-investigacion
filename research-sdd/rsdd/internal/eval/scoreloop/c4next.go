@@ -43,8 +43,6 @@ func classifyNext(next string) nextVerdict {
 	case brackets != "":
 		return nextVerdict{zeroOpen: true, qualifier: brackets}
 	}
-	if len(rest) > unrecognizedLimit {
-		rest = rest[:unrecognizedLimit]
-	}
+	rest = rest[:min(len(rest), unrecognizedLimit)]
 	return nextVerdict{zeroOpen: true, qualifier: "unrecognized STOP form: " + rest}
 }

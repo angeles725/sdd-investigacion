@@ -12,17 +12,15 @@ type blockEntry struct{ epoch, weight int64 }
 
 // idRegionCuts end the part of a subject that names what was committed: a parenthetical, an em dash or an arrow
 // starts the descriptive title and citations, so a retro that merely cites a closed range is not counted.
-var idRegionCuts = []string{"(", "—", "→"}
+const idRegionCuts = "(—→"
 
 // idRegion is rest up to its first cut.
 func idRegion(rest string) string {
-	cut := len(rest)
-	for _, c := range idRegionCuts {
-		if i := strings.Index(rest, c); i >= 0 && i < cut {
-			cut = i
-		}
+	i := strings.IndexAny(rest, idRegionCuts)
+	if i < 0 {
+		return rest
 	}
-	return rest[:cut]
+	return rest[:i]
 }
 
 // weighed is the verdict on one commit subject.

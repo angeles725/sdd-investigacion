@@ -170,6 +170,14 @@ func TestWeighOverrides(t *testing.T) {
 	}
 }
 
+func TestWeighTwoGroupIDExpression(t *testing.T) {
+	// Exactly two capture groups: the range-end group is absent, so the end is the start (a mutant reading group 3 panics).
+	c := cfgWith(t, "RSDD_BLOCK_ID_REGEX", `#([0-9]+)(-x)?`)
+	if w := c.weigh("research(d): #4-x"); !w.matched || w.start != "4" || w.end != "4" || w.weight != 1 {
+		t.Errorf("two groups: %+v", w)
+	}
+}
+
 func TestSatWeight(t *testing.T) {
 	huge, _ := new(big.Int).SetString("99999999999999999999", 10)
 	for _, k := range []struct {

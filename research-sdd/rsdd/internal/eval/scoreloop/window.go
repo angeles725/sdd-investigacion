@@ -1,10 +1,11 @@
 package scoreloop
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -86,7 +87,7 @@ func (w *window) parseLog(out string) scanResult {
 		}
 		res.entries = append(res.entries, blockEntry{epoch: when.Unix(), weight: b.weight})
 	}
-	sort.SliceStable(res.entries, func(i, j int) bool { return res.entries[i].epoch < res.entries[j].epoch })
+	slices.SortStableFunc(res.entries, func(a, b blockEntry) int { return cmp.Compare(a.epoch, b.epoch) })
 	return res
 }
 
