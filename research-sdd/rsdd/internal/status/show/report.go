@@ -9,7 +9,7 @@ import (
 )
 
 // Port of the default report of research-sdd-status.sh (lines 2456-2642 of the frozen script). It prints the figures
-// of the picked state file, the contradictions ledger, saturation, the S7 campaign block, the remote-visibility
+// of the picked state file, the contradictions ledger, saturation, the campaign block, the remote-visibility
 // block and the aggregate next step, then the consistency lines of verify-state, and always exits 0: a stale-mirror
 // FAIL is REPORTED in the consistency lines and never becomes our exit code.
 //
@@ -21,12 +21,12 @@ import (
 //   - verify-state that cannot be started prints no consistency lines (the shell's error text went through the
 //     same filter and never matched it).
 
-func (c *ctx) report(sm sections) int {
+func (c *ctx) report() int {
 	if !c.listable() {
 		return 1
 	}
 	out := c.s.Out
-	doc := sm.doc(c)
+	doc := c.docModeOf()
 	rel := strings.TrimPrefix(strings.TrimPrefix(c.corpus, c.target), "/")
 	if rel == "" {
 		rel = "(flat)"
@@ -58,19 +58,19 @@ func (c *ctx) report(sm sections) int {
 	if n := c.countRetyped(); n > 0 { // RETYPED-VISIBLE (#1638)
 		fmt.Fprintf(out, "  re-typed in table : %d — row(s) carry the literal 're-typed' Status — use 'blocked (requires-<what>)' (METHODOLOGY §8b); counted in no bucket\n", n)
 	}
-	switch doc.mode {
+	switch doc {
 	case docOutline:
-		fmt.Fprintln(out, doc.outlineLine(c))
+		fmt.Fprintln(out, c.outlineLine())
 	case docNoHeading:
 		fmt.Fprintln(out, "  outline         : (no ## Outline section — gap-centric verdicts kept)")
 	}
 	c.contradictionsLine()
-	if doc.mode == docOutline { // DOC-SAT-BRANCH
+	if doc == docOutline { // DOC-SAT-BRANCH
 		fmt.Fprintln(out, "  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)")
 	} else {
 		fmt.Fprintln(out, c.saturationLine())
 	}
-	sm.campaign(c)
+	c.campaign()
 	// DISPLAY-DEGRADED-GATE (kit #2024): every state file the walk reads must be readable. Only the head state can
 	// degrade here (see the declared differences above).
 	dgNames := ""

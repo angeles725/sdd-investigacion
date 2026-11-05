@@ -16,10 +16,10 @@ import (
 
 // The S6 differential: the frozen excerpts of research-sdd-status.sh (testdata/legacy, see SOURCE.txt) are put back
 // together in the order of the original script and run as the real entry (`bash research-sdd-status.sh <target>
-// ...`) over the LIVE toolbelt/lib. Nothing stands in for the S6 sections: the default report, the contradictions
-// and iteration readers, saturation and the remote-visibility block are the script's own. The two S7 sections it
-// calls (campaign_status_block and the document-cycle outline) are the authored stand-ins below, the same words as
-// the Go seams of s6_harness_test.go. The subprocesses (gh, verify-state) are the authored fakes the port runs too.
+// ...`) over the LIVE toolbelt/lib. Nothing stands in for the S6 or S7 sections: the default report, the
+// contradictions and iteration readers, saturation, the remote-visibility block, the campaign queue and the
+// document-cycle outline are the script's own. The subprocesses (gh, verify-state) are the authored fakes the port
+// runs too.
 
 // s6Frozen is the S5 order with the S6 excerpts at their places in the original script.
 func s6Frozen() []struct{ file, sha string } {
@@ -27,6 +27,8 @@ func s6Frozen() []struct{ file, sha string } {
 		iterSHA = "461fd9686fd0bd4bb0d8a279f942e5524118ac0e40427c2ecb426d4eb5d9777b"
 		satSHA  = "70f63fc30f70c86aaad0c96ce59d426ae754dc04796c7b79966859b6c1bfdcad"
 		repSHA  = "bd5355cb0529033065ee444c2991b3df9342d9de291c56d66166b2179cee8f8c"
+		cqSHA   = "36e0082caa82536fa0fa090f77ad7c88a8d27f6f23d30a9efee00dcc1e6ffdd5"
+		docSHA  = "232e5a54cbc33110c2bcc0569dc7819389be893321d58f0242a49f1d414f9467"
 	)
 	var out []struct{ file, sha string }
 	for _, f := range s5Frozen {
@@ -38,18 +40,9 @@ func s6Frozen() []struct{ file, sha string } {
 			out = append(out, struct{ file, sha string }{"status-saturation.sh", satSHA})
 		}
 	}
-	return append(out, struct{ file, sha string }{"", ""}, struct{ file, sha string }{"status-report.sh", repSHA})
+	return append(out, struct{ file, sha string }{"status-campaign.sh", cqSHA}, struct{ file, sha string }{"status-doccycle.sh", docSHA},
+		struct{ file, sha string }{"status-report.sh", repSHA})
 }
-
-// s6MidBash stands in for lines 2046-2455 of the script (slice S7).
-const s6MidBash = `
-campaign_status_block() { printf '  %-16s: S6-STANDIN state=%s focus=%s\n' "campaign" "$(_rel_state "$state")" "${focus_slug:-}"; }
-_doc_mode=0; _doc_noheading=0
-case "${S6_DOC:-}" in outline) _doc_mode=1 ;; noheading) _doc_noheading=1 ;; esac
-outline_summary() { :; }
-outline_line() { echo "  outline         : S6-STANDIN"; }
-outline_next_step() { echo "${S6_DOC_NEXT:-BOOTSTRAP | stand-in}"; }
-`
 
 // fakeVerifyS6 logs its argv and answers the spec: stdout, stderr, exit code.
 const fakeVerifyS6 = `#!/usr/bin/env bash
@@ -70,10 +63,6 @@ func s6Stage(t *testing.T) (dir, rsddBin string) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	var script []byte
 	for _, f := range s6Frozen() {
-		if f.file == "" {
-			script = append(script, s6MidBash...)
-			continue
-		}
 		script = append(script, readFrozen(t, f.file, f.sha)...)
 	}
 	lib, err := filepath.Abs(liveLib)
@@ -138,13 +127,16 @@ func runBashS6(t testing.TB, sc s6Scenario, root, logDir, dir, rsddBin string) [
 	return res
 }
 
-func TestDifferentialS6(t *testing.T) {
+func TestDifferentialS6(t *testing.T) { differentialDefault(t, s6Scenarios(), goldenS6) }
+
+// differentialDefault runs the default-report scenarios against the frozen script and checks the golden.
+func differentialDefault(t *testing.T, scs []s6Scenario, golden string) {
 	var mu sync.Mutex
 	sections := map[string]string{}
 	dir, rsddBin := s6Stage(t)
 	tb, bin := filepath.Join(dir, "toolbelt"), filepath.Join(dir, "bin")
 	t.Run("scenarios", func(t *testing.T) {
-		for _, sc := range s6Scenarios() {
+		for _, sc := range scs {
 			t.Run(sc.name, func(t *testing.T) {
 				t.Parallel() // the frozen script runs concurrently; runGoS6 serializes the seam swaps
 				if sc.needsUser && os.Geteuid() == 0 {
@@ -178,12 +170,12 @@ func TestDifferentialS6(t *testing.T) {
 		return
 	}
 	// A skipped scenario (root user) has no oracle output: keep its golden section unchanged.
-	for _, sc := range s6Scenarios() {
+	for _, sc := range scs {
 		if _, ok := sections[sc.name]; !ok && !*update {
-			if old, ok := parseGoldenIfPresent(t, goldenS6)[sc.name]; ok {
+			if old, ok := parseGoldenIfPresent(t, golden)[sc.name]; ok {
 				sections[sc.name] = old
 			}
 		}
 	}
-	checkGolden(t, goldenS6, sections)
+	checkGolden(t, golden, sections)
 }

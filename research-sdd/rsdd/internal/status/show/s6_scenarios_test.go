@@ -6,11 +6,18 @@ import "fmt"
 // (status-report.sh) and the readers it calls: the header and coverage lines, the stop-control counters, the
 // contradictions ledger, saturation, the Stop hook, the remote-visibility block, the next-step walk and the
 // consistency footer. What the children say (gh, verify-state) is stated in the world's spec/ directory (see
-// s6_harness_test.go); the S7 stand-ins are steered by S6_DOC and S6_DOC_NEXT.
+// s6_harness_test.go); the campaign block and the document-cycle outline are the script's own (S7 scenarios hold their cases).
+
+// fixedNow is 2026-01-01T00:00:00Z in epoch seconds, the instant the port's test clock also reads.
+const fixedNow = "1767225600"
 
 // ws6 is a scenario over a file set whose target and flags are given: the default report, one run.
 func ws6(name, want string, f files, env map[string]string, args ...string) s6Scenario {
-	sc := m5(name, want, f, env)
+	clocked := map[string]string{nowEpochHook: fixedNow} // the clock of both sides: the campaign age reads it
+	for k, v := range env {
+		clocked[k] = v
+	}
+	sc := m5(name, want, f, clocked)
 	sc.runs = [][]string{append([]string{"{ROOT}/corpus"}, args...)}
 	return sc
 }

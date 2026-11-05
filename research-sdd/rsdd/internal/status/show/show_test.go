@@ -90,11 +90,13 @@ func runWorld(t *testing.T, state string, args ...string) (rc int, out, errb str
 	return rc, strings.ReplaceAll(o.String(), root, "<ROOT>"), e.String()
 }
 
-// The default report is not ported yet: past the pick it is a typed operational failure, never a silent success.
-func TestRunDefaultReportIsNotYetPorted(t *testing.T) {
+// The default report is ported whole: through the production entry it prints the campaign and document-cycle
+// sections S7 supplied, where S6 answered a typed not-yet-ported line.
+func TestRunDefaultReportIsPorted(t *testing.T) {
+	verifyWith(t, 0, "")
 	rc, out, errb := runWorld(t, probeState)
-	if rc != cli.ExitOperational || out != "" ||
-		errb != "rsdd: status show: not-yet-ported: status after the state-file pick; use toolbelt/research-sdd-status.sh (issue #2549)\n" {
+	if rc != 0 || errb != "" || strings.Contains(out, "not-yet-ported") ||
+		!strings.Contains(out, "  campaign        : none (1 active focus, 0 with a queue)\n  last_iteration_ts: absent\n") {
 		t.Errorf("rc=%d stdout=%q stderr=%q", rc, out, errb)
 	}
 }

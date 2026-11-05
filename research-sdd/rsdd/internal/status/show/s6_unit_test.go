@@ -17,8 +17,8 @@ import (
 // Unit tests of slice S6: what the differential cannot say because the script cannot do it (the intended
 // divergences, the production wiring), and the pieces under the scenario table.
 
-// runS6 runs the default report over a one-state world with the given stand-in sections and environment.
-func runS6(t *testing.T, sm sections, rest tail, env map[string]string, flags ...string) (rc int, out, errs string) {
+// runS6 runs the default report over a one-state world with the given environment.
+func runS6(t *testing.T, env map[string]string, flags ...string) (rc int, out, errs string) {
 	t.Helper()
 	sc := os6("unit", "", one("root", "pending", 1, "0"), nil, env)
 	root := sc.build(t)
@@ -31,45 +31,8 @@ func runS6(t *testing.T, sm sections, rest tail, env map[string]string, flags ..
 	old := verifyState
 	defer func() { verifyState = old }()
 	verifyState = func([]string, cli.Stdio) int { return 0 }
-	rc = run(append([]string{filepath.Join(root, "corpus")}, flags...), s, syncOr(nextOr(liveSeams, defaultOr(sm, rest))))
+	rc = run(append([]string{filepath.Join(root, "corpus")}, flags...), s, syncOr(nextOr(liveSeams, (*ctx).report)))
 	return rc, o.String(), eb.String()
-}
-
-// The production wiring has no S7 sections yet, so the default mode must still say so, typed, and print nothing.
-func TestDefaultReportIsNotPortedWithoutTheS7Sections(t *testing.T) {
-	full := s6Sections()
-	cases := map[string]sections{
-		"none":          liveSections,
-		"campaign only": {campaign: full.campaign},
-		"doc only":      {doc: full.doc},
-	}
-	for name, sm := range cases {
-		t.Run(name, func(t *testing.T) {
-			rc, out, errs := runS6(t, sm, notPorted, nil)
-			if rc != 1 || out != "" || !strings.Contains(errs, "not-yet-ported: status after the state-file pick") {
-				t.Errorf("rc=%d out=%q err=%q, want the typed not-yet-ported line", rc, out, errs)
-			}
-		})
-	}
-	if rc, out, _ := runS6(t, full, notPorted, nil); rc != 0 || !strings.Contains(out, "== research-sdd-status:") {
-		t.Errorf("with both sections the report runs: rc=%d out=%q", rc, out)
-	}
-}
-
-// Every other mode is left to the next tail, whatever the sections.
-func TestDefaultOrLeavesTheOtherModesAlone(t *testing.T) {
-	for _, mode := range []string{"--next", "--sync-state"} {
-		var got string
-		rest := func(c *ctx) int { got = c.opts.mode; return 7 }
-		sc := os6("unit", "", one("root", "pending", 1, "0"), nil, nil)
-		root := sc.build(t)
-		var o, e bytes.Buffer
-		s := cli.Stdio{In: strings.NewReader(""), Out: &o, Err: &e, Env: func(string) string { return "" }, Cwd: root}
-		c := &ctx{s: s, opts: options{mode: mode}}
-		if rc := defaultOr(s6Sections(), rest)(c); rc != 7 || got != mode {
-			t.Errorf("%s: rc=%d mode seen=%q, want the rest of the chain", mode, rc, got)
-		}
-	}
 }
 
 // A state-file listing that fails refuses the run before any output (the script ignored the failure).
@@ -77,7 +40,7 @@ func TestReportRefusesAFailingStateListing(t *testing.T) {
 	old := listStateFiles
 	t.Cleanup(func() { listStateFiles = old })
 	listStateFiles = func(string) ([]string, error) { return nil, errors.New("boom") }
-	rc, out, errs := runS6(t, s6Sections(), notPorted, nil)
+	rc, out, errs := runS6(t, nil)
 	if rc != 1 || out != "" || !strings.Contains(errs, "degraded: cannot list the state files under") || !strings.Contains(errs, "boom") {
 		t.Errorf("rc=%d out=%q err=%q, want the typed refusal and no output", rc, out, errs)
 	}
