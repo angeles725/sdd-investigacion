@@ -113,7 +113,14 @@ type world struct {
 
 func newWorld(t testing.TB, c scase) *world {
 	t.Helper()
-	w := &world{c: c, scratch: t.TempDir()}
+	// A short fixed-root scratch: the status runner cuts a failure's first stderr line at 200 bytes, so a long TMPDIR
+	// (L79) would change what the scorer prints. The root is /tmp, not TMPDIR, by design.
+	scratch, err := os.MkdirTemp("/tmp", "sl-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(scratch) })
+	w := &world{c: c, scratch: scratch}
 	switch c.corpus {
 	case "":
 		w.corpus = repoFor(t, c.commits)
