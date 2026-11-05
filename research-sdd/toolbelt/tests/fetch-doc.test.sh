@@ -1050,5 +1050,54 @@ if [ "$_rc70" = "5" ] && [ "$_rc70r" = "5" ] && [ "$_lk70a" = "LINK-TARGET" ] &&
 else no "R70: rc=$_rc70/$_rc70r target='$_lk70a'/'$_lk70b' link=$_isl70/$_isl70r"; fi
 
 
+# ---- Teeth for the shim itself ----------------------------------------------------------------------------------
+if [ "${1:-}" = "--prove-teeth" ] && [ "$SUT_IS_SHIM" = 1 ]; then
+  echo "-- teeth: mutation controls for fetch-doc.sh (shim) --"
+  # The retired controls sed the old script body, which is gone: each is a typed SKIP naming the Go tests that replace it.
+  skip "teeth (old reg() mutants) end-of-table insert, ENVIRON vs awk -v: srcregistry TestInsertRow*, TestParseRows*, differential doc-registry-with-trailing-prose and doc-backslash-url"
+  skip "teeth (old redirect resolver mutants) hop cap, probe method, permanent-only, scheme guard, loc guard, connect-class retry: internal/sources/redirect tests"
+  skip "teeth (old fetch_and_register mutants) part file, empty guard, wget fallback, notices, -L, keep-part: internal/sources/download tests and differential doc-curl-*, doc-wget-*"
+  skip "teeth (old install_file, --replace and sweep mutants) versioned names, sha-scoped retarget, exclusive link, symlink refusal, stale parts: internal/sources/place tests and differential doc-replace-*, doc-symlink-*, doc-stale-part-sweep"
+  skip "teeth (old cancellation and test-seam mutants) group kill, signal windows, TERM during pandoc, seam opt-in: fetchdoc TestSignal*, TestSeam*, TestConcurrentWriterAtInstall"
+  skip "teeth (old web_slug and sha256-probe mutants) 80-char boundary, constant hash, scheme in the hash, no sha256 tool: internal/sources/slug tests and TestIntendedDivergences/no-sha256-tool-is-not-a-dependency"
+  # mkshim NAME [SEDEXPR] -> a (mutant) shim with the lib beside it, in a kit layout: $MUT/NAME/toolbelt
+  mkshim() {
+    local d="$MUT/$1/toolbelt"
+    mkdir -p "$d/lib" && cp "$HERE/../lib/rsdd-exec.sh" "$d/lib/"   # stage-libs-ok: the shim sources only lib/rsdd-exec.sh
+    if [ -z "${2:-}" ]; then cp "$SUT" "$d/fetch-doc.sh"; return 0; fi
+    mutant_sed "$SUT" "$d/fetch-doc.sh" "$2" >/dev/null 2>&1 || { no "teeth $1: could not build the mutant (refused by lib/mutant.sh)"; return 1; }
+  }
+  # the stub curl/wget answer every probe and download; --replace keeps the repeated run of a tooth idempotent
+  export PATH="$stubbin:$PATH" STUB_ROUTES=""
+  SHIM_LINE='^rsdd_exec sources fetch-doc "\$@"'
+  GOODSHIM="$MUT/good/toolbelt/fetch-doc.sh"
+  mkshim good "" || exit 2
+  dT="$TMP/teeth-shim/target"; mkdir -p "$dT"
+  if mkshim A 's#'"$SHIM_LINE"'#rsdd_exec sources fetch-doc#'; then
+    tooth "teeth(shim-args): arguments no longer forwarded → no mode, a usage error instead of a download" 0 2 "$MUT/A/toolbelt/fetch-doc.sh" \
+      --orig "$GOODSHIM" --good-has '^OK: ' -- bash @SUT@ --replace doc "http://shim.example/a.pdf" "$dT"
+  fi
+  if mkshim B 's#^rsdd_exec sources fetch-doc #rsdd_exec sources fetch-docs #'; then
+    tooth "teeth(shim-command): wrong subcommand name → an unknown command, not a download" 0 2 "$MUT/B/toolbelt/fetch-doc.sh" \
+      --orig "$GOODSHIM" --good-has '^OK: ' -- bash @SUT@ --replace doc "http://shim.example/a.pdf" "$dT"
+  fi
+  if mkshim F 's#^rsdd_exec sources #rsdd_exec source #'; then
+    tooth "teeth(shim-group): wrong group name → an unknown group, not a download" 0 2 "$MUT/F/toolbelt/fetch-doc.sh" \
+      --orig "$GOODSHIM" --good-has '^OK: ' -- bash @SUT@ --replace doc "http://shim.example/a.pdf" "$dT"
+  fi
+  mkdir -p "$TMP/teeth-shim-refuse/target/sources/datasheets"; printf 'REGISTERED\n' > "$TMP/teeth-shim-refuse/target/sources/datasheets/kept.pdf"
+  if mkshim D 's#'"$SHIM_LINE"'#( rsdd_exec sources fetch-doc "$@" ); exit 0#'; then
+    tooth "teeth(shim-exit): exit code laundered to 0 → a refused overwrite no longer fails the caller" 4 0 "$MUT/D/toolbelt/fetch-doc.sh" \
+      --orig "$GOODSHIM" --good-has 'REFUSED' -- bash @SUT@ doc "http://shim.example/kept.pdf" "$TMP/teeth-shim-refuse/target"
+  fi
+  # the library guard: a shim with no lib beside it says so and exits 2; a mutant that exits 0 there hides a missing binary
+  mkdir -p "$MUT/Cgood" "$MUT/C"
+  cp "$SUT" "$MUT/Cgood/fetch-doc.sh"
+  if mutant_sed "$SUT" "$MUT/C/fetch-doc.sh" 's#exit 2; }   \# SENTINEL-RSDD-EXEC-GUARD#exit 0; }   \# SENTINEL-RSDD-EXEC-GUARD#' >/dev/null 2>&1; then
+    tooth "teeth(shim-guard): missing-library guard exits 0 → a missing rsdd reads as a successful fetch" 2 0 "$MUT/C/fetch-doc.sh" \
+      --orig "$MUT/Cgood/fetch-doc.sh" --good-has 'rsdd-exec.sh missing' -- bash @SUT@ doc "http://shim.example/a.pdf" "$dT"
+  else no "teeth(shim-guard): could not build the mutant (refused by lib/mutant.sh)"; fi
+fi
+
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
