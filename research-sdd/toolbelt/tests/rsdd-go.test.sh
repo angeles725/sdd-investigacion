@@ -17,7 +17,7 @@
 #                    (rsdd/teeth-debt.txt, override RSDD_TEETH_DEBT; kit issue #2592) are printed as DEBT and do not
 #                    fail; any other lived mutant fails; with PKG a listed package reading Lived 0 is reported STALE.
 #                    A captured `make teeth` whose unmutated package failed in the module-only copy (the typed
-#                    `teeth: DEGRADED - the unmutated package fails ...` line, no gremlins summary) is decided per failing
+#                    `teeth: DEGRADED — the unmutated package fails ...` line, no gremlins summary) is decided per failing
 #                    package: on the debt list -> a loud `DEBT  baseline fails ...` line and PASS debt-only baseline-fail;
 #                    not on it (or no package nameable) -> FAIL teeth DEGRADED, regardless of RSDD_REQUIRE_GO.
 #   --load-debt FILE (internal) print the packages of a teeth debt list, or `INVALID: ...` (rc 1 bad line, rc 2 unreadable).
@@ -168,6 +168,9 @@ decide_baseline_fail() {
   local f="$1" dpkg debtf dl drc modpath bad="" good="" p modroot whole=0
   dpkg="$(sed -n 's/^teeth: DEGRADED — the unmutated package fails in a module-only copy: //p' "$f" | head -n 1)"
   [ "$dpkg" = "." ] && [ "${2-}" = "ALL" ] && whole=1
+  if [ "$dpkg" = "." ] && [ "$whole" -eq 0 ]; then # SENTINEL-BASELINE-WHOLE-NEEDS-ALL
+    echo "VERDICT: FAIL teeth DEGRADED: the whole module's baseline fails in a module-only copy, and this decision has no ALL context to judge the rest of the module"; return 0
+  fi
   modroot="${RSDD_GO_MOD:-$(dirname "$0")/../../rsdd}"
   debtf="${RSDD_TEETH_DEBT:-$modroot/teeth-debt.txt}"
   dl="$(load_debt "$debtf")"; drc=$?
@@ -437,12 +440,16 @@ select_shard() {
 }
 
 # combine_verdicts FILE -> one VERDICT line from the VERDICT lines of FILE: any FAIL -> FAIL, else any SKIP -> SKIP,
-# else PASS. No VERDICT line at all is a FAIL (a silent zero proves nothing).
+# else PASS. No VERDICT line at all is a FAIL (a silent zero proves nothing), and so is a PENDING line: PENDING is not
+# a verdict, only teeth_whole_module may resolve it. The reason word follows the optional `[pkg]` tag that the
+# per-package loops insert after the status word (kit issue #2683).
 combine_verdicts() {
   awk '
+    { r = ($3 ~ /^\[/) ? $4 : $3 } # SENTINEL-COMBINE-TAG
     /^VERDICT: FAIL/ { f++; if (ff=="") ff=substr($0, 10) }
+    /^VERDICT: PENDING/ { f++; if (ff=="") ff="unresolved " substr($0, 10) } # SENTINEL-COMBINE-PENDING
     /^VERDICT: SKIP/ { k++; if (kk=="") kk=substr($0, 10) }
-    /^VERDICT: PASS/ { p++; if ($3=="no-mutants") nm++; if ($3=="debt-only") dbt++ }
+    /^VERDICT: PASS/ { p++; if (r=="no-mutants") nm++; if (r=="debt-only") dbt++ }
     END {
       if (f > 0) printf "VERDICT: FAIL %d of %d package run(s) failed; first: %s\n", f, f+k+p, ff
       else if (k > 0) printf "VERDICT: SKIP %d of %d package run(s) skipped; first: %s\n", k, k+p, kk
@@ -1072,9 +1079,19 @@ printf 'VERDICT: PASS debt-only 2 lived mutant(s) on the teeth debt list, none o
 g="$(bash "$0" --combine-verdicts "$ROOT/v-debt")"
 if grep -q '^VERDICT: PASS no lived mutants in 2 package run(s); debt-only: 1$' <<<"$g"; then ok "debt: the combined PASS counts the debt-only package runs"
 else no "debt: combined debt-only wrong: $g"; fi
+# The per-package loops tag each verdict as `VERDICT: <STATUS> [<pkg>] <reason> ...` (kit issue #2683): the combined
+# summary must still count the tagged reasons, and a PENDING line (not a verdict) must never fold into a PASS.
+printf 'VERDICT: PASS [./a] debt-only 2 lived mutant(s) on the teeth debt list, none outside it (killed=1 lived=2 timed_out=0 not_covered=0)\nVERDICT: PASS [./b] no-mutants (gremlins: No results to report.)\nVERDICT: PASS [./c] no lived mutants (killed=1 lived=0 timed_out=0 not_covered=0)\n' > "$ROOT/v-tagged"
+g="$(bash "$0" --combine-verdicts "$ROOT/v-tagged")"
+if grep -qx 'VERDICT: PASS no lived mutants in 3 package run(s); no-mutants: 1; debt-only: 1' <<<"$g"; then
+  ok "verdicts: the combined PASS counts tagged no-mutants and debt-only runs"; else no "verdicts: tagged reasons miscounted: $g"; fi
+printf 'VERDICT: PENDING baseline-skip ./a\nVERDICT: PASS [./b] no lived mutants (killed=1 lived=0 timed_out=0 not_covered=0)\n' > "$ROOT/v-pending"
+g="$(bash "$0" --combine-verdicts "$ROOT/v-pending")"
+if grep -qx 'VERDICT: FAIL 1 of 2 package run(s) failed; first: unresolved PENDING baseline-skip ./a' <<<"$g"; then
+  ok "verdicts: a PENDING line reaching the combiner is a FAIL, never folded into a PASS"; else no "verdicts: PENDING folded: $g"; fi
 
 # Baseline failure of the unmutated package in a module-only copy (kit issue #2592): `make teeth` prints the typed
-# `teeth: DEGRADED - the unmutated package fails in a module-only copy: <pkg>` line and exits 1 before gremlins runs.
+# `teeth: DEGRADED — the unmutated package fails in a module-only copy: <pkg>` line and exits 1 before gremlins runs.
 # A package ON the debt list is loud DEBT and does not fail (its repoint is pending); an UNLISTED one stays a FAIL.
 mp="$(awk '/^module /{print $2; exit}' "$MOD/go.mod")"
 bl_deg() { # PKG FAILPKG... -> a captured `make teeth` output whose baseline failed
@@ -1094,6 +1111,11 @@ if grep -q '^VERDICT: FAIL teeth DEGRADED: the unmutated package fails in a modu
    && ! grep -q 'DEBT' <<<"$g"; then
   ok "debt: an UNLISTED package whose module-only baseline fails is a typed DEGRADED FAIL (even without RSDD_REQUIRE_GO)"; else no "debt: unlisted baseline fail wrong: $g"; fi
 bl_deg . internal/cli a > "$ROOT/gr-bl-all-ok.out"
+g="$(RSDD_GO_MOD="$MOD" RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1)"
+if grep -qx "VERDICT: FAIL teeth DEGRADED: the whole module's baseline fails in a module-only copy, and this decision has no ALL context to judge the rest of the module" <<<"$g" \
+   && ! grep -q 'VERDICT: PASS' <<<"$g"; then
+  ok "debt: a whole-module baseline failure decided without the ALL context is a typed FAIL, never a PASS"
+else no "debt: whole-module baseline without ALL wrong: $g"; fi
 g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1 ALL)"
 if [ "$(grep -c '^  DEBT  baseline fails' <<<"$g")" -eq 2 ] && grep -qx 'VERDICT: PENDING baseline-skip ./a ./internal/cli' <<<"$g" && ! grep -q 'VERDICT: PASS' <<<"$g"; then
   ok "debt: a whole-module baseline failure confined to listed packages is DEBT for each of them and NOT a verdict (PENDING: the rest of the module still has to run)"
@@ -1347,14 +1369,45 @@ whole_fixture() { # KILL|LIVE MAKEFILE -> the --teeth-whole report of the fixtur
   RSDD_BIN=fixture-skips-the-rsdd-build RSDD_TEETH_DEBT="$w/debt.txt" bash "$0" --teeth-whole "$w" "$2" 2>&1
 }
 
+# 11) a decision without the whole-module guard PASSes a whole-module baseline failure outside the ALL context; 12) a
+# combiner that reads the reason word at $3 again miscounts tagged lines; 13) one that ignores PENDING folds it into a
+# PASS (kit issue #2683).
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "baseline-needs-all mutation" "$0" "$MUTDIR/rsdd-go-debt11.test.sh" \
+    's/if \[ "\$dpkg" = "\." \] \&\& \[ "\$whole" -eq 0 \]; then # SENTINEL-BASELINE-WHOLE-NEEDS-ALL/if false; then/'; then
+  if mutant_tooth "teeth: without the guard a whole-module baseline failure PASSes outside the ALL context" 0 0 \
+      "$MUTDIR/rsdd-go-debt11.test.sh" --orig "$0" \
+      --good-has 'VERDICT: FAIL teeth DEGRADED' --bad-has 'VERDICT: PASS' -- \
+      env RSDD_GO_MOD="$MOD" RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash @SUT@ --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "combine-tag mutation" "$0" "$MUTDIR/rsdd-go-comb1.test.sh" \
+    's/{ r = (\$3 ~ \/^\\\[\/) ? \$4 : \$3 } # SENTINEL-COMBINE-TAG/{ r = $3 }/'; then
+  if mutant_tooth "teeth: reading the reason at \$3 miscounts tagged debt-only and no-mutants runs" 0 0 \
+      "$MUTDIR/rsdd-go-comb1.test.sh" --orig "$0" \
+      --good-has 'debt-only: 1$' --bad-lacks 'debt-only' -- \
+      bash @SUT@ --combine-verdicts "$ROOT/v-tagged"; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "combine-pending mutation" "$0" "$MUTDIR/rsdd-go-comb2.test.sh" \
+    's|^    /\^VERDICT: PENDING/ .*# SENTINEL-COMBINE-PENDING$||'; then
+  if mutant_tooth "teeth: a combiner that drops PENDING folds it into a PASS" 0 0 \
+      "$MUTDIR/rsdd-go-comb2.test.sh" --orig "$0" \
+      --good-has '^VERDICT: FAIL' --bad-has '^VERDICT: PASS' -- \
+      bash @SUT@ --combine-verdicts "$ROOT/v-pending"; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
 # 9) a decision that treats a whole-module baseline failure like a per-package one reports PASS for a run in which
 # gremlins mutated nothing; 10) a whole-module run that ignores the remainder's verdicts passes over a lived mutant of an
 # unlisted package.
 if MUTANT_SYNTAX=bash mutant_chain_or_count fail "baseline-whole mutation" "$0" "$MUTDIR/rsdd-go-debt9.test.sh" \
     's/\[ "\$dpkg" = "\." \] \&\& \[ "\${2-}" = "ALL" \] \&\& whole=1/whole=0/'; then
-  if mutant_tooth "teeth: a whole-module baseline failure treated as a final PASS leaves the rest of the module unjudged" 0 0 \
+  if mutant_tooth "teeth: a whole-module baseline failure decided as final leaves the rest of the module unjudged" 0 0 \
       "$MUTDIR/rsdd-go-debt9.test.sh" --orig "$0" \
-      --good-has 'VERDICT: PENDING baseline-skip' --bad-has 'VERDICT: PASS' -- \
+      --good-has 'VERDICT: PENDING baseline-skip' --bad-lacks 'VERDICT: PENDING' -- \
       env RSDD_GO_MOD="$MOD" RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash @SUT@ --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1 ALL; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
