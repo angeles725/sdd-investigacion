@@ -3,7 +3,6 @@ package kitworld
 import (
 	"bytes"
 	"strings"
-	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
@@ -22,6 +21,7 @@ func (w *World) Stdio(cwd string, extra ...string) (cli.Stdio, *bytes.Buffer, *b
 		return v
 	}
 	var o, e bytes.Buffer
+	real, _ := cli.OSStdio() // the one place the process clock comes from
 	return cli.Stdio{In: strings.NewReader(""), Out: &o, Err: &e, Env: get, Environ: func() []string { return env },
-		Clock: time.Now, Cwd: cwd}, &o, &e
+		Clock: real.Clock, Cwd: cwd}, &o, &e
 }
