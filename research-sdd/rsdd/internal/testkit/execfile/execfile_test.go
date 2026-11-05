@@ -67,3 +67,16 @@ func TestRunsTheWrittenFile(t *testing.T) {
 		t.Fatalf("exit = %d, want 7", st.ExitCode())
 	}
 }
+
+// Under a restrictive umask the open alone creates 0700: the explicit chmod after a successful write and close is
+// what makes the stub 0755. Not parallel: the umask is process-wide.
+func TestWriteSetsTheModeUnderARestrictiveUmask(t *testing.T) {
+	old := syscall.Umask(0o077)
+	defer syscall.Umask(old)
+	p := filepath.Join(t.TempDir(), "stub")
+	execfile.Write(t, p, "#!/bin/sh\n")
+	st, err := os.Stat(p)
+	if err != nil || st.Mode().Perm() != 0o755 {
+		t.Fatalf("mode = %v, %v; want 0755 under umask 077", st.Mode().Perm(), err)
+	}
+}
