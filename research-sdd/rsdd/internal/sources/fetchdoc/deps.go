@@ -28,6 +28,8 @@ type Deps struct {
 	Look func(name string) (string, error)
 	// Signals delivers INT/TERM (nil: none).
 	Signals <-chan os.Signal
+	// Hash overrides the sha256 of a staged file (nil: srcregistry.FileSHA256); a test uses it to fail the hashing.
+	Hash func(path string) (string, error)
 	// Alive overrides the liveness test of the stale-part sweep (nil: the real one).
 	Alive func(pid string) bool
 }

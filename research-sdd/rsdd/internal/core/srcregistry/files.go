@@ -4,10 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsx"
 )
@@ -29,12 +30,26 @@ func SHA256Hex(b []byte) string {
 func Identity(path string) (fsx.Ident, error) { return fsx.Identity(path, fsx.NoLimit) }
 
 // FileSHA256 is the bare 64-hex sha256 of the regular file at path, the form the sha256 cell stores.
+// It streams the file through crypto/sha256, so it works on every OS (Identity needs a platform file identity that
+// is unavailable off Linux); a symlink or a non-regular file is an error, as in Identity.
 func FileSHA256(path string) (string, error) {
-	id, err := Identity(path)
+	fi, err := os.Lstat(path)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimPrefix(id.SHA256, "sha256:"), nil
+	if !fi.Mode().IsRegular() {
+		return "", fmt.Errorf("%s is not a regular file", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // Append registers row in SOURCES.md of sdir: it creates the document with Header when absent, inserts row at the

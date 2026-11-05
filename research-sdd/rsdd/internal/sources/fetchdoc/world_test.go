@@ -28,8 +28,8 @@ var fixedNow = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 type world struct {
 	t                   *testing.T
 	root, bin, tmp, dir string
-	env                 []string
 	extraEnv            []string
+	hash                func(string) (string, error) // nil: the real sha256
 }
 
 // newWorld builds a world whose PATH has the system tools plus the named stubs (see installStub).
@@ -128,7 +128,7 @@ func (w *world) goRunSig(sigs <-chan os.Signal, pid int, args ...string) ran {
 	rc := Execute(args, Deps{
 		Out: &out, Err: &errb, Env: func(k string) string { return env[k] }, Environ: environ,
 		Now: func() time.Time { return fixedNow }, Pid: pid, Signals: sigs, TmpDir: w.tmp,
-		Run: runner.Exec{Env: environ, Look: look}, Look: look,
+		Run: runner.Exec{Env: environ, Look: look}, Look: look, Hash: w.hash,
 	})
 	return ran{out: out.String(), err: errb.String(), rc: rc, tree: w.snapshot()}
 }

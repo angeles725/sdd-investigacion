@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/srcregistry"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/sources/download"
 )
 
@@ -57,15 +56,14 @@ func (x *exe) doc(r request) int {
 	}); code != 0 {
 		return x.asExit(code)
 	}
-	x.sess.Block() // from here to the written row a signal must not leave new bytes without a row
-	same, code := pl.Install(part, dest)
+	// from here to the written row a signal must not leave new bytes without a row; the hash is taken first
+	sha, code := x.stage(part)
 	if code != 0 {
 		return code
 	}
-	sha, err := srcregistry.FileSHA256(dest)
-	if err != nil {
-		x.printf("fetch-doc: cannot hash %s: %v\n", dest, err)
-		return exitFailure
+	same, code := pl.Install(part, dest)
+	if code != 0 {
+		return code
 	}
 	x.pdfHint(dest)
 	if same {

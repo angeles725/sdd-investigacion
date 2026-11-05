@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/srcregistry"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/sources/slug"
 )
 
@@ -64,17 +63,16 @@ func (x *exe) web(r request) int {
 	if code := x.track(vars, func(ctx context.Context) int { return x.convert(ctx, htmlPath, wpart) }); code != 0 {
 		return x.asExit(code)
 	}
-	x.sess.Block() // ignored signals are inherited across exec: blocking before pandoc would make it uncancellable
+	// ignored signals are inherited across exec: blocking before pandoc would make it uncancellable
+	sha, code := x.stage(wpart)
+	if code != 0 {
+		return code
+	}
 	same, code := pl.Install(wpart, dest)
 	if code != 0 {
 		return code
 	}
 	_ = os.Remove(htmlPath)
-	sha, err := srcregistry.FileSHA256(dest)
-	if err != nil {
-		x.printf("fetch-doc: cannot hash %s: %v\n", dest, err)
-		return exitFailure
-	}
 	if same {
 		fmt.Fprintf(x.d.Out, "OK: %s -> %s  (identical snapshot already registered; no new row)\n", url, dest)
 		return 0
