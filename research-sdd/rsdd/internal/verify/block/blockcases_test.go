@@ -129,7 +129,7 @@ func bkParseCases(t *testing.T) []bkCase {
 // and the environment of the run, with the directory token substituted.
 func bkMaterialize(t *testing.T, c bkCase) (dir, cwd string, args, env []string) {
 	t.Helper()
-	d, err := filepath.EvalSymlinks(t.TempDir())
+	d, err := filepath.EvalSymlinks(ephemeralTempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +182,24 @@ func bkMaterialize(t *testing.T, c bkCase) (dir, cwd string, args, env []string)
 		}
 	}
 	return d, cwd, args, env
+}
+
+// ephemeralTempDir is a per-test directory under /tmp, removed at cleanup. The goldens were recorded with the run
+// directory under /tmp, so the ephemeral-path section (section 10) flags every @D@ cite. t.TempDir follows the host
+// temp dir instead: under GOTMPDIR or TMPDIR outside /tmp (a lane's GOTMPDIR under $HOME) it sees no ephemeral cite
+// and 14 goldens fail. Pinning /tmp makes the replay independent of the host.
+func ephemeralTempDir(t *testing.T) string {
+	t.Helper()
+	d, err := os.MkdirTemp("/tmp", "rsdd-verify-block-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(d); err != nil {
+			t.Error(err)
+		}
+	})
+	return d
 }
 
 func bkGetenv(env []string) func(string) string {
