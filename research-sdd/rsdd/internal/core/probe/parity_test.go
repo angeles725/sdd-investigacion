@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // Differential test: the REAL toolbelt/lib/tool-env.sh (testdata/parity-driver.sh) and core/probe must print
@@ -17,10 +19,7 @@ import (
 // candidates that would execute something (brew prefix, r2 usrbin) to fixtures. A missing bash or
 // toolbelt FAILS the test: a skipped parity test proves nothing.
 
-const (
-	toolbeltRel = "../../../../toolbelt"
-	harnessRC   = 97
-)
+const harnessRC = 97
 
 type pcase struct {
 	name, mode, arg, cwd string
@@ -34,7 +33,7 @@ func runBash(t *testing.T, c pcase) (string, int) {
 	if err != nil {
 		t.Fatalf("bash is required for the parity test: %v", err)
 	}
-	tb, _ := filepath.Abs(toolbeltRel)
+	tb := kitroot.Path(t, "toolbelt")
 	if _, err := os.Stat(tb + "/lib/tool-env.sh"); err != nil {
 		t.Fatalf("toolbelt not found at %s: %v", tb, err)
 	}

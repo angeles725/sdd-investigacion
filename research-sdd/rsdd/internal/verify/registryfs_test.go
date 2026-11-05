@@ -21,6 +21,7 @@ import (
 //	jq envelope escaping ..................................... TestEnvelopeEscaping
 
 func TestFindWalk(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for _, f := range []string{"a.md", "d1/b.md", "d1/d2/c.md", "d1/d2/d3/d.md", "d1/d2/d3/d4/e.md", ".hid.md"} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f)), 0o755); err != nil {
@@ -69,6 +70,7 @@ func TestFindWalk(t *testing.T) {
 }
 
 func TestBashBasenameDirname(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ in, base, dir string }{
 		{"/a/b/c", "c", "/a/b"}, {"/a/b/c/", "c", "/a/b"}, {"/a//b//", "b", "/a"}, {"c", "c", "."},
 		{"/", "/", "/"}, {"//", "/", "/"}, {"", "", "."}, {"/c", "c", "/"}, {"a/./b", "b", "a/."}, {"a/../b", "b", "a/.."},
@@ -83,6 +85,7 @@ func TestBashBasenameDirname(t *testing.T) {
 }
 
 func TestRetroGlobs(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		p                     string
 		retros, index, hidden bool
@@ -131,6 +134,7 @@ func TestRetroGlobs(t *testing.T) {
 }
 
 func TestRetroIsExcluded(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	cases := map[string]bool{
 		"<!-- kit-retro: exclude -->\n# r\n":                  true,
@@ -161,6 +165,7 @@ func TestRetroIsExcluded(t *testing.T) {
 }
 
 func TestAwkLength(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		env  map[string]string
 		want int
@@ -178,6 +183,7 @@ func TestAwkLength(t *testing.T) {
 }
 
 func TestCellLonger(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		n    int
 		max  string
@@ -194,6 +200,7 @@ func TestCellLonger(t *testing.T) {
 }
 
 func TestTolBoundaries(t *testing.T) {
+	t.Parallel()
 	r := &registry{tol: "2"}
 	if r.gtTol(2) || !r.gtTol(3) || !r.leTol(2) || r.leTol(3) {
 		t.Error("tol 2: gt and le must meet at the boundary")
@@ -215,6 +222,7 @@ func TestTolBoundaries(t *testing.T) {
 }
 
 func TestEnvelopeEscaping(t *testing.T) {
+	t.Parallel()
 	out := registryEnvelope(false, regCounts{}, []regItem{{"k", "WARN", "t\"x", "a\\b\x01\x7f é\ttab"}})
 	want(t, out, `"target": "t\"x"`, `"message": "a\\b\u0001\u007f é\ttab"`)
 	out = registryEnvelope(true, regCounts{Targets: 3}, []regItem{{"k", "s", "t", "m"}})

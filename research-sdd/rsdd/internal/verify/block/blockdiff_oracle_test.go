@@ -56,6 +56,7 @@ func bkNormalize(t *testing.T, o observed.Run) observed.Run {
 }
 
 func TestDifferentialBlock(t *testing.T) {
+	t.Parallel()
 	update := os.Getenv("RSDD_UPDATE_GOLDENS") != ""
 	frozen := map[string]bkGolden{}
 	if !update {
@@ -138,6 +139,7 @@ var bkFragments = []string{
 // TestDifferentialBlockFuzz runs generated blocks through both implementations. The seed is fixed: a failure is
 // reproducible, and a case worth keeping goes into block-cases.txt or the hand cases.
 func TestDifferentialBlockFuzz(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(20240611))
 	n := 250
 	if testing.Short() {
@@ -211,6 +213,7 @@ func bkNormOCR(stdout string) string {
 }
 
 func TestBkNormOCRSortsGroupsOnly(t *testing.T) {
+	t.Parallel()
 	in := "== verify-block: b.md ==\n-- OCR-provenance flag (reliability: ocr-lossy) --\n" +
 		"   OCR!    lines citing OCR-lossy 'z' — x:\n           3:z\n" +
 		"   OCR!    lines citing OCR-lossy 'a' — x:\n           5:a\n           6:a\n" +

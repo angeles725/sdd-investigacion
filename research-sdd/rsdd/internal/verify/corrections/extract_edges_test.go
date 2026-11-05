@@ -45,6 +45,7 @@ var edgeCases = []struct{ name, text, want string }{
 }
 
 func TestEdgeCases(t *testing.T) {
+	t.Parallel()
 	for _, c := range edgeCases {
 		t.Run(c.name, func(t *testing.T) {
 			if got := render(extract(c.text)); got != c.want {

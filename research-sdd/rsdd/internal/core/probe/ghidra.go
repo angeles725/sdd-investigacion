@@ -1,7 +1,7 @@
 package probe
 
 import (
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -30,12 +30,13 @@ func (p *Prober) GhidraHome() (string, error) {
 		return c, nil
 	}
 	opt := p.globNames(p.root+"/opt/", "ghidra", "")
-	// sort -Vr: filevercmp, ties broken by byte order, all reversed.
-	sort.SliceStable(opt, func(i, j int) bool {
-		if c := filevercmp(opt[i], opt[j]); c != 0 {
-			return c > 0
+	// sort -Vr: filevercmp, ties broken by byte order, all reversed (b before a). The names are distinct
+	// directory entries, so the byte-order tie-break never returns 0.
+	slices.SortFunc(opt, func(a, b string) int {
+		if c := filevercmp(b, a); c != 0 {
+			return c
 		}
-		return opt[i] > opt[j]
+		return strings.Compare(b, a)
 	})
 	for _, c := range opt {
 		if p.hasHeadless(c) {

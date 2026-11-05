@@ -13,6 +13,7 @@ import (
 // lib/block-files.sh as they were before the port) are pinned by SHA256SUMS, so an edit to the oracle cannot
 // go unnoticed. Updating a hash is a deliberate act.
 func TestLegacyOracleIsPinned(t *testing.T) {
+	t.Parallel()
 	sums, err := os.ReadFile(filepath.Join("testdata", "legacy", "SHA256SUMS"))
 	if err != nil {
 		t.Fatal(err)

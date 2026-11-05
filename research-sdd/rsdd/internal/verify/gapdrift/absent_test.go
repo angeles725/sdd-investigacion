@@ -12,6 +12,7 @@ import (
 // An absent state file and an unreadable one print the same line (the script's), but stay distinguishable to a
 // caller (CLAUDE.md section 7): only the absent one wraps fs.ErrNotExist.
 func TestAbsentStateIsDistinctFromUnreadable(t *testing.T) {
+	t.Parallel()
 	dir := corpus(t, map[string]string{"locked.md": "x\n"})
 	locked := filepath.Join(dir, "locked.md")
 	if err := os.Chmod(locked, 0); err != nil {

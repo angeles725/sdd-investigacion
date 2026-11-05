@@ -54,6 +54,7 @@ func digestFiles(files map[string]string) string {
 }
 
 func TestGoldens(t *testing.T) {
+	t.Parallel()
 	cases := append(outcomeCases(), generatedCases()...)
 	names := make([]string, len(cases))
 	entries := make(map[string]string, len(cases))
