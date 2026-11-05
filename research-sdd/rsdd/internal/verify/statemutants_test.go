@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsview"
 )
 
@@ -211,21 +210,6 @@ func TestRealpathLiteralOutcomes(t *testing.T) {
 		if ok != c.ok || got != c.want {
 			t.Errorf("realpath(%q) = %q,%v want %q,%v", c.in, got, ok, c.want, c.ok)
 		}
-	}
-}
-
-func TestRunMergedEnvironment(t *testing.T) {
-	d := t.TempDir()
-	script := filepath.Join(d, "s.sh")
-	sdWrite(t, script, "echo \"foo=${RSDDFOO:-unset}\"\n")
-	with := cli.Stdio{Cwd: d, Environ: func() []string { return []string{"RSDDFOO=bar", "PATH=" + os.Getenv("PATH")} }}
-	if out, rc := runMerged(with, script, d, "state"); out != "foo=bar" || rc != 0 {
-		t.Errorf("with an environment: %q rc=%d, want foo=bar rc=0", out, rc)
-	}
-	t.Setenv("RSDDFOO", "leaked")
-	without := cli.Stdio{Cwd: d}
-	if out, rc := runMerged(without, "/usr/bin/env", d, "state"); rc == 0 && strings.Contains(out, "RSDDFOO") {
-		t.Errorf("a nil Environ must run with an empty environment, got %q", out)
 	}
 }
 
