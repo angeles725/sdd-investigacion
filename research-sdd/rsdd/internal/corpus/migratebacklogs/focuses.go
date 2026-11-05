@@ -37,7 +37,8 @@ func leadingWord(s string) string { return wordRun(strings.TrimLeft(s, "*`[ ")) 
 func migrateFocuses(lines []line) ([]line, []manualItem) {
 	var manual []manualItem
 	out := make([]line, 0, len(lines))
-	inTable, registry, statusCol := false, false, -1
+	var inTable, registry bool
+	var statusCol int // set by the header row before any data row reads it
 	for i, l := range lines {
 		r, isRow := parseRow(l.body)
 		if !isRow {
@@ -78,7 +79,8 @@ func migrateFocuses(lines []line) ([]line, []manualItem) {
 // the registry whose focus cell is the label (or any other cell is RESEARCH-STATE-<label>.md) and whose status
 // starts with the word `document`. The match is exact, never a substring.
 func isDocumentFocus(src, label string) bool {
-	inTable, registry, statusCol := false, false, -1
+	var inTable, registry bool
+	var statusCol int // set by the header row before any data row reads it
 	for _, l := range splitLines(src) {
 		cells, ok := gfm.SplitRow(l.body, gfm.Options{})
 		if !ok {

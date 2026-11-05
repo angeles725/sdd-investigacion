@@ -268,3 +268,41 @@ func TestUnifiedDiffMarksMissingNewlinesOnTheirSide(t *testing.T) {
 		t.Errorf("context line without terminator: %q (%v)", got, ctx)
 	}
 }
+
+func TestRegistryHeaderAcceptsStatusInTheFirstColumn(t *testing.T) {
+	status, ok := registryHeader([]string{" Status ", " Focus "})
+	if status != 0 || !ok {
+		t.Fatalf("registryHeader(Status, Focus) = (%d, %v), want (0, true)", status, ok)
+	}
+	if _, ok := registryHeader([]string{"Focus", "Notes"}); ok {
+		t.Fatal("a table without a Status column is not the registry")
+	}
+}
+
+func TestAppendSkeletonOnAnEmptyFile(t *testing.T) {
+	var manual []manualItem
+	out := appendSkeleton(nil, classification{}, false, &manual)
+	want := []string{"", canonicalHeading, "", "| Priority | Gap | Artifact type / source | Status |", "|---|---|---|---|"}
+	if len(out) != len(want) {
+		t.Fatalf("skeleton of an empty file has %d lines, want %d", len(out), len(want))
+	}
+	for i, l := range out {
+		if l.body != want[i] || l.eol != "\n" {
+			t.Fatalf("line %d = %q%q, want %q\\n", i, l.body, l.eol, want[i])
+		}
+	}
+	if len(manual) != 1 || manual[0].reason != reasonEmptySkeleton {
+		t.Fatalf("manual = %+v, want one %s finding", manual, reasonEmptySkeleton)
+	}
+}
+
+func TestPlanStatusTokenAfterLeadingBold(t *testing.T) {
+	// "**open** x": the bold markers are dropped first, so the token is "open" and only it is rewritten.
+	if got, reason := planStatus("**open** x", "P1"); got != "**pending** x" || reason != "" {
+		t.Fatalf("planStatus = (%q, %q), want (%q, \"\")", got, reason, "**pending** x")
+	}
+	// No blank at all: the whole lead is the token.
+	if got, reason := planStatus("open", "P1"); got != "pending" || reason != "" {
+		t.Fatalf("planStatus(open) = (%q, %q), want (pending, \"\")", got, reason)
+	}
+}

@@ -76,7 +76,7 @@ func planStatus(s, np string) (newStatus, reason string) {
 	lead := strings.TrimPrefix(s, "**")
 	lead = strings.Replace(lead, "**", "", 1)
 	tok := lead
-	if i := strings.IndexAny(lead, blanks); i >= 0 {
+	if i := strings.IndexAny(lead, blanks); i != -1 {
 		tok = lead[:i]
 	}
 	ltok := lower(tok)
