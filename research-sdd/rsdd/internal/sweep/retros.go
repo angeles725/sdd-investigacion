@@ -66,8 +66,16 @@ type options struct {
 	json, hook, fl bool
 }
 
+// parseOptions is the parser shared by retros, audits, tools and breakthroughs. The first problem in argument order
+// is returned, but the scan goes on so that o.hook still tells the caller which contract to answer under.
 func parseOptions(args []string) (options, error) {
 	var o options
+	var first error
+	fail := func(err error) {
+		if first == nil {
+			first = err
+		}
+	}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--json":
@@ -77,22 +85,26 @@ func parseOptions(args []string) (options, error) {
 		case "--full":
 			o.fl = true
 		case "--kit":
-			if i+1 >= len(args) {
-				return o, fmt.Errorf("--kit needs a directory")
+			if i+1 == len(args) {
+				fail(fmt.Errorf("--kit needs a directory"))
+				continue
 			}
 			i++
 			o.kit = args[i]
+		default:
+			// Intended divergence (#2687): the scripts dropped an argument they did not know and answered in a
+			// mode the caller did not ask for.
+			fail(fmt.Errorf("unsupported argument %q", args[i]))
 		}
 	}
-	return o, nil
+	return o, first
 }
 
 // RunRetros is the `sweep retros` command.
 func RunRetros(args []string, s cli.Stdio) int {
 	o, err := parseOptions(args)
 	if err != nil {
-		fmt.Fprintf(s.Err, "sweep-retros: %v\n", err)
-		return cli.ExitUsage
+		return usageFailure(s, o, "retros", hookFailedFmt, err)
 	}
 	if o.hook {
 		return runRetrosHook(o, s)

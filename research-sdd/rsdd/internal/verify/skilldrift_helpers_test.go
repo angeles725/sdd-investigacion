@@ -8,13 +8,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // sdWorld is one skill-drift test's world: a mini kit (install/adapters.sh frozen from the oracle, a kit
@@ -30,15 +30,12 @@ type sdWorld struct {
 
 const sdKitSkill = "# research-sdd skill\nkit source v1\n"
 
-// sdLiveKit is the real kit root (the checkout this test runs in), for the files the world borrows unmodified.
+// sdLiveKit is the real kit root, for the files the world borrows unmodified. kitroot resolves it from
+// RSDD_TEST_RESEARCH_SDD (set by make teeth for its module-only copy) or from the checkout, so the profile tests
+// also run where the module is copied away from the kit (kit issue #2592).
 func sdLiveKit(t *testing.T) string {
 	t.Helper()
-	_, here, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	// .../research-sdd/rsdd/internal/verify/<file> -> .../research-sdd
-	return filepath.Clean(filepath.Join(filepath.Dir(here), "..", "..", ".."))
+	return kitroot.Dir(t)
 }
 
 func sdTools(t *testing.T) string {

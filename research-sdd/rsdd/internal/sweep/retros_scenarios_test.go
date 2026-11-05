@@ -346,8 +346,6 @@ func scenarios() []scenario {
 			has: []string{"\"deltas\": null", "\"deltas_state\": \"no-section\"", "\"warning\": null"}},
 		{name: "json mode keeps stderr", old: "JSON", setup: blockTarget(2*hour, 0), args: []string{"--json"},
 			env: map[string]string{"RSDD_MISSING_RETRO_GRACE_HOURS": "x"}, errHas: []string{"WARN: RSDD_MISSING_RETRO_GRACE_HOURS='x'"}, lacks: []string{"Summary:"}},
-		{name: "unknown arguments are ignored", old: "(script ignored them)", setup: oneRetro(pendingMarker, 1), args: []string{"--nope", "extra"},
-			has: []string{"Summary: 1 pending / 1 retros"}},
 	}
 }
 

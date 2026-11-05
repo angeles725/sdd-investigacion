@@ -117,14 +117,12 @@ func resolveSkillDriftKit(flag string, s cli.Stdio) (string, bool) {
 	return root, true
 }
 
-// physicalDir is `cd -P p && pwd -P`: the symlink-free path of an existing directory.
+// physicalDir is `cd -P p && pwd -P`: the symlink-free path of an existing directory. p must be absolute (every
+// caller joins a relative path to Stdio.Cwd first), so the result is absolute without consulting the process cwd.
 func physicalDir(p string) (string, bool) {
 	r, err := filepath.EvalSymlinks(p)
 	if err != nil || !isDirOS(r) {
 		return "", false
-	}
-	if abs, err := filepath.Abs(r); err == nil {
-		r = abs
 	}
 	return r, true
 }
@@ -211,13 +209,18 @@ func (d *skillDrift) validProfile(profile string) bool {
 	return reProfileName.MatchString(profile) && isFileOS(filepath.Join(d.kit, "profiles", profile+".slots.md"))
 }
 
-// mktemp is `mktemp -d`: a fresh directory under $TMPDIR (else /tmp).
+// mktemp is `mktemp -d`: a fresh directory under $TMPDIR (else /tmp). Like mktemp, a failure names its cause on
+// stderr, so a could-not-run that follows it is never unexplained (the wording is Go's, not mktemp's).
 func (d *skillDrift) mktemp() (string, error) {
 	base := d.s.Env("TMPDIR")
 	if base == "" {
 		base = "/tmp"
 	}
-	return os.MkdirTemp(base, "tmp.")
+	t, err := os.MkdirTemp(base, "tmp.")
+	if err != nil {
+		d.eprintf("%s: cannot create a throwaway render dir: %v\n", skillDriftName, err)
+	}
+	return t, err
 }
 
 func (d *skillDrift) cleanup() {
@@ -231,11 +234,7 @@ func (d *skillDrift) cleanup() {
 // render is `render-profile.sh <profile> <outdir> 2>&1`: ok=false carries the joined output (trailing newlines
 // cut, as `$(...)` does).
 func (d *skillDrift) render(profile, outdir string) (msg string, ok bool) {
-	env := d.s.Environ
-	var environ []string
-	if env != nil {
-		environ = env()
-	}
+	environ := d.s.Environment()
 	res, err := proc.Run(proc.Spec{
 		Argv: []string{filepath.Join(d.kit, "toolbelt", "render-profile.sh"), profile, outdir},
 		Dir:  d.s.Cwd, Env: environ, Timeout: renderTimeout, MaxBytes: renderMaxBytes, Now: d.s.Clock,

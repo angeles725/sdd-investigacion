@@ -253,8 +253,6 @@ func toolScenarios() []toolScenario {
 			w.tool(a, "a.py", false)
 			w.targets(a)
 		}, has: []string{"INFO: corpus not found (absent-input): {root}/my\n", "INFO: corpus not found (absent-input): target\n"}},
-		{name: "unknown arguments are ignored", old: "(script ignored them)", setup: target("a.py"), args: []string{"--nope", "extra"},
-			has: []string{"Summary: 1 tool(s) across 1 target(s)"}},
 		{name: "symlinks in tools are not files", old: "(spot)", setup: func(w *world) {
 			a := w.tgt("targetA")
 			w.tool(a, "real.py", false)

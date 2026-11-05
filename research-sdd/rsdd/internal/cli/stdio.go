@@ -24,6 +24,15 @@ type Stdio struct {
 	Cwd     string
 }
 
+// Environment is Environ(), or nil when no Environ was given (a test Stdio). A nil environment handed to
+// exec.Cmd means the process environment, so a caller that must not leak it checks for nil itself.
+func (s Stdio) Environment() []string {
+	if s.Environ == nil {
+		return nil
+	}
+	return s.Environ()
+}
+
 // OSStdio builds the real Stdio. It is the only place that touches
 // os.Stdin/Stdout/Stderr, os.Getenv, os.Environ, time.Now and os.Getwd. A working
 // directory that cannot be determined is an error, never an empty Cwd.
