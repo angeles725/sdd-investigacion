@@ -109,9 +109,11 @@ if [ "$RC" = 0 ] && grep -qF "PENDING  $T1/audits/a1.md" <<<"$OUT" && grep -q '~
   ok "8 end to end: pending audit surfaced, claim count and summary, exit 0"
 else no "8 end to end: rc=$RC out=[$OUT] err=[$(cat "$TMP/err8")]"; fi
 
-# 9 — a caller argument the script ignored is ignored: the output is byte for byte the one without it.
-OUT1="$(real 2>&1)"; OUT2="$(real --json extra 2>&1)"
-if [ -n "$OUT1" ] && [ "$OUT1" = "$OUT2" ]; then ok "9 end to end: unknown arguments are ignored, as the script did"; else no "9 arguments changed the report: [$OUT2]"; fi
+# 9 — an unknown argument is a usage error (#2687; the bash script ignored it): exit 2, the typed line, no report.
+OUT="$(real --json extra 2>"$TMP/err9")"; RC=$?
+if [ "$RC" = 2 ] && [ -z "$OUT" ] && [ "$(cat "$TMP/err9")" = "sweep-audits: unsupported argument \"extra\"" ]; then
+  ok "9 end to end: an unknown argument is refused with exit 2 (#2687)"
+else no "9 unknown argument: rc=$RC out=[$OUT] err=[$(cat "$TMP/err9")]"; fi
 
 # 10 — no TARGETS.md → exit 1 and the typed line naming the kit's physical path, no report.
 mv "$TMP/kit/TARGETS.md" "$TMP/targets.keep"

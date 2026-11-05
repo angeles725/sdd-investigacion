@@ -52,8 +52,7 @@ import (
 func RunAudits(args []string, s cli.Stdio) int {
 	o, err := parseOptions(args)
 	if err != nil {
-		fmt.Fprintf(s.Err, "sweep-audits: %v\n", err)
-		return cli.ExitUsage
+		return usageFailure(s, o, "audits", auditsHookFailedFmt, err)
 	}
 	if o.hook {
 		return runAuditsHook(o, s)
