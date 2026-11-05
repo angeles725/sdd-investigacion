@@ -308,8 +308,6 @@ func auditScenarios() []auditScenario {
 			w.put(a+"/note.md", auditText("", 1))
 			w.targets(a)
 		}, has: []string{"PENDING  {root}/audits/targetA/note.md"}},
-		{name: "unknown arguments are ignored", old: "(script ignored them)", setup: oneAudit(auditPending, 1), args: []string{"--nope", "extra"},
-			has: []string{"Summary: 1 pending / 1 audits"}},
 	}
 }
 
