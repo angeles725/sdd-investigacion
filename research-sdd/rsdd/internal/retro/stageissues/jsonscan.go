@@ -78,12 +78,9 @@ func jsonIssueScan(mode scanMode, needle, reply string) (string, error) {
 			for i < n {
 				c = s[i]
 				if c == '\\' {
-					e := byte(0)
-					if i+1 < n {
-						e = s[i+1]
-					}
+					// s always ends in the "\n" appended above, so a backslash is never the last byte.
+					e := s[i+1]
 					switch {
-					case i+1 >= n:
 					case e == 'n':
 						str.WriteByte('\n')
 					case e == 'r':
@@ -142,7 +139,7 @@ func jsonIssueScan(mode scanMode, needle, reply string) (string, error) {
 		}
 		if depth == 2 && vmode && c >= '0' && c <= '9' { // a bare number value (the issue number)
 			j := i
-			for j < n && s[j] >= '0' && s[j] <= '9' {
+			for s[j] >= '0' && s[j] <= '9' { // s ends in "\n", so the run always stops before n
 				j++
 			}
 			if key == "number" {
