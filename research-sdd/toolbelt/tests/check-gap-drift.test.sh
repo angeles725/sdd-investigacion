@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# check-gap-drift.test.sh — harness for check-gap-drift.sh and lib/gap-rows.sh (kit issues #1291, #1294).
-#
-# The tool compares each `B<n>-G<m>` backlog row against the bullet that defines it in block <n> and
-# reports DRIFT? / NO-BULLET / NO-BLOCK / NO-WORDS / UNPARSED, exiting 1 on drift or unparsed rows.
-# Cases pin: the drift verdict, every bullet form seen on the real corpus (bracketed ids, parenthesised
-# state, colon), the id-prefix hazard (G1 vs G10), the §7 absent / empty / no-match distinction, list
-# edges (first / middle / last / single row), CRLF, continuation lines, threshold handling, worktree
-# exclusion, and the verify-state.sh WARN integration. --prove-teeth builds mutants of the lib and the
-# tool and requires each to flip a specific assertion.
+# check-gap-drift.test.sh — harness for check-gap-drift.sh (kit issues #1291, #1294), a SHIM to `rsdd verify gap-drift`
+# (kit issue #2645): the cases run through the shim against the real Go binary (RSDD_BIN, else one build into the temp dir).
+# The report is pinned byte for byte against the frozen bash script by the Go differential tests
+# (research-sdd/rsdd/internal/verify/gapdrift, core/gaprows); the mutation gate of the Go source is `make teeth`.
+# Cases pin: the drift verdict, every bullet form seen on the real corpus, the id-prefix hazard (G1 vs G10), the §7 absent /
+# empty / no-match distinction, list edges (first / middle / last / single row), CRLF, continuation lines, threshold
+# handling, worktree exclusion, and the verify-state.sh WARN integration. --prove-teeth mutates the SHIM (each mutant
+# must lose its case). The lib unit checks and the missing-lib cases are gone with the bash logic.
 #
 # Usage: check-gap-drift.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
 set -uo pipefail
@@ -262,27 +261,6 @@ run "$d"; expect "20e pending row with a marker first cell but too few cells is 
 # 21. Operational failures exit 2 (1 is reserved for findings); a flag with a missing value cannot hang.
 run "$TMP/clean" --threshold; expect "21a --threshold with no value exits 2 (no hang)" 2 "usage"
 run "$TMP/clean" --state; expect "21b --state with no value exits 2 (no hang)" 2 "usage"
-rsdd_stage_libs "$TMP/nolib" --except gap-rows.sh; cp "$SUT" "$TMP/nolib/"
-OUT="$(timeout 20 bash "$TMP/nolib/check-gap-drift.sh" "$TMP/clean" 2>&1)"; RC=$?
-expect "21c missing lib/gap-rows.sh exits 2 (never 1, which means findings)" 2 "gap-rows.sh"
-rsdd_stage_libs "$TMP/nolib2" --except block-files.sh; cp "$SUT" "$TMP/nolib2/"
-OUT="$(timeout 20 bash "$TMP/nolib2/check-gap-drift.sh" "$TMP/clean" 2>&1)"; RC=$?
-expect "21d missing lib/block-files.sh exits 2" 2 "block-files.sh"
-rsdd_stage_libs "$TMP/badlib"; cp "$SUT" "$TMP/badlib/"; : > "$TMP/badlib/lib/gap-rows.sh"
-OUT="$(timeout 20 bash "$TMP/badlib/check-gap-drift.sh" "$TMP/clean" 2>&1)"; RC=$?
-expect "21e lib that fails to define its function exits 2" 2 "failed to define"
-
-# --- lib unit checks ---
-echo "-- lib/gap-rows.sh --"
-# shellcheck source=lib/gap-rows.sh
-. "$TOOLBELT/lib/gap-rows.sh"
-declare -F gap_overlap >/dev/null 2>&1 || no "L0 lib did not define gap_overlap"
-r="$(gap_overlap 'alpha bravo alpha' 'alpha charlie')"
-[ "$r" = "1 2" ] && ok "L1 overlap de-duplicates row words (shared=1 total=2)" || no "L1 overlap got [$r] want [1 2]"
-r="$(gap_overlap 'months ordinals' 'month ordinal')"
-[ "$r" = "2 2" ] && ok "L3 trailing-s inflection is stemmed (shared=2 total=2)" || no "L3 got [$r] want [2 2]"
-r="$(gap_overlap 'the of to' 'anything')"
-[ "$r" = "0 0" ] && ok "L2 stop-word-only row has total 0" || no "L2 got [$r] want [0 0]"
 
 # --- verify-state.sh integration (WARN only) ---
 echo "-- verify-state.sh integration --"
@@ -299,66 +277,32 @@ if has "WARN" && has "gap-drift" && has "B1-G1"; then ok "V2 drifted row => veri
 vsrc_drift=$RC
 vs "$TMP/vs-clean"; vsrc_clean=$RC
 [ "$vsrc_drift" = "$vsrc_clean" ] && ok "V3 the drift WARN does not change verify-state's exit code (WARN-only)" || no "V3 exit code changed: drift=$vsrc_drift clean=$vsrc_clean"
-# degraded: checker missing beside a copy of verify-state, state HAS gap rows => typed degraded WARN.
-rsdd_stage_libs "$TMP/vscopy"; cp "$VS" "$TMP/vscopy/verify-state.sh"
-OUT="$(bash "$TMP/vscopy/verify-state.sh" "$TMP/vs-drift" 2>&1)"; RC=$?
-if grep -qF 'check-gap-drift.sh not found' <<<"$OUT"; then ok "V4 checker absent + gap rows present => typed degraded WARN (never silent)"; else no "V4 missing checker not reported"; fi
-rsdd_stage_libs "$TMP/vscopy3" --except gap-rows.sh; cp "$VS" "$TMP/vscopy3/verify-state.sh"; cp "$SUT" "$TMP/vscopy3/"
-OUT="$(bash "$TMP/vscopy3/verify-state.sh" "$TMP/vs-drift" 2>&1)"
-if grep -qF 'gap-drift: degraded' <<<"$OUT"; then ok "V7 checker present but its helper lib is missing => typed degraded WARN (not silence)"; else no "V7 broken checker produced no gap-drift line — $(printf '%s' "$OUT" | grep -a gap-drift | head -1)"; fi
-rsdd_stage_libs "$TMP/vscopy4"; cp "$VS" "$TMP/vscopy4/verify-state.sh"
-printf '#!/usr/bin/env bash\necho oops >&2\nexit 1\n' > "$TMP/vscopy4/check-gap-drift.sh"
-OUT="$(bash "$TMP/vscopy4/verify-state.sh" "$TMP/vs-drift" 2>&1)"
-if grep -qF 'check-gap-drift.sh failed (exit 1)' <<<"$OUT"; then ok "V8 checker exit 1 with NO typed finding line => degraded WARN (1 is reserved for findings)"; else no "V8 untyped exit 1 not reported"; fi
-mkdir -p "$TMP/vs-norows"; { printf '%s\n' '# S' '<!-- research-state.v1 -->' 'schema: research-state.v1' 'covered_blocks: 0' 'gaps_closed: 0' 'known_gaps: 1' 'investigable_open: 1' 'requires_execution_open: 0' 'blocked_open: 0' 'deferred_open: 0' '<!-- /research-state.v1 -->' "$HDR1" "$HDR2" "$HDR3" '| high | plain gap | x | pending |'; } > "$TMP/vs-norows/RESEARCH-STATE.md"
-OUT="$(bash "$TMP/vscopy/verify-state.sh" "$TMP/vs-norows" 2>&1)"
-lacks "V5 checker absent but NO gap rows => no degraded noise" "check-gap-drift.sh not found"
-rsdd_stage_libs "$TMP/vscopy2"; cp "$VS" "$TMP/vscopy2/verify-state.sh"
-printf '#!/usr/bin/env bash\necho boom >&2\nexit 2\n' > "$TMP/vscopy2/check-gap-drift.sh"
-OUT="$(bash "$TMP/vscopy2/verify-state.sh" "$TMP/vs-drift" 2>&1)"
-if grep -qF 'check-gap-drift.sh failed (exit 2)' <<<"$OUT"; then ok "V6 checker exits 2 => typed degraded WARN naming the failure"; else no "V6 checker failure not reported"; fi
 
-# --- mutation controls ---
+
+# --- the shim contract ---
+echo "-- shim contract --"
+grep -qE '^rsdd_exec verify gap-drift "\$@"$' "$SUT" && ok "S1 the shim hands every argument to 'rsdd verify gap-drift'" || no "S1 shim does not exec rsdd verify gap-drift with its arguments"
+! grep -qE 'gap-rows\.sh|block-files\.sh|awk|find ' "$SUT" && ok "S2 the shim sources no lib and runs no awk/find (the logic is the Go command)" || no "S2 the shim still carries bash logic"
+
+# --- mutation controls (the shim; the Go source's mutants are killed by internal/verify/gapdrift and core/gaprows) ---
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: check-gap-drift / gap-rows / verify-state mutants --"
+  echo "-- teeth: check-gap-drift shim mutants --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mk_tree(){ local d="$TMP/mut-$1"; rsdd_stage_libs "$d"
-    cp "$TOOLBELT/check-gap-drift.sh" "$TOOLBELT/verify-state.sh" "$d/"; printf '%s' "$d"; }
-  # tooth <name> <file> <sed-expr> <fixture> <rc GOOD gives> <needle GOOD prints> [tool args...]
+  mk_tree(){ local d="$TMP/mut-$1"; rsdd_stage_libs "$d"; printf '%s' "$d"; }
+  # tooth <name> <sed-expr> <fixture> <rc GOOD gives> <needle GOOD prints> [tool args...]
   # The mutant must change the exit code or lose the needle; either proves the assertion bites.
-  tooth(){ local name="$1" file="$2" expr="$3" fx="$4" grc="$5" needle="$6"; shift 6
+  tooth(){ local name="$1" expr="$2" fx="$3" grc="$4" needle="$5"; shift 5
     local d mo mrc kept=lost; d="$(mk_tree "$name")"
-    if ! mutant_sed "$TOOLBELT/$file" "$d/$file" "$expr" 2>/dev/null; then
+    if ! mutant_sed "$SUT" "$d/check-gap-drift.sh" "$expr" 2>/dev/null; then
       no "teeth $name: could not build mutant (pattern absent / refused by lib/mutant.sh)"; return; fi
-    mo="$(timeout 10 bash "$d/check-gap-drift.sh" "$fx" "$@" 2>&1)"; mrc=$?
+    mo="$(timeout 20 bash "$d/check-gap-drift.sh" "$fx" "$@" 2>&1)"; mrc=$?
     grep -qF -- "$needle" <<<"$mo" && kept=kept
     if [ "$mrc" != "$grc" ] || [ "$kept" = lost ]; then ok "teeth $name: mutant flips the assertion (rc=$mrc, needle $kept)"
     else no "teeth $name: mutant still satisfies the assertion — THEATER"; fi; }
-  # The verify-state side (how the report treats the checker's output and failures) moved to Go with the port (kit #2457):
-  # verify-state.sh is a shim, so its former vs-* mutants (vs-warn-lines, vs-missing-checker, vs-failed-checker,
-  # vs-untyped-exit1, vs-missing-helper, vs-rows-guard) are now Go mutants killed by internal/verify
-  # TestGapDriftCheckerOutcomes (RED recorded in the PR).
-
-  tooth bracket-form    lib/gap-rows.sh 's#\\\[?/,"",s)#/,"",s)#' "$TMP/forms" 0 "no_bullet=0"
-  tooth id-digit-guard  lib/gap-rows.sh 's#substr(s,length(gid)+1,1) !~ /[[]0-9[]]/#1#' "$TMP/prefix" 0 "checked=1 suspects=0"
-  tooth unparsed-grammar lib/gap-rows.sh '/printf "UNPARSED/s/if (n<4 .*) { printf "UNPARSED/if (0) { printf "UNPARSED/' "$TMP/unp" 1 "unparsed=1"
-  tooth continuation-cap lib/gap-rows.sh 's/if (cont>=7) exit/if (0) exit/' "$TMP/cap" 1 "DRIFT? B7-G1"
-  tooth stop-next-bullet lib/gap-rows.sh 's@if (line ~ [^|]* || line ~ /^#/@if (0 || line ~ /^#/@' "$TMP/stopnext" 1 "DRIFT? B7-G1"
-  tooth stop-blank-line lib/gap-rows.sh 's# || line !~ /\[^ \\t]/##' "$TMP/stopblank" 1 "DRIFT? B7-G1"
-  tooth stop-heading    lib/gap-rows.sh 's@ || line ~ /^#/@@' "$TMP/stophead" 1 "DRIFT? B7-G1"
-  tooth stemming        lib/gap-rows.sh 's/if (length(w)>3 \&\& w ~ \/\[^s\]s$\/) w=substr(w,1,length(w)-1)/ /' "$TMP/stem" 0 "checked=1 suspects=0"
-  tooth closed-class-skip lib/gap-rows.sh '/printf "SKIPPED/s/if (pr ~ [^{]*{/if (0) {/' "$TMP/closedclass" 0 "skipped_closed=3"
-  tooth threshold-boundary check-gap-drift.sh 's/\[ \$((shared\*100)) -lt/[ $((shared*100)) -le/' "$TMP/thr-edge" 0 "suspects=0"
-  tooth exit-on-drift   check-gap-drift.sh 's/^\[ "\$suspects" -eq 0 \] && \[ "\$unparsed" -eq 0 \]$/true/' "$TMP/drift" 1 "DRIFT? B1-G1"
-  tooth no-words-state  check-gap-drift.sh 's/if \[ "\${total:-0}" -eq 0 \]/if [ "${total:-0}" -eq 99999 ]/' "$TMP/nowords" 0 "NO-WORDS B8-G1"
-  tooth degraded-line   check-gap-drift.sh 's/^elif \[ "\$checked" -eq 0 \] && \[ \$((rows-skipped)) -gt 0 \]; then/elif false; then/' "$TMP/degraded" 0 "DEGRADED"
-  tooth pending-filter  check-gap-drift.sh 's/if \[ "\$all" -eq 0 \] && \[ "\$pend" != "pending" \]/if false/' "$TMP/allclosed" 0 "no pending B<n>-G<m> rows"
-  tooth worktree-prune  check-gap-drift.sh 's# \\( -path "$target/.claude/worktrees" -o -name .git \\) -prune -o##' "$TMP/wt" 0 "NO-BLOCK B3-G1"
-  tooth threshold-range check-gap-drift.sh 's/\[ "\$threshold" -le 100 \]/true/' "$TMP/clean" 2 "threshold" --threshold 101
-  tooth pending-marker-row lib/gap-rows.sh 's/if (pr ~ \/^(—|~~|\[0-9\]+\$)\/ \&\& tolower(a\[n\]) !~ \/^pending\/)/if (pr ~ \/^(—|~~|[0-9]+$)\/)/' "$TMP/pendS-1" 1 "DRIFT? B5-G1"
-  tooth helper-exit-code check-gap-drift.sh 's/failed to define gap_rows_parse" >&2; exit 2/failed to define gap_rows_parse" >\&2; exit 1/' "$TMP/badlib" 2 "failed to define"
-  tooth flag-missing-value check-gap-drift.sh 's/\[ "\$#" -ge 2 \] || { _usage; exit 2; }/true/' "$TMP/clean" 2 "usage" --state
+  tooth drops-args   's/^rsdd_exec verify gap-drift "\$@"$/rsdd_exec verify gap-drift/' "$TMP/drift" 1 "DRIFT? B1-G1"
+  tooth wrong-verb   's/^rsdd_exec verify gap-drift /rsdd_exec verify corrections /' "$TMP/drift" 1 "DRIFT? B1-G1"
+  tooth flag-missing-value 's/^rsdd_exec verify gap-drift "\$@"$/rsdd_exec verify gap-drift "$1"/' "$TMP/clean" 2 "usage" --state
 fi
 
 echo "== $pass passed · $fail failed =="

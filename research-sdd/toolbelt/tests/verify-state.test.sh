@@ -3810,17 +3810,14 @@ fi
 # ---- SHIM CONTRACT (kit issue #2457) ----
 # The report itself is pinned byte for byte against the frozen script by the Go differential tests
 # (internal/verify, `make test`); the cases above run it end to end through this shim. These pin the shim only.
-# stage_vs <dir> [shim]: a fixture toolbelt holding the shim, its lib/rsdd-exec.sh and check-gap-drift.sh.
-stage_vs() { mkdir -p "$1"; rsdd_stage_libs "$1"; cp "${2:-$SUT}" "$1/verify-state.sh"; cp "$HERE/../check-gap-drift.sh" "$1/"; }
+# stage_vs <dir> [shim]: a fixture toolbelt holding only the shim and its lib/rsdd-exec.sh (no check-gap-drift.sh:
+# the gap-drift check runs in process since kit issue #2645).
+stage_vs() { mkdir -p "$1"; rsdd_stage_libs "$1"; cp "${2:-$SUT}" "$1/verify-state.sh"; }
 d="$TMP/shim-ok"; state "$d" "# s" "" "## Gap-backlog (prioritized)" "" "| Priority | Gap | Type | Status |" "|---|---|---|---|" "" "## Blocked gaps" "- none" "" "## Notes" "| note | B1-G1 a row that makes the gap-drift check run |" ""; addenv "$d" 0 0 0 0 0 0
 stage_vs "$TMP/vs1"
 out="$(bash "$TMP/vs1/verify-state.sh" "$d" 2>&1)"
-if ! grep -q 'gap-drift: degraded' <<<"$out"; then ok "SHIM-1 the shim hands its own directory over: check-gap-drift.sh is found beside it"
-else no "SHIM-1 gap-drift reported missing :: $(grep gap-drift <<<"$out")"; fi
-mkdir -p "$TMP/vs2"; rsdd_stage_libs "$TMP/vs2"; cp "$SUT" "$TMP/vs2/verify-state.sh"
-out="$(bash "$TMP/vs2/verify-state.sh" "$d" 2>&1)"
-if grep -q 'gap-drift: degraded — check-gap-drift.sh not found' <<<"$out"; then ok "SHIM-2 no check-gap-drift.sh beside the shim → typed degraded WARN, never a silent pass"
-else no "SHIM-2 missing checker not reported :: $out"; fi
+if [ ! -e "$TMP/vs1/check-gap-drift.sh" ] && grep -q "verify-state" <<<"$out" && ! grep -q "gap-drift: degraded" <<<"$out"; then ok "SHIM-1 gap-drift runs in process: no checker beside the shim and no degraded WARN"
+else no "SHIM-1 gap-drift degraded or no report :: $(grep -E "gap-drift|verify-state" <<<"$out" | head -3)"; fi
 mkdir -p "$TMP/vs3"; cp "$SUT" "$TMP/vs3/verify-state.sh"
 out3="$(bash "$TMP/vs3/verify-state.sh" "$d" 2>"$TMP/errvs3")"; rc3=$?
 if [ "$rc3" = 2 ] && [ -z "$out3" ] && grep -q '^degraded: rsdd-unavailable — rsdd-exec.sh missing beside ' "$TMP/errvs3"; then ok "SHIM-3 missing rsdd-exec.sh → typed degraded line, rc 2"
@@ -3835,12 +3832,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
   echo "-- teeth: each shim mutation must lose its case --"
-  # A: the toolbelt directory is not handed over → gap-drift is reported missing (SHIM-1).
-  if mk_mut "teeth A: toolbelt dir not passed" "$SUT" "$TMP/vmutA.sh" 's/^RSDD_TOOLBELT_DIR="\$_RSDD_SELF" //'; then
-    stage_vs "$TMP/vmA" "$TMP/vmutA.sh"
-    mo="$(bash "$TMP/vmA/verify-state.sh" "$d" 2>&1)"
-    if grep -q 'gap-drift: degraded' <<<"$mo"; then ok "teeth A: toolbelt dir not passed → SHIM-1 would go RED"; else no "teeth A: mutant still finds the checker"; fi
-  fi
   # B: the wrong subcommand → the report disappears (case 1 family).
   if mk_mut "teeth B: wrong subcommand" "$SUT" "$TMP/vmutB.sh" 's/verify state/verify kit-clean/'; then
     stage_vs "$TMP/vmB" "$TMP/vmutB.sh"
