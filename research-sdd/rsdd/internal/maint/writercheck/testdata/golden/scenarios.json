@@ -1,0 +1,807 @@
+{
+ "alpha-no-logs": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "alpha-valid-logs": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "bad-format-wins-over-base": {
+  "out": "",
+  "err": "kit-writer-check: --format must be report or json\nusage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "beta-single": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/b.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/b.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "changed-suite": {
+  "out": "Required suites: 1\n  research-sdd/toolbelt/tests/b.test.sh\nmissing-teeth research-sdd/toolbelt/tests/b.test.sh (no --teeth-log given)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "classify-all": {
+  "out": "production research-sdd/toolbelt/foo.sh\nproduction research-sdd/toolbelt/lib/x.sh\nproduction research-sdd/toolbelt/maint/kit-writer-check.sh\nproduction research-sdd/toolbelt/adv.mjs\nproduction research-sdd/toolbelt/gate.py\nproduction research-sdd/toolbelt/x.js\nproduction research-sdd/toolbelt/x.cjs\nproduction research-sdd/toolbelt/x.ts\nproduction research-sdd/install/adapters.sh\nproduction research-sdd/templates/hook-kit-run.sh\nproduction research-sdd/toolbelt/tests/run-all.sh\nproduction research-sdd/toolbelt/tests/suite-impact.sh\nproduction research-sdd/toolbelt/tests/shard-join.sh\nproduction research-sdd/toolbelt/tests/lib/mutant.sh\nproduction research-sdd/toolbelt/tests/lib/deep/helper.py\nother research-sdd/toolbelt/tests/lib/notes.md\nother research-sdd/toolbelt/tests/foo.test.sh\nother research-sdd/toolbelt/tests/foo.test.mjs\nother research-sdd/toolbelt/tests/foo.test.py\nother research-sdd/toolbelt/tests/fixtures/x.sh\nother research-sdd/toolbelt/tests/fixtures/deep/y.py\nother research-sdd/toolbelt/tests/sub/x.sh\nother research-sdd/toolbelt/tests/impact-always.txt\nother research-sdd/install/tests/x.test.sh\nother research-sdd/install/tests/helper.sh\nother research-sdd/templates/audit.template.md\nother research-sdd/toolbelt/tool-registry.md\nother research-sdd/METHODOLOGY.md\nother research-sdd/skills/kit-branch-pr/SKILL.md\nother .github/workflows/pr-check.yml\nother CLAUDE.md\n",
+  "err": "",
+  "rc": 0
+ },
+ "classify-format-ignored": {
+  "out": "production research-sdd/toolbelt/x.sh\n",
+  "err": "",
+  "rc": 0
+ },
+ "closure-leaf": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/m.test.sh\n  research-sdd/toolbelt/tests/t.test.sh\nteeth-waived research-sdd/toolbelt/tests/t.test.sh (smoke suite with no mutation controls (fixture))\nmissing-teeth research-sdd/toolbelt/tests/m.test.sh (no --teeth-log given)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "degraded-bad-base": {
+  "out": "",
+  "err": "degraded: kit-writer-check: bad base ref: nosuchref\n",
+  "rc": 2
+ },
+ "degraded-bad-head": {
+  "out": "",
+  "err": "degraded: kit-writer-check: bad head ref: nosuchref\n",
+  "rc": 2
+ },
+ "degraded-impact-absent": {
+  "out": "",
+  "err": "degraded: kit-writer-check: suite-impact.sh not found: /nonexistent/suite-impact.sh\n",
+  "rc": 2
+ },
+ "degraded-impact-fails": {
+  "out": "",
+  "err": "degraded: kit-writer-check: suite-impact.sh exited 2: boom \n",
+  "rc": 2
+ },
+ "degraded-missing-logdir": {
+  "out": "",
+  "err": "degraded: kit-writer-check: teeth-log dir absent: /nonexistent-dir-for-wck\n",
+  "rc": 2
+ },
+ "degraded-not-a-repo": {
+  "out": "",
+  "err": "degraded: kit-writer-check: not a git repository: \u003cR\u003e\n",
+  "rc": 2
+ },
+ "deleted-script": {
+  "out": "Required suites: 0\nfull-gate-needed: deleted/renamed production file: research-sdd/toolbelt/gamma.sh\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "docs-only": {
+  "out": "Required suites: 0\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "fixture-suite-not-required": {
+  "out": "Required suites: 0\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "full-direct": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/c.test.sh\n  research-sdd/toolbelt/tests/m.test.sh\nfull-gate-needed: added production file: research-sdd/toolbelt/fresh9.sh\nmissing-teeth research-sdd/toolbelt/tests/c.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/m.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "full-fallback-map": {
+  "out": "Required suites: 3\n  research-sdd/toolbelt/tests/c.test.sh\n  research-sdd/toolbelt/tests/m.test.sh\n  research-sdd/toolbelt/tests/t.test.sh\nfull-gate-needed: added production file: research-sdd/toolbelt/fresh8.sh\nteeth-waived research-sdd/toolbelt/tests/t.test.sh (smoke suite with no mutation controls (fixture))\nmissing-teeth research-sdd/toolbelt/tests/c.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/m.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "full-newfile": {
+  "out": "Required suites: 1\n  research-sdd/toolbelt/tests/c.test.sh\nfull-gate-needed: added production file: research-sdd/toolbelt/fresh.sh\nmissing-teeth research-sdd/toolbelt/tests/c.test.sh (no --teeth-log given)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "full-newfile-logs": {
+  "out": "Required suites: 1\n  research-sdd/toolbelt/tests/c.test.sh\nfull-gate-needed: added production file: research-sdd/toolbelt/fresh.sh\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "harness-only": {
+  "out": "Required suites: 0\nfull-gate-needed: harness file changed: research-sdd/toolbelt/tests/impact-always.txt\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "head-ref": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "head-ref-earlier": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "install-suite-changed": {
+  "out": "Required suites: 1\n  research-sdd/install/tests/a.test.sh\nfull-gate-needed: install tree changed: research-sdd/install/tests/a.test.sh\nmissing-teeth research-sdd/install/tests/a.test.sh (no --teeth-log given)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "json-escapes": {
+  "out": "{\"status\":\"findings\",\"full_gate_needed\":true,\"required\":[\"research-sdd/toolbelt/tests/a.test.sh\",\"research-sdd/toolbelt/tests/multi.test.sh\"],\"findings\":[{\"type\":\"bad-waiver\",\"subject\":\"writer-check-waivers.txt:3\",\"detail\":\"no reason for q\\\"x\\\\back\"},{\"type\":\"missing-teeth\",\"subject\":\"research-sdd/toolbelt/tests/a.test.sh\",\"detail\":\"no --teeth-log given\"},{\"type\":\"missing-teeth\",\"subject\":\"research-sdd/toolbelt/tests/multi.test.sh\",\"detail\":\"no --teeth-log given\"},{\"type\":\"name-kill\",\"subject\":\"research-sdd/toolbelt/alpha.sh:2\",\"detail\":\"name-based process kill\"}]}\n",
+  "err": "",
+  "rc": 1
+ },
+ "json-findings": {
+  "out": "{\"status\":\"findings\",\"full_gate_needed\":false,\"required\":[\"research-sdd/toolbelt/tests/a.test.sh\",\"research-sdd/toolbelt/tests/multi.test.sh\"],\"findings\":[{\"type\":\"missing-teeth\",\"subject\":\"research-sdd/toolbelt/tests/a.test.sh\",\"detail\":\"no --teeth-log given\"},{\"type\":\"missing-teeth\",\"subject\":\"research-sdd/toolbelt/tests/multi.test.sh\",\"detail\":\"no --teeth-log given\"}]}\n",
+  "err": "",
+  "rc": 1
+ },
+ "json-full-gate": {
+  "out": "{\"status\":\"ok\",\"full_gate_needed\":true,\"required\":[],\"findings\":[]}\n",
+  "err": "",
+  "rc": 0
+ },
+ "json-ok": {
+  "out": "{\"status\":\"ok\",\"full_gate_needed\":false,\"required\":[\"research-sdd/toolbelt/tests/a.test.sh\",\"research-sdd/toolbelt/tests/multi.test.sh\"],\"findings\":[]}\n",
+  "err": "",
+  "rc": 0
+ },
+ "log-bad-header-text": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nstale-teeth research-sdd/toolbelt/tests/a.test.sh (no writer-check header (a log not produced by --write-teeth-log is not evidence))\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "log-banner-eq": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "log-banner-glued": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (plain run: no teeth banner (not a --prove-teeth run))\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "log-banner-indented": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "log-double-zero": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (summary reports failures: == 3 passed · 00 failed ==)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "log-empty": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (log is empty)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "log-failed": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (summary reports failures: == 2 passed · 1 failed ==)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "log-failline": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (log contains a FAIL line)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "log-hand-written": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nstale-teeth research-sdd/toolbelt/tests/a.test.sh (no writer-check header (a log not produced by --write-teeth-log is not evidence))\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "log-last-summary": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "log-malformed-header": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nstale-teeth research-sdd/toolbelt/tests/a.test.sh (no writer-check header (a log not produced by --write-teeth-log is not evidence))\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "log-nosummary": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no summary line)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "log-padded-zero": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "log-plain": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (plain run: no teeth banner (not a --prove-teeth run))\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "log-trailing-blank": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "log-zero": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (summary reports zero passed cases)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "manifest-dir": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "missing-first": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no log research-sdd__toolbelt__tests__a.test.sh.log)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "missing-last": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no log research-sdd__toolbelt__tests__multi.test.sh.log)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-abs-path": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-after-and": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-after-sudo": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-after-timeout": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-allow-comment": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-allow-comment-tight": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-bash-c": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-bash-ext": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/x.bash\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nname-kill research-sdd/toolbelt/x.bash:1 (name-based process kill)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-comment-line": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-corpus": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/corpus.sh\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/corpus.sh (no suite names this changed file)\nname-kill research-sdd/toolbelt/corpus.sh:1 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:2 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:3 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:4 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:5 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:6 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:7 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:8 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:9 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:10 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:11 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:12 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:13 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:14 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:15 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:16 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:17 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:18 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:19 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:20 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:21 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:22 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:23 (name-based process kill)\nname-kill research-sdd/toolbelt/corpus.sh:24 (name-based process kill)\nFindings: 25\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-dollar-paren-prose": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-echo-prose": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-exec-prefix": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-grep-pattern": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-guard-token": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-identifier": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-if-then": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-in-subst": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-in-test-file": {
+  "out": "Required suites: 1\n  research-sdd/toolbelt/tests/a.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/tests/a.test.sh:5 (name-based process kill)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-indented-comment-line": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-js-exec": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/helper.js\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/helper.js (no suite names this changed file)\nname-kill research-sdd/toolbelt/helper.js:1 (name-based process kill)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-js-slashes-comment": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/helper.js\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/helper.js (no suite names this changed file)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-js-spawn": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/helper.js\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/helper.js (no suite names this changed file)\nname-kill research-sdd/toolbelt/helper.js:1 (name-based process kill)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-json-fixture": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-1": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-9-1": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-9-pid-ok": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-backtick": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-dashdash-1": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-minus-12-ok": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-pid-ok": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-s-1": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-subst": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-subst-pidof": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-kill-term-1": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-killall": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-killall-dot-suffix": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-later-hunk": {
+  "out": "Required suites: 0\nfull-gate-needed: no suite reaches the changed file: research-sdd/toolbelt/hk.sh\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/hk.sh (no suite names this changed file)\nname-kill research-sdd/toolbelt/hk.sh:9 (name-based process kill)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-markdown": {
+  "out": "Required suites: 0\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "nk-mjs-argv": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/helper.mjs\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/helper.mjs (no suite names this changed file)\nname-kill research-sdd/toolbelt/helper.mjs:1 (name-based process kill)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-pgrep-while": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-pgrep-xargs": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-pidof-xargs-kill9": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-pidof-xargs-r": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-pipe-after": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-pipe-into-sh-ok": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-pkill": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:3 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-pre-existing": {
+  "out": "Required suites: 1\n  research-sdd/toolbelt/tests/old.test.sh\nmissing-teeth research-sdd/toolbelt/tests/old.test.sh (no --teeth-log given)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-py-argv": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/helper.py\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/helper.py (no suite names this changed file)\nname-kill research-sdd/toolbelt/helper.py:1 (name-based process kill)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-py-argv-killall": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/helper.py\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/helper.py (no suite names this changed file)\nname-kill research-sdd/toolbelt/helper.py:1 (name-based process kill)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-py-comment": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/helper.py\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/helper.py (no suite names this changed file)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-py-system": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/helper.py\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/helper.py (no suite names this changed file)\nname-kill research-sdd/toolbelt/helper.py:1 (name-based process kill)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-sh-argv-form-not-a-kill": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-similar-words": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-text-file": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/notes.txt\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "nk-ts-call": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/helper.ts\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/helper.ts (no suite names this changed file)\nname-kill research-sdd/toolbelt/helper.ts:1 (name-based process kill)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-two-lines": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nname-kill research-sdd/toolbelt/alpha.sh:3 (name-based process kill)\nFindings: 4\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-untracked-dir-symlink": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/linkdir\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/ok.sh (no suite names this changed file)\nname-kill research-sdd/toolbelt/ok.sh:1 (name-based process kill)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-worktree-tracked-edit": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-worktree-untracked": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nfull-gate-needed: added production file: research-sdd/toolbelt/untracked.py\nno-suite research-sdd/toolbelt/untracked.py (no suite names this changed file)\nno-suite research-sdd/toolbelt/untracked.sh (no suite names this changed file)\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/untracked.sh:1 (name-based process kill)\nFindings: 5\n",
+  "err": "",
+  "rc": 1
+ },
+ "nk-xargs-killall": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nname-kill research-sdd/toolbelt/alpha.sh:2 (name-based process kill)\nFindings: 3\n",
+  "err": "",
+  "rc": 1
+ },
+ "no-change": {
+  "out": "Required suites: 0\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "no-suite-lib": {
+  "out": "Required suites: 0\nfull-gate-needed: no suite reaches the changed file: research-sdd/toolbelt/lib/gl.sh\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/lib/gl.sh (no suite names this changed file)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "no-suite-solo": {
+  "out": "Required suites: 0\nfull-gate-needed: no suite reaches the changed file: research-sdd/toolbelt/solo.sh\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/solo.sh (no suite names this changed file)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "node-suite": {
+  "out": "Required suites: 1\n  research-sdd/toolbelt/tests/pi.test.mjs\nteeth-na research-sdd/toolbelt/tests/pi.test.mjs\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "print-binding": {
+  "out": "# writer-check: head=0c041c72ae9c4954e5ef7da3ccc8998647eec7e1 tree=8d8e02e4be3ad5c83818f6e2138724f5f7169f41\n",
+  "err": "",
+  "rc": 0
+ },
+ "print-binding-empty": {
+  "out": "# writer-check: head=37273684465e490265d0adc0a7ed31bdb546da6b tree=e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\n",
+  "err": "",
+  "rc": 0
+ },
+ "print-binding-other-contents": {
+  "out": "# writer-check: head=a5275ca908b70d36d448cea851c0cd667ac4a072 tree=44ab18d8951a133d5ba931200cc136f5a09a3c10\n",
+  "err": "",
+  "rc": 0
+ },
+ "print-binding-rename-delete": {
+  "out": "# writer-check: head=28e15f9faee8f251fd5d022ab11426d3706c9c84 tree=977b5411030b2222ee3dc59f5959d28da81db588\n",
+  "err": "",
+  "rc": 0
+ },
+ "print-binding-worktree": {
+  "out": "# writer-check: head=37273684465e490265d0adc0a7ed31bdb546da6b tree=e5dc525d69b5d1f8618410f31c15b0c109917bae\n",
+  "err": "",
+  "rc": 0
+ },
+ "relative-repo-arg": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "rename": {
+  "out": "Required suites: 0\nfull-gate-needed: deleted/renamed production file: research-sdd/toolbelt/beta.sh\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/beta2.sh (no suite names this changed file)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "stale-after-commit": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nstale-teeth research-sdd/toolbelt/tests/a.test.sh (changed files differ from when the log was written (re-run --write-teeth-log))\nstale-teeth research-sdd/toolbelt/tests/multi.test.sh (changed files differ from when the log was written (re-run --write-teeth-log))\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "subdirectory-repo-arg": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "three-scripts": {
+  "out": "Required suites: 4\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/b.test.sh\n  research-sdd/toolbelt/tests/c.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/b.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/c.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 4\n",
+  "err": "",
+  "rc": 1
+ },
+ "usage-bad-format": {
+  "out": "",
+  "err": "kit-writer-check: --format must be report or json\nusage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "usage-base-without-value": {
+  "out": "",
+  "err": "usage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "usage-classify-empty": {
+  "out": "",
+  "err": "usage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "usage-h": {
+  "out": "",
+  "err": "usage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "usage-help": {
+  "out": "",
+  "err": "usage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "usage-no-args": {
+  "out": "",
+  "err": "degraded: kit-writer-check: not a git repository: .\n",
+  "rc": 2
+ },
+ "usage-no-base": {
+  "out": "",
+  "err": "usage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "usage-stray-positional": {
+  "out": "",
+  "err": "kit-writer-check: unexpected argument: stray\nusage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "usage-unknown-flag": {
+  "out": "",
+  "err": "kit-writer-check: unknown argument: --bogus\nusage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "waived-suite": {
+  "out": "Required suites: 1\n  research-sdd/toolbelt/tests/t.test.sh\nteeth-waived research-sdd/toolbelt/tests/t.test.sh (smoke suite with no mutation controls (fixture))\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "waiver-file-absent": {
+  "out": "Required suites: 1\n  research-sdd/toolbelt/tests/t.test.sh\nfull-gate-needed: deleted test-infrastructure file: research-sdd/toolbelt/tests/writer-check-waivers.txt\nmissing-teeth research-sdd/toolbelt/tests/t.test.sh (no --teeth-log given)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "waiver-no-reason": {
+  "out": "Required suites: 1\n  research-sdd/toolbelt/tests/t.test.sh\nfull-gate-needed: no suite reaches the changed file: research-sdd/toolbelt/tests/writer-check-waivers.txt\nteeth-waived research-sdd/toolbelt/tests/t.test.sh (smoke suite with no mutation controls (fixture))\nbad-waiver writer-check-waivers.txt:3 (no reason for research-sdd/toolbelt/tests/t.test.sh)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "waiver-scope": {
+  "out": "Required suites: 3\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\n  research-sdd/toolbelt/tests/t.test.sh\nteeth-waived research-sdd/toolbelt/tests/t.test.sh (smoke suite with no mutation controls (fixture))\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "waiver-tab-free-comments": {
+  "out": "Required suites: 1\n  research-sdd/toolbelt/tests/t.test.sh\nfull-gate-needed: no suite reaches the changed file: research-sdd/toolbelt/tests/writer-check-waivers.txt\nteeth-waived research-sdd/toolbelt/tests/t.test.sh (why not)\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "worktree-and-head": {
+  "out": "",
+  "err": "kit-writer-check: --worktree and --head are mutually exclusive\nusage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "worktree-clean": {
+  "out": "Required suites: 0\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "worktree-edit": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no --teeth-log given)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "worktree-fresh-logs": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "worktree-staged-new": {
+  "out": "Required suites: 0\nfull-gate-needed: added production file: research-sdd/toolbelt/fresh.sh\nrequired: 0 (no changed production script and no changed suite; the impact map found nothing to require)\nno-suite research-sdd/toolbelt/fresh.sh (no suite names this changed file)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "worktree-stale-logs": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nstale-teeth research-sdd/toolbelt/tests/a.test.sh (changed files differ from when the log was written (re-run --write-teeth-log))\nstale-teeth research-sdd/toolbelt/tests/multi.test.sh (changed files differ from when the log was written (re-run --write-teeth-log))\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ },
+ "worktree-waiver-edit": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nfull-gate-needed: no suite reaches the changed file: research-sdd/toolbelt/tests/writer-check-waivers.txt\nteeth-waived research-sdd/toolbelt/tests/a.test.sh (edited in the working tree)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no --teeth-log given)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
+ "write-logs": {
+  "out": "PASS  research-sdd/toolbelt/tests/a.test.sh -\u003e \u003cR\u003e/wl/research-sdd__toolbelt__tests__a.test.sh.log\nPASS  research-sdd/toolbelt/tests/multi.test.sh -\u003e \u003cR\u003e/wl/research-sdd__toolbelt__tests__multi.test.sh.log\n",
+  "err": "",
+  "rc": 0
+ },
+ "write-logs-absolute": {
+  "out": "PASS  \u003cR\u003e/r/research-sdd/toolbelt/tests/a.test.sh -\u003e \u003cR\u003e/abs/research-sdd__toolbelt__tests__a.test.sh.log\n",
+  "err": "",
+  "rc": 0
+ },
+ "write-logs-bad-base": {
+  "out": "",
+  "err": "degraded: kit-writer-check: bad base ref: nosuchref\n",
+  "rc": 2
+ },
+ "write-logs-bad-timeout": {
+  "out": "",
+  "err": "degraded: kit-writer-check: KIT_WRITER_CHECK_TIMEOUT must be a positive integer, got: 'abc'\n",
+  "rc": 2
+ },
+ "write-logs-empty-timeout": {
+  "out": "PASS  research-sdd/toolbelt/tests/a.test.sh -\u003e \u003cR\u003e/wl5/research-sdd__toolbelt__tests__a.test.sh.log\n",
+  "err": "",
+  "rc": 0
+ },
+ "write-logs-failing-suite": {
+  "out": "",
+  "err": "FAIL  research-sdd/toolbelt/tests/red.test.sh: exit 1 -\u003e \u003cR\u003e/wl3/research-sdd__toolbelt__tests__red.test.sh.log\n",
+  "rc": 1
+ },
+ "write-logs-leading-zero-timeout": {
+  "out": "",
+  "err": "degraded: kit-writer-check: KIT_WRITER_CHECK_TIMEOUT must be a positive integer, got: '08'\n",
+  "rc": 2
+ },
+ "write-logs-missing-suite": {
+  "out": "",
+  "err": "FAIL  research-sdd/toolbelt/tests/nope.test.sh: suite not found\n",
+  "rc": 1
+ },
+ "write-logs-nested-dir": {
+  "out": "PASS  research-sdd/toolbelt/tests/a.test.sh -\u003e \u003cR\u003e/deep/er/logs/research-sdd__toolbelt__tests__a.test.sh.log\n",
+  "err": "",
+  "rc": 0
+ },
+ "write-logs-no-base": {
+  "out": "",
+  "err": "kit-writer-check: --write-teeth-log needs --base (the log is bound to the changed files against it)\nusage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "write-logs-no-suites": {
+  "out": "",
+  "err": "kit-writer-check: --write-teeth-log needs at least one suite\nusage: kit-writer-check.sh --base \u003cref\u003e [--head \u003cref\u003e|--worktree] [--teeth-log DIR] [--format report|json] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] [--print-binding]\n       kit-writer-check.sh --write-teeth-log DIR --base \u003cref\u003e [--repo DIR] \u003csuite\u003e...\n       kit-writer-check.sh --classify \u003cpath\u003e...\n",
+  "rc": 2
+ },
+ "write-logs-node-suite": {
+  "out": "",
+  "err": "FAIL  research-sdd/toolbelt/tests/pi.test.mjs: only *.test.sh suites take --prove-teeth\n",
+  "rc": 1
+ },
+ "write-logs-then-check": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "write-logs-timeout": {
+  "out": "",
+  "err": "FAIL  research-sdd/toolbelt/tests/slow.test.sh: timed out after 1s -\u003e \u003cR\u003e/wl4/research-sdd__toolbelt__tests__slow.test.sh.log\n",
+  "rc": 1
+ },
+ "write-logs-two-corpora": {
+  "out": "PASS  research-sdd/toolbelt/tests/a.test.sh -\u003e \u003cR\u003e/two/research-sdd__toolbelt__tests__a.test.sh.log\nPASS  research-sdd/install/tests/a.test.sh -\u003e \u003cR\u003e/two/research-sdd__install__tests__a.test.sh.log\n",
+  "err": "",
+  "rc": 0
+ },
+ "write-logs-zero-timeout": {
+  "out": "",
+  "err": "degraded: kit-writer-check: KIT_WRITER_CHECK_TIMEOUT must be a positive integer, got: '0'\n",
+  "rc": 2
+ },
+ "wrong-suite-logs": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no log research-sdd__toolbelt__tests__a.test.sh.log)\nmissing-teeth research-sdd/toolbelt/tests/multi.test.sh (no log research-sdd__toolbelt__tests__multi.test.sh.log)\nFindings: 2\n",
+  "err": "",
+  "rc": 1
+ }
+}
