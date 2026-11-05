@@ -19,7 +19,7 @@ SUT_INIT="$HERE/../research-sdd-init.sh"
 [ -f "$SUT_INIT" ] || { echo "FATAL: SUT not found: $SUT_INIT" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-# Per-case temp names: a counter plus the shell PID, never $((++TMPSEQ))_$BASHPID (15 bits: two names could collide and a
+# Per-case temp names: a counter plus the shell PID, never $RANDOM (15 bits: two names could collide and a
 # case would reuse a directory an earlier case had populated, kit #2695/#2696). The paths do not exist until
 # a case creates them, which several cases rely on.
 TMPSEQ=0
