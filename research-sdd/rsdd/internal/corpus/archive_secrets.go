@@ -2,17 +2,22 @@ package corpus
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	engine "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/secretscan"
 )
 
 // The secrets gate scans every regular file under the physical target (the working tree as it sits on disk, git-ignored
-// files included, symlinks not followed, `.git` not authored content) through scan-secrets.sh --files-from, and, for a
-// target that is itself a git repository root with at least one commit, the committed history too. See the header of the
-// retired script for the git states told apart (kit issues #970, #1014, #1015); each branch below keeps its text.
+// files included, symlinks not followed, `.git` not authored content) through the secret scan engine
+// (internal/core/secretscan, `rsdd secrets scan --files-from`), and, for a target that is itself a git repository root
+// with at least one commit, the committed history too. The engine runs in process: its report is discarded here, only
+// its exit code (0 clean, 1 leak, 3 degraded) feeds the verdict. See the header of the retired script for the git
+// states told apart (kit issues #970, #1014, #1015); each branch below keeps its text.
 
 // archiveWalkFiles is the default packaging list: `find root \( -name .git -type d \) -prune -o -type f -print0`.
 // perm counts unreadable directories; any other read error means the list is not computable.
@@ -85,12 +90,19 @@ func (e *archiveEnv) archiveSSBuildList() int {
 	return 0
 }
 
-// archiveSSWTScan sets ssWTRC to scan-secrets.sh's code over the packaging list; 90 = list not computable, 91 = empty.
+// archiveSecretScan runs the scan engine in process with the archive's environment and discards its report
+// (the legacy `>/dev/null 2>&1`).
+func (e *archiveEnv) archiveSecretScan(req engine.Request) int {
+	req.Cwd, req.Env = e.s.Cwd, e.env
+	return engine.Run(req, io.Discard, io.Discard)
+}
+
+// archiveSSWTScan sets ssWTRC to the scan's code over the packaging list; 90 = list not computable, 91 = empty.
 func (e *archiveEnv) archiveSSWTScan() {
 	rc := e.archiveSSBuildList()
 	switch rc {
 	case 0:
-		e.ssWTRC = e.archiveSibling("scan-secrets.sh", "--files-from", e.ssList, e.ssPhys)
+		e.ssWTRC = e.archiveSecretScan(engine.Request{Target: e.ssPhys, FilesFrom: e.ssList})
 	case 3:
 		e.ssWTRC = 90
 		e.ssWhy = "the target directory could not be resolved physically (cd -P failed) — refusing rather than scanning an unknown location"
@@ -171,7 +183,7 @@ func (e *archiveEnv) archiveSecretsGate() {
 		e.archiveSSWTOnlyVerdict(" (working tree only — repository has no commits yet, see WARN above)")
 	default:
 		e.archiveSSWTScan()
-		histRC := e.archiveSibling("scan-secrets.sh", "--committed", e.target)
+		histRC := e.archiveSecretScan(engine.Request{Target: e.target, Committed: true})
 		where := ""
 		if e.ssWTRC == 1 {
 			where = "the working tree"
