@@ -48,10 +48,7 @@ func isSpace(b byte) bool { return strings.IndexByte(spaceChars, b) >= 0 }
 // matchWord matches word (lower case) at line[i:] case-insensitively and returns the index after it.
 func matchWord(line []byte, i int, word string) (int, bool) {
 	for k := 0; k < len(word); k++ {
-		if i >= len(line) {
-			return 0, false
-		}
-		r, w := utf8.DecodeRune(line[i:])
+		r, w := utf8.DecodeRune(line[i:]) // an empty tail decodes to RuneError, which matches no keyword letter
 		if foldRune(r) != rune(word[k]) {
 			return 0, false
 		}

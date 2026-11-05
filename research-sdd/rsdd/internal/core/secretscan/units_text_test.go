@@ -194,6 +194,15 @@ func TestKeywordOnNextLineIsJudgedSeparately(t *testing.T) {
 	}
 }
 
+func TestKeywordOnSecondByteLineIsJudged(t *testing.T) {
+	t.Parallel()
+	for _, data := range []string{"\npassword = Abc12345", "\n\npassword = Abc12345", "password = Abc12345"} {
+		if hits := scanAdvisory([]byte(data), false); len(hits) != 1 {
+			t.Errorf("%q: hits = %+v", data, hits)
+		}
+	}
+}
+
 func TestAsciiLowerAndBlockFile(t *testing.T) {
 	t.Parallel()
 	if got := asciiLower("AZaz@[`{09\u00c9"); got != "azaz@[`{09\u00c9" {
