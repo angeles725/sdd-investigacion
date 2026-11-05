@@ -134,11 +134,11 @@ func SplitRow(line string, opt Options) (cells []string, ok bool) {
 	}
 	if closing {
 		s = s[:len(s)-1]
-		bare--
 	}
 	if s == "" {
 		return []string{}, true
 	}
+	// bare is only a capacity hint: it still counts the closing pipe, so a closed row reserves one slot too many.
 	cells = make([]string, 0, bare+1)
 	start := 0
 	for i := 0; i < len(s); i++ {
