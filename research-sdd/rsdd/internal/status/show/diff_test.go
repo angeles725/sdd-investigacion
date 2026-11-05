@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parallelfloor"
 )
 
 // The differential: the frozen excerpts of research-sdd-status.sh (testdata/legacy, verbatim bytes of origin/main
@@ -35,7 +37,13 @@ var (
 	stageErr  error
 )
 
+// seamMu serializes the Go runs that swap the package-level seams (the S5 differential swaps verifyState and the
+// gh/reconcile seams), so its scenarios can run in parallel. S2-S4 swap no seam and take no lock.
+var seamMu sync.Mutex
+
 func TestMain(m *testing.M) {
+	// The scenarios wait on the frozen bash script; t.Parallel() alone runs only GOMAXPROCS of them at once.
+	parallelfloor.Raise(8)
 	code := m.Run()
 	for _, d := range []string{stageDir, s4Dir} {
 		if d != "" {

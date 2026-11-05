@@ -117,6 +117,7 @@ func TestDifferentialS2(t *testing.T) {
 	t.Run("scenarios", func(t *testing.T) {
 		for _, sc := range s2Scenarios() {
 			t.Run(sc.name, func(t *testing.T) {
+				t.Parallel() // the frozen script runs concurrently; the Go side swaps no seam here
 				if sc.unreadable && os.Geteuid() == 0 {
 					t.Skip("mode-000 files are readable by root")
 				}
