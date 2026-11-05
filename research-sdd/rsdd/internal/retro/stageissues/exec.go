@@ -65,7 +65,7 @@ func osExec(env []string, dir, pathVar string) execFn {
 		case err == nil:
 		case errors.As(err, &ee):
 			res.RC = ee.ExitCode()
-			if res.RC < 0 { // killed by a signal: the shell reports 128+N, and the child is not inspectable here
+			if res.RC == -1 { // killed by a signal: the shell reports 128+N, and the child is not inspectable here
 				res.RC = 255
 			}
 		default:
