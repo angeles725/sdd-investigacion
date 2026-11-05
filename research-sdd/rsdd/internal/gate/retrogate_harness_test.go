@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 )
 
 // The rig of the retro-gate tests: a world is a temp root holding a staged toolbelt (the live lib/ and
@@ -83,10 +84,11 @@ func (w *rgWorld) write(p, content string) {
 	must(w.t, os.WriteFile(p, []byte(content), 0o644))
 }
 
+// script writes an executable through execfile.Write: the parallel subtests fork while worlds are built, and a stub
+// written with a plain WriteFile can fail to exec with ETXTBSY (#2697).
 func (w *rgWorld) script(p, body string) {
 	w.t.Helper()
-	w.write(p, "#!/usr/bin/env bash\n"+body)
-	must(w.t, os.Chmod(p, 0o755))
+	execfile.Write(w.t, p, "#!/usr/bin/env bash\n"+body)
 }
 
 // seeder replaces the staged stage-retro-issues.sh.

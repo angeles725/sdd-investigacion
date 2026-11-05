@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -233,12 +232,7 @@ func writeAuditsReport(out io.Writer, rows []auditRow, t auditTotals) {
 // sortAuditRows is `sort -n -t$'\t' -k1,1`: oldest first by the numeric first-commit epoch, equal epochs in the
 // byte order of the whole row (the last-resort comparison of sort in the C locale).
 func sortAuditRows(rows []auditRow) {
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].epoch != rows[j].epoch {
-			return rows[i].epoch < rows[j].epoch
-		}
-		return rows[i].serial() < rows[j].serial()
-	})
+	sortOldestFirst(rows, func(r auditRow) int64 { return r.epoch }, auditRow.serial)
 }
 
 // auditSkipped counts the truncated targets and names them, `for s in $skipped` splitting on whitespace.

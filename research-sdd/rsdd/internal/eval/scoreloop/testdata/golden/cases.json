@@ -1,0 +1,1702 @@
+{
+ "args-base-ref-no-value": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: --base-ref requires a value\nusage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "args-corpus-empty": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: --corpus is required\nusage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "args-corpus-no-value": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: --corpus requires a value\nusage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "args-flag-value-looks-like-flag": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: corpus not found or not a directory: --transcript\n",
+  "exit": 1
+ },
+ "args-help-long": {
+  "stdout": "",
+  "stderr": "usage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "args-help-short": {
+  "stdout": "",
+  "stderr": "usage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "args-none": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: --corpus is required\nusage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "args-repeated-corpus-last-wins": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "args-since-no-value": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: --since requires a value\nusage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "args-transcript-is-directory": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: --transcript file not found: {{S}}\n",
+  "exit": 2
+ },
+ "args-transcript-missing-file": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: --transcript file not found: {{S}}/nope.jsonl\n",
+  "exit": 2
+ },
+ "args-transcript-no-value": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: --transcript requires a value\nusage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "args-unknown-flag": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: unknown argument: --bogus-flag\nusage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "args-unknown-positional": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: unknown argument: stray\nusage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "args-until-no-value": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: --until requires a value\nusage: score-loop-transcript.sh --corpus \u003cdir\u003e [--transcript \u003cjsonl-file\u003e]\n                                 [--base-ref \u003cref\u003e] [--since \u003cdate\u003e] [--until \u003cdate\u003e]\n",
+  "exit": 2
+ },
+ "base64-absent-no-transcript-needs-nothing": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "base64-absent-with-transcript": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-block-prefix": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-cap-leading-zero-is-decimal": {
+  "stdout": "C1 n/a 10 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-cap-override-300": {
+  "stdout": "C1 n/a 201 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-cap-override-large-weight": {
+  "stdout": "C1 n/a 1500 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-cap-override-zero": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "score-loop-transcript.sh: WARN: implausible block range B1-B2 in commit {{SHA}} (span \u003e0) — counting as 1 block\n",
+  "exit": 0
+ },
+ "blocks-commit-regex-invalid": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_BLOCK_COMMIT_REGEX is not a valid regular expression: error parsing regexp: missing closing ): `^(research`\n",
+  "exit": 2
+ },
+ "blocks-commit-regex-override": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-commit-regex-too-few-groups": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_BLOCK_COMMIT_REGEX needs at least 2 capture groups (prefix, text after the colon), got 0\n",
+  "exit": 2
+ },
+ "blocks-cut-by-arrow": {
+  "stdout": "C1 fail 0 block commits in window (1 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-cut-by-em-dash": {
+  "stdout": "C1 fail 0 block commits in window (1 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-docs-prefix-excluded": {
+  "stdout": "C1 fail 0 block commits in window (2 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-empty-scope-no-match": {
+  "stdout": "C1 fail 0 block commits in window (2 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-first-id-only": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-id-before-delimiter-wins": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-id-regex-invalid": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_BLOCK_ID_REGEX is not a valid regular expression: error parsing regexp: missing closing ): `B([0-9]+`\n",
+  "exit": 2
+ },
+ "blocks-id-regex-no-groups": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_BLOCK_ID_REGEX needs at least 1 capture group (the start block number), got 0\n",
+  "exit": 2
+ },
+ "blocks-id-regex-override": {
+  "stdout": "C1 n/a 3 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-long-subject": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-missing-space-after-colon": {
+  "stdout": "C1 fail 0 block commits in window (2 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-no-block-id": {
+  "stdout": "C1 fail 0 block commits in window (2 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-none-in-history": {
+  "stdout": "C1 fail 0 block commits in window (2 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-preamble-before-id": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-prefix-case-sensitive": {
+  "stdout": "C1 fail 0 block commits in window (2 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-question-regex-invalid": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_QUESTION_REGEX is not a valid regular expression: error parsing regexp: missing closing ): `(?i)(`\n",
+  "exit": 2
+ },
+ "blocks-range-at-cap-counts-in-full": {
+  "stdout": "C1 n/a 51 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-range-equal-ends": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-range-huge-warns": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "score-loop-transcript.sh: WARN: implausible block range B1000-B1200 in commit {{SHA}} (span \u003e50) — counting as 1 block\n",
+  "exit": 0
+ },
+ "blocks-range-leading-zeros-warn-keeps-text": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "score-loop-transcript.sh: WARN: implausible block range B0007-B0300 in commit {{SHA}} (span \u003e50) — counting as 1 block\n",
+  "exit": 0
+ },
+ "blocks-range-leading-zeros-weight": {
+  "stdout": "C1 n/a 3 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-range-over-cap-warns": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "score-loop-transcript.sh: WARN: implausible block range B1-B52 in commit {{SHA}} (span \u003e50) — counting as 1 block\n",
+  "exit": 0
+ },
+ "blocks-range-reversed-weight-1": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-range-weight-3": {
+  "stdout": "C1 n/a 3 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-range-weight-3-two-commits": {
+  "stdout": "C1 n/a 4 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-retro-citation-cut-by-paren": {
+  "stdout": "C1 fail 0 block commits in window (1 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-single": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-stop-regex-invalid": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_STOP_TOKEN_REGEX is not a valid regular expression: error parsing regexp: missing closing ]: `[`\n",
+  "exit": 2
+ },
+ "blocks-subject-with-tab-and-backslash": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-two-plain": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-malformed-transcript-reports-count": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-no-block-commit-in-window": {
+  "stdout": "C1 fail 0 block commits in window (2 candidate commit(s) examined; ts-parse-errors=0)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 0 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-noise-is-not-operator-input": {
+  "stdout": "C1 pass 4 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-operator-after-last-commit": {
+  "stdout": "C1 pass 4 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-operator-before-first-commit": {
+  "stdout": "C1 pass 4 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-operator-exactly-at-commit-a": {
+  "stdout": "C1 pass 4 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-operator-exactly-at-commit-b": {
+  "stdout": "C1 pass 4 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-operator-in-every-gap": {
+  "stdout": "C1 fail 4 block commits but 3 of 3 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-operator-in-first-gap": {
+  "stdout": "C1 fail 4 block commits but 1 of 3 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-operator-in-last-gap": {
+  "stdout": "C1 fail 4 block commits but 1 of 3 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-operator-in-middle-gap": {
+  "stdout": "C1 fail 4 block commits but 1 of 3 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-pass-no-operator-between": {
+  "stdout": "C1 pass 4 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-range-then-commit-with-operator-between": {
+  "stdout": "C1 fail 4 block commits but 1 of 3 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-range-weight-one-commit-passes": {
+  "stdout": "C1 pass 3 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 3 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-same-epoch-commits-never-gap": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-same-epoch-then-later-commit": {
+  "stdout": "C1 fail 3 block commits but 1 of 2 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 3 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-single-block-with-transcript": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 1 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-tied-operator-and-assistant-times": {
+  "stdout": "C1 fail 2 block commits but 1 of 1 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-two-blocks-with-operator-between": {
+  "stdout": "C1 fail 2 block commits but 1 of 1 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-two-operators-in-one-gap-count-once": {
+  "stdout": "C1 fail 4 block commits but 1 of 3 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 4 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-unrecognised-shape-outranks-single-block": {
+  "stdout": "C1 degraded unrecognized transcript shape\nC2 degraded unrecognized transcript shape\nC3 degraded unrecognized transcript shape\nC4 degraded unrecognized transcript shape\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c1-zero-blocks-with-unrecognised-shape": {
+  "stdout": "C1 degraded unrecognized transcript shape\nC2 degraded unrecognized transcript shape\nC3 degraded unrecognized transcript shape\nC4 degraded unrecognized transcript shape\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-assistant-then-operator-at-same-second": {
+  "stdout": "C1 fail 0 block commits in window (0 candidate commit(s) examined; ts-parse-errors=0)\nC2 fail 1 of 1 final returns end in a question (first @ 1780272300)\nC3 pass no compaction, 0 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=1 after_stop_unwitnessed=1\nSUMMARY pass=1 fail=3 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-blank-line-inside-final-paragraph-splits": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-closer-before-opener": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-closing-bold": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-closing-code": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-closing-italic": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-closing-mixed-emphasis": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-content-as-plain-string": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-crlf-final-question": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-crlf-lines": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-do-you-want-upper": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-empty-text": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-every-final-counted": {
+  "stdout": "C1 fail 0 block commits in window (0 candidate commit(s) examined; ts-parse-errors=0)\nC2 fail 2 of 3 final returns end in a question (first @ 1780272300)\nC3 pass no compaction, 0 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=1 after_stop_unwitnessed=1\nSUMMARY pass=1 fail=3 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-first-match-epoch-is-reported": {
+  "stdout": "C1 fail 0 block commits in window (0 candidate commit(s) examined; ts-parse-errors=0)\nC2 fail 2 of 3 final returns end in a question (first @ 1780272420)\nC3 pass no compaction, 0 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=1 after_stop_unwitnessed=1\nSUMMARY pass=1 fail=3 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-no-question": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-non-text-blocks-only": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-only-newlines": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-only-the-last-assistant-before-an-operator-counts": {
+  "stdout": "C1 fail 0 block commits in window (0 candidate commit(s) examined; ts-parse-errors=0)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 0 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=1 after_stop_unwitnessed=1\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-operator-turns-only-has-no-final-messages": {
+  "stdout": "C1 fail 0 block commits in window (0 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a transcript has no assistant final messages (empty-input)\nC3 pass no compaction, 0 block(s)\nC4 n/a transcript has no assistant final messages (empty-input)\nSUMMARY pass=1 fail=1 n/a=2 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-question-in-earlier-line-of-final-paragraph": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-question-in-earlier-paragraph-not-counted": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-question-mark-ends": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-question-mark-mid-line": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-question-regex-override": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-question-regex-override-empty-is-default": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-question-regex-override-is-case-insensitive": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-question-regex-override-replaces-default": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-shall-I": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-should-I-capitalised": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-spanish-opener-without-closer": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-spanish-pair": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-spanish-pair-across-lines": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-tool-results-do-not-flush-the-final": {
+  "stdout": "C1 fail 0 block commits in window (0 candidate commit(s) examined; ts-parse-errors=0)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 0 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=1 after_stop_unwitnessed=1\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-trailing-blank-lines": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-trailing-space-after-mark": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-two-openers-then-closer": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-whitespace-only-last-line": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c2-whitespace-only-line-joins-paragraph": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-boundary-after-every-block": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 fail compaction detected; 2 block commit(s) before, 0 after (no continuation past compaction)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-boundary-before-every-block": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 0 block commit(s) before, 2 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-boundary-between-blocks": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 1 block commit(s) before, 1 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-boundary-exactly-at-a-block-counts-after": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 1 block commit(s) before, 1 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-boundary-exactly-at-first-block-counts-after": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 0 block commit(s) before, 2 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-compaction-record-without-timestamp-is-skipped": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-compaction-record-without-type-is-skipped": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-first-compaction-wins": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 1 block commit(s) before, 1 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-later-boundary-ignored-after-summary": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 0 block commit(s) before, 2 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-no-block-commits": {
+  "stdout": "C1 fail 0 block commits in window (1 candidate commit(s) examined; ts-parse-errors=0)\nC2 pass 0 of 1 final returns end in a question\nC3 fail compaction detected; 0 block commit(s) before, 0 after (no continuation past compaction)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=1 fail=3 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-none-is-the-best-outcome": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-other-system-subtype-is-not-compaction": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-out-of-span-block-degrades": {
+  "stdout": "C1 degraded 1 of 2 block commit(s) outside transcript span [2026-06-01T00:10:00Z,2026-06-01T00:30:00Z]; cannot assess operator-input gaps for them\nC2 pass 0 of 1 final returns end in a question\nC3 degraded 1 of 2 block commit(s) outside transcript span [2026-06-01T00:10:00Z,2026-06-01T00:30:00Z]; cannot assess compaction timing for them\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=1 fail=1 n/a=0 degraded=2\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-range-weights-before-and-after": {
+  "stdout": "C1 pass 5 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 3 block commit(s) before, 2 after\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-subtype-boundary-on-non-system-type": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-summary-between-blocks": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 1 block commit(s) before, 1 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-summary-flag-false": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-summary-flag-null": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-summary-flag-on-assistant-record": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 1 block commit(s) before, 1 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-summary-flag-truthy-string": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 1 block commit(s) before, 1 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-summary-flag-zero-is-truthy": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 1 block commit(s) before, 1 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c3-system-without-subtype": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-final-message-question-and-stop": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-next-not-stop": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=NOT-STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-next-stale": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded research-sdd-status.sh --next reports STALE: STALE | state is inconsistent\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-next-stale-on-later-line-is-not-stale": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=NOT-STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-next-stop-not-first-line-is-not-stop": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=NOT-STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-next-stop-without-space": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=NOT-STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-pass": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-backlog-unreadable-rows": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: [backlog-unreadable: 2 rows] (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-backlog-unreadable-unverified": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: [backlog-unreadable: unverified] (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-bare-form": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-bracket-with-open-bracket-inside": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: [a [b] (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-exhausted-with-trailing-text": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: unrecognized STOP form: read-only-investigable exhausted (0) and more (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-extra-lines-ignored": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-issue-coverage-unverified": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: [issue-coverage: unverified] (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-no-active-focus": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: no active focus (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-no-active-focus-prefix-only": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: no active focus (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-no-active-focus-with-brackets": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: no active focus [issue-coverage: unverified] [b] (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-outline-fully-covered": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-outline-fully-covered-non-digits": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: unrecognized STOP form: outline fully covered (a/b) (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-qualified-declared-non-empty-queue-fails": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-qualified-empty-queue-degrades": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: [x: 1] (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-qualified-stop-absent-fails": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: [x: 1] (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-qualified-undeclared-queue-degrades": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: [x: 1] (no campaign queue declared; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-token-absent": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-two-brackets-joined": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: [a: 1] [b: 2] (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-undeclared-no-brackets": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: no active focus (no campaign queue declared; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-unknown-form": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: unrecognized STOP form: something else (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-unknown-form-empty-rest": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: unrecognized STOP form:  (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-unknown-form-truncated-at-80": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: unrecognized STOP form: abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-qual-unknown-form-without-pipe": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP is qualified — not a clean zero-open exhaustion: unrecognized STOP form: STOP x (stop token present; campaign queue empty; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-active-without-pending-is-undeclared": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 n/a no campaign queue declared — cannot verify queue-drain (stop token present; status --next: STOP; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=1 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-bracket-label-with-spaces": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-drained-but-stop-absent": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-labelled-line-without-counts-then-drained": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-multi-digit-counts": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-multifocus-drained": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-multifocus-mixed": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-multifocus-open-first": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-no-campaign-line": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 n/a no campaign queue declared — cannot verify queue-drain (stop token present; status --next: STOP; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=1 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-no-spaces-around-colon": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-non-empty-active": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-non-empty-pending": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-non-empty-stop-absent-next-not-stop": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=NOT-STOP queue=non-empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-pending-without-active-is-undeclared": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 n/a no campaign queue declared — cannot verify queue-drain (stop token present; status --next: STOP; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=1 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-repeated-counts-on-one-line": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-repeated-zero-counts-on-one-line": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-undeclared-none-line": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 n/a no campaign queue declared — cannot verify queue-drain (stop token present; status --next: STOP; 0 block commits after STOP)\nSUMMARY pass=3 fail=0 n/a=1 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-queue-word-before-campaign": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-status-both-fail-stderr-collected": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded research-sdd-status.sh failed (default exit=2, --next exit=2): boom\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-status-default-fails": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded research-sdd-status.sh failed (default exit=1, --next exit=0): synthetic operational failure\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-status-default-path-missing": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded research-sdd-status.sh not found or not readable at {{S}}/research-sdd-status.sh\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-status-next-fails": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded research-sdd-status.sh failed (default exit=0, --next exit=3)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-status-script-is-a-directory": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded research-sdd-status.sh failed (default exit=126, --next exit=126): {{S}}: {{S}}: Is a directory\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-status-script-missing": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded research-sdd-status.sh not found or not readable at {{S}}/no-such-status.sh\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-status-script-override-empty-uses-sibling": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-status-stderr-first-line-empty": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded research-sdd-status.sh failed (default exit=1, --next exit=0)\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-status-stderr-first-line-truncated-at-200": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded research-sdd-status.sh failed (default exit=1, --next exit=0): abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqr\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-status-warn-stderr-does-not-leak": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-absent": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-blockquote-wrapper": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-bold-wrapper": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-code-wrapper": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-in-earlier-paragraph": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-lowercase-is-absent": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-not-at-line-start": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-only-in-earlier-line": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-regex-override": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-regex-override-empty-is-default": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-regex-override-replaces-default": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-trailing-blank-lines": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4-stop-underscore-and-spaces-wrapper": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-after-last-record-and-grace-is-unwitnessed": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP honored inside the transcript but after_stop_unwitnessed=1: block commit(s) landed more than 0 min after STOP and outside the transcript span — cannot attribute them to this run\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-commit-days-later-is-unwitnessed": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP honored inside the transcript but after_stop_unwitnessed=1: block commit(s) landed more than 10 min after STOP and outside the transcript span — cannot attribute them to this run\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-commit-exactly-at-grace-end-counts": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-commit-five-minutes-after-counts": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-commit-one-second-before-stop-does-not": {
+  "stdout": "C1 pass 3 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 3 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-commit-one-second-past-grace-is-unwitnessed": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP honored inside the transcript but after_stop_unwitnessed=1: block commit(s) landed more than 10 min after STOP and outside the transcript span — cannot attribute them to this run\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-commit-same-second-as-stop-counts": {
+  "stdout": "C1 pass 3 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 3 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-counted-and-unwitnessed-together": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1 after_stop_unwitnessed=2\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-counted-outranks-unwitnessed-and-qualifier": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1 after_stop_unwitnessed=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-explicit-base-ref-window-is-respected": {
+  "stdout": "C1 degraded 1 of 2 block commit(s) outside transcript span [2026-06-01T00:00:00Z,2026-06-01T00:25:00Z]; cannot assess operator-input gaps for them\nC2 pass 0 of 1 final returns end in a question\nC3 degraded 1 of 2 block commit(s) outside transcript span [2026-06-01T00:00:00Z,2026-06-01T00:25:00Z]; cannot assess compaction timing for them\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=1 fail=1 n/a=0 degraded=2\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-explicit-window-excludes-later-commit": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-explicit-window-includes-later-commit-as-given": {
+  "stdout": "C1 degraded 1 of 3 block commit(s) outside transcript span [2026-06-01T00:00:00Z,2026-06-01T00:25:00Z]; cannot assess operator-input gaps for them\nC2 pass 0 of 1 final returns end in a question\nC3 degraded 1 of 3 block commit(s) outside transcript span [2026-06-01T00:00:00Z,2026-06-01T00:25:00Z]; cannot assess compaction timing for them\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=1 fail=1 n/a=0 degraded=2\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-grace-huge-counts-days-later": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-grace-one-minute": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1 after_stop_unwitnessed=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-grace-zero-makes-five-minutes-unwitnessed": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP honored inside the transcript but after_stop_unwitnessed=1: block commit(s) landed more than 0 min after STOP and outside the transcript span — cannot attribute them to this run\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-grace-zero-same-second-still-counts": {
+  "stdout": "C1 pass 3 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 3 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-implausible-range-after-stop-warns-again": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "score-loop-transcript.sh: WARN: implausible block range B1-B900 in commit {{SHA}} (span \u003e50) — counting as 1 block\n",
+  "exit": 0
+ },
+ "c4w-inside-transcript-span-counts-despite-zero-grace": {
+  "stdout": "C1 pass 3 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 3 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-later-commit-with-stop-absent": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-later-commits-on-an-oos-default-window": {
+  "stdout": "C1 pass 3 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 3 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-non-block-commit-after-stop-ignored": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-none-after-stop": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-range-weights-commits-after-stop": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=4\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-range-weights-unwitnessed": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP honored inside the transcript but after_stop_unwitnessed=3: block commit(s) landed more than 10 min after STOP and outside the transcript span — cannot attribute them to this run\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-unwitnessed-with-open-queue-still-fails-on-queue": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP honored inside the transcript but after_stop_unwitnessed=1: block commit(s) landed more than 10 min after STOP and outside the transcript span — cannot attribute them to this run\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-unwitnessed-with-qualified-stop": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP honored inside the transcript but after_stop_unwitnessed=1: block commit(s) landed more than 10 min after STOP and outside the transcript span — cannot attribute them to this run; STOP is also qualified: [x: 1]\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "c4w-unwitnessed-with-undeclared-queue": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 degraded STOP honored inside the transcript but after_stop_unwitnessed=1: block commit(s) landed more than 10 min after STOP and outside the transcript span — cannot attribute them to this run\nSUMMARY pass=3 fail=0 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "corpus-absent": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: corpus not found or not a directory: {{CORPUS}}\n",
+  "exit": 1
+ },
+ "corpus-is-a-file": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: corpus not found or not a directory: {{CORPUS}}\n",
+  "exit": 1
+ },
+ "corpus-not-a-git-repo": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: corpus is not a git repository: {{CORPUS}}\n",
+  "exit": 1
+ },
+ "corpus-repo-without-commits": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: git log failed (exit 128) for window 'HEAD': fatal: bad revision 'HEAD' \n",
+  "exit": 1
+ },
+ "date-without-d-support": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "env-bad-grace-outranks-absent-corpus": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_C4_AFTER_STOP_GRACE must be a non-negative integer (minutes), got: x\n",
+  "exit": 2
+ },
+ "env-bad-grace-outranks-missing-transcript": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: --transcript file not found: {{S}}/nope\n",
+  "exit": 2
+ },
+ "env-both-bad-grace-reported-first": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_C4_AFTER_STOP_GRACE must be a non-negative integer (minutes), got: x\n",
+  "exit": 2
+ },
+ "env-grace-empty-is-default": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "env-grace-leading-zero-is-decimal": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "env-grace-negative": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_C4_AFTER_STOP_GRACE must be a non-negative integer (minutes), got: -1\n",
+  "exit": 2
+ },
+ "env-grace-not-integer": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_C4_AFTER_STOP_GRACE must be a non-negative integer (minutes), got: abc\n",
+  "exit": 2
+ },
+ "env-range-cap-empty-is-default": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "env-range-cap-not-integer": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_BLOCK_RANGE_CAP must be a non-negative integer, got: abc\n",
+  "exit": 2
+ },
+ "git-absent-degrades-whole-instrument": {
+  "stdout": "C1 degraded git-not-found\nC2 degraded git-not-found\nC3 degraded git-not-found\nC4 degraded git-not-found\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "score-loop-transcript.sh: degraded: git not found in PATH\n",
+  "exit": 3
+ },
+ "git-absent-with-transcript": {
+  "stdout": "C1 degraded git-not-found\nC2 degraded git-not-found\nC3 degraded git-not-found\nC4 degraded git-not-found\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "score-loop-transcript.sh: degraded: git not found in PATH\n",
+  "exit": 3
+ },
+ "git-bad-base-ref": {
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: git log failed (exit 128) for window 'not-a-real-ref..HEAD': fatal: bad revision 'not-a-real-ref..HEAD' \n",
+  "exit": 1
+ },
+ "jq-absent-no-transcript-needs-nothing": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-absent-with-override": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: jq not found in PATH — transcript parsing unavailable\nC2 degraded degraded: jq not found in PATH — transcript parsing unavailable\nC3 degraded degraded: jq not found in PATH — transcript parsing unavailable\nC4 degraded degraded: jq not found in PATH — transcript parsing unavailable\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-absent-without-override": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-both-overrides": {
+  "stdout": "C1 fail 2 block commits but 1 of 1 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 1 block commit(s) before, 1 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-compact-override": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass compaction detected; 1 block commit(s) before, 1 after\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-default-filters": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-operator-override": {
+  "stdout": "C1 fail 2 block commits but 1 of 1 gap(s) had operator input between them\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-override-empty-output-drops-records": {
+  "stdout": "C1 degraded unrecognized transcript shape\nC2 degraded unrecognized transcript shape\nC3 degraded unrecognized transcript shape\nC4 degraded unrecognized transcript shape\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-override-empty-value-is-default": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-override-invalid-program": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-override-non-boolean-is-not-operator": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "jq-override-runtime-error": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-backslash-roundtrip": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-clean": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-content-element-null": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-content-element-string": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-content-non-text-blocks-ignored": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-content-number": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-content-object": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-content-text-array-fails": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-content-text-null": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-content-text-number": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-empty-file": {
+  "stdout": "C1 degraded unrecognized transcript shape\nC2 degraded unrecognized transcript shape\nC3 degraded unrecognized transcript shape\nC4 degraded unrecognized transcript shape\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-equal-timestamps-keep-file-order": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-headless-run": {
+  "stdout": "C1 degraded unrecognized transcript shape\nC2 degraded unrecognized transcript shape\nC3 degraded unrecognized transcript shape\nC4 degraded unrecognized transcript shape\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-long-run": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-malformed-line": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-message-is-array": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-message-is-string": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-message-null": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-no-origin-anywhere": {
+  "stdout": "C1 degraded unrecognized transcript shape\nC2 degraded unrecognized transcript shape\nC3 degraded unrecognized transcript shape\nC4 degraded unrecognized transcript shape\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-no-trailing-newline": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-origin-false-on-user-fails": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-origin-kind-number": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-origin-string-on-assistant-ok": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-origin-string-on-user-fails": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-partial-origin-still-scores": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-pretty-printed-values": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-record-without-timestamp-skipped": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-record-without-type-skipped": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-records-out-of-order": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-rollout-response-item": {
+  "stdout": "C1 degraded unrecognized transcript shape\nC2 degraded unrecognized transcript shape\nC3 degraded unrecognized transcript shape\nC4 degraded unrecognized transcript shape\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-timestamp-empty-dropped": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-timestamp-null-skipped": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-timestamp-number-dropped": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-top-level-array": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-top-level-number": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-top-level-string": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-top-level-true": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-truncated-last-line": {
+  "stdout": "C1 degraded 2 block commits in window; degraded: transcript did not parse cleanly as JSON\nC2 degraded degraded: transcript did not parse cleanly as JSON\nC3 degraded degraded: transcript did not parse cleanly as JSON\nC4 degraded degraded: transcript did not parse cleanly as JSON\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-two-values-on-one-line": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-type-false-skipped": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-type-number-not-assistant": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-unicode-and-emoji": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273500)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=0\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-whitespace-only": {
+  "stdout": "C1 degraded unrecognized transcript shape\nC2 degraded unrecognized transcript shape\nC3 degraded unrecognized transcript shape\nC4 degraded unrecognized transcript shape\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "shape-zero-operator-zero-assistant-with-origin": {
+  "stdout": "C1 degraded unrecognized transcript shape\nC2 degraded unrecognized transcript shape\nC3 degraded unrecognized transcript shape\nC4 degraded unrecognized transcript shape\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-fractional-seconds": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-garbage-text-skipped": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-invalid-hour-24": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-lowercase-t-and-z": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-mixed-offsets-in-order": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-no-seconds": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-offset-colon": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-offset-hours-only": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-offset-no-colon": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-order-fraction-vs-whole-second": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 1 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=2\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-order-offsets-sort-by-instant": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-rfc3339-z": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-space-separator": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-unpadded": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-unparsable-middle-skipped": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-zoneless-is-utc": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "time-zoneless-space": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-base-ref-and-since": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-base-ref-head-is-empty": {
+  "stdout": "C1 fail 0 block commits in window (0 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-base-ref-last-commit": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-base-ref-two-back": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-commit-with-offset-date": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-default-empty-for-transcript-span": {
+  "stdout": "C1 fail 0 block commits in window (0 candidate commit(s) examined; ts-parse-errors=0)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 0 block(s)\nC4 degraded STOP honored inside the transcript but after_stop_unwitnessed=2: block commit(s) landed more than 10 min after STOP and outside the transcript span — cannot attribute them to this run\nSUMMARY pass=2 fail=1 n/a=0 degraded=1\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-default-is-transcript-span": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 1 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-empty-counts-examined": {
+  "stdout": "C1 fail 0 block commits in window (0 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-examined-counts-non-block-commits": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-explicit-base-ref-with-transcript": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 1 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-explicit-since-widens-to-out-of-span": {
+  "stdout": "C1 degraded 1 of 2 block commit(s) outside transcript span [2026-06-01T00:10:00Z,2026-06-01T00:20:00Z]; cannot assess operator-input gaps for them\nC2 pass 0 of 1 final returns end in a question\nC3 degraded 1 of 2 block commit(s) outside transcript span [2026-06-01T00:10:00Z,2026-06-01T00:20:00Z]; cannot assess compaction timing for them\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=2 fail=0 n/a=0 degraded=2\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-explicit-until-keeps-span-lower-bound-off": {
+  "stdout": "C1 degraded 1 of 2 block commit(s) outside transcript span [2026-06-01T00:10:00Z,2026-06-01T00:20:00Z]; cannot assess operator-input gaps for them\nC2 pass 0 of 1 final returns end in a question\nC3 degraded 1 of 2 block commit(s) outside transcript span [2026-06-01T00:10:00Z,2026-06-01T00:20:00Z]; cannot assess compaction timing for them\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=2 fail=0 n/a=0 degraded=2\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-since": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-since-and-until": {
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "window-until": {
+  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ }
+}

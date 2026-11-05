@@ -59,7 +59,7 @@ probes() {
   if [ "$VS_DEF" = "$EXP_DEF" ]; then PR[vs_def]=ok; else PR[vs_def]="derived deferred_open=${VS_DEF:-?} want $EXP_DEF"; fi
   if [ "$rc" = 0 ] && ! grep -qE '^ +FAIL ' <<<"$out"; then PR[vs_blocks]=ok; else PR[vs_blocks]="rc=$rc; $(grep -E '^ +FAIL ' <<<"$out" | head -2 | tr '\n' '~')"; fi
   # --- research-sdd-status.sh --sync-state on a COPY (it rewrites the envelope from its own derivations) ---
-  d="$TMP/sync.$RANDOM"; mkdir -p "$d"; cp "$FX/state/RESEARCH-STATE.md" "$d/"
+  d="$(mktemp -d "$TMP/sync.XXXXXX")" || exit 2; cp "$FX/state/RESEARCH-STATE.md" "$d/"
   bash "$t/research-sdd-status.sh" "$d" --sync-state >/dev/null 2>"$TMP/st.err"
   ST_INV="$(sed -n 's/^investigable_open: *//p' "$d/RESEARCH-STATE.md" | head -1)"
   ST_DEF="$(sed -n 's/^deferred_open: *//p' "$d/RESEARCH-STATE.md" | head -1)"
@@ -81,7 +81,7 @@ probes() {
   out="$(bash "$t/research-sdd-status.sh" "$FX/nogaps" 2>/dev/null | grep 'saturation')"
   if [ "$out" = "  saturation      : no New-gaps column (header:  It | Fo|cus | Block )" ]; then PR[st_hdr]=ok; else PR[st_hdr]="$(printf '%s' "$out" | od -c | head -3 | tr '\n' '~')"; fi
   # --- research-sdd-status.sh count_open_contra: STATUS is the 4th cell of the CONTRADICTIONS ledger (#2161) ---
-  d="$TMP/contra.$RANDOM"; mkdir -p "$d"; cp "$FX/state/RESEARCH-STATE.md" "$FX/contra/CONTRADICTIONS.md" "$d/"
+  d="$(mktemp -d "$TMP/contra.XXXXXX")" || exit 2; cp "$FX/state/RESEARCH-STATE.md" "$FX/contra/CONTRADICTIONS.md" "$d/"
   out="$(bash "$t/research-sdd-status.sh" "$d" 2>/dev/null | grep 'contradictions')"
   if [ "$out" = "  contradictions  : 5 open" ]; then PR[st_contra]=ok; else PR[st_contra]="${out:-<no contradictions line>}"; fi
   # --- research-sdd-status.sh _read_focuses_tok_uncached: the function is lifted out of the script and called per row ---
@@ -89,7 +89,7 @@ probes() {
   out="$(bash -c '. "$1"; for k in f1 f2 f3 f4 f5 f6 f7 f8 f9; do printf "%s=%s " "$k" "$(_read_focuses_tok_uncached "$2" "RESEARCH-STATE-$k.md" 2>/dev/null)"; done' _ "$TMP/foctok.fn.sh" "$FX/focuses/FOCUSES.md")"
   if [ "$out" = "f1=stopped f2=paused f3=planned f4=document f5=active f6=stopped f7=paused f8=planned f9=stopped " ]; then PR[st_foctok]=ok; else PR[st_foctok]="$out"; fi
   # --- focus-partition-audit.sh: the Research-State column must still resolve its file after an escaped pipe ---
-  d="$TMP/fpa.$RANDOM"; mkdir -p "$d"
+  d="$(mktemp -d "$TMP/fpa.XXXXXX")" || exit 2
   for k in 1 2 3 4 5 6 7 8 9; do mkdir -p "$d/subj/zzUnit$k"; : > "$d/subj/zzUnit$k/A.java"; done
   out="$(bash "$t/focus-partition-audit.sh" "$FX/focuses" --subject "$d/subj" 2>&1)"
   if grep -qF 'FOCUSES.md rows: 9 classified, 0 unclassifiable' <<<"$out" && grep -qF 'unresolved RESEARCH-STATE references: 0' <<<"$out" && grep -qF 'units: 9/9 chartered' <<<"$out"; then PR[fpa_rows]=ok
@@ -103,7 +103,7 @@ probes() {
   if ! grep -q 'empty-backlog-skeleton' <<<"$out" && ! grep -q '^PROPOSE d1' <<<"$out"; then PR[mb_doc]=ok; else PR[mb_doc]="$(grep -E 'empty-backlog-skeleton|^PROPOSE d1' <<<"$out" | head -2 | tr '\n' '~')"; fi
   # --- verify-sources.sh: every SOURCES.md reader over one registry with escaped pipes in the File / Origin / last cells ---
   # Snapshot files whose names carry a pipe are created here (a pipe in a committed file name is not portable).
-  d="$TMP/vsrc.$RANDOM"; mkdir -p "$d"; cp -r "$FX/sources/." "$d/"
+  d="$(mktemp -d "$TMP/vsrc.XXXXXX")" || exit 2; cp -r "$FX/sources/." "$d/"
   printf 'snap\n' > "$d/sources/web-snapshots/w|esc.html"
   printf 'snap\n' > "$d/sources/web-snapshots/w\|even.html"; printf 'snap\n' > "$d/sources/web-snapshots/w\\\\|triple.html"   # backslash names: GNU sha256sum escapes them (#2182)
   out="$(bash "$t/verify-sources.sh" "$d" 2>&1)"

@@ -65,10 +65,11 @@ func lowerASCII(s string) string {
 
 // inRetrosPath is `-path '*/retros/*.md'`: fnmatch without FNM_PATHNAME, so each `*` also crosses slashes and
 // the whole path (the target prefix included) is matched. The FIRST "/retros/" leaves the longest remainder, so
-// it decides: the remainder must hold at least the ".md" of the pattern.
+// it decides. The ".md" of the pattern fits in the remainder by itself: the suffix cannot overlap the "/" that
+// ends "/retros/".
 func inRetrosPath(path string) bool {
 	i := strings.Index(path, "/retros/")
-	return i >= 0 && strings.HasSuffix(path, ".md") && len(path)-(i+len("/retros/")) >= len(".md")
+	return i >= 0 && strings.HasSuffix(path, ".md")
 }
 
 // notGitPath is `-not -path '*/.git/*'`.
@@ -76,11 +77,7 @@ func notGitPath(path string) bool { return !strings.Contains(path, "/.git/") }
 
 // isIndexName is `-iname '*index*.md'` on the basename: an index or manifest file, not a retro.
 func isIndexName(path string) bool {
-	base := path
-	if i := strings.LastIndexByte(path, '/'); i >= 0 {
-		base = path[i+1:]
-	}
-	l := lowerASCII(base)
+	l := lowerASCII(path[strings.LastIndexByte(path, '/')+1:])
 	return strings.HasSuffix(l, ".md") && strings.Contains(l[:len(l)-len(".md")], "index")
 }
 

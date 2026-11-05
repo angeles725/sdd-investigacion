@@ -1133,9 +1133,19 @@ g="$(RSDD_TEETH_DEBT="$ROOT/debt-bad1.txt" bash "$0" --decide-gremlins "$ROOT/gr
 if grep -q '^VERDICT: FAIL teeth debt list INVALID' <<<"$g"; then ok "debt: an invalid list FAILs a baseline failure too"
 else no "debt: baseline + invalid list wrong: $g"; fi
 g="$(RSDD_TEETH_DEBT="$MOD/teeth-debt.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1 ALL)"
-for c in corpus budget maint lint gate retro/stageissues core/gfm core/probe core/reasons verify sweep corroborate/kaitai corroborate/native corroborate/fidelity; do
-  if ! grep -qx "./internal/$c" <(bash "$0" --load-debt "$MOD/teeth-debt.txt"); then no "debt list: checked-in teeth-debt.txt lacks ./internal/$c"; fi
-done
+# The checked-in list loads completely: --load-debt returns exactly the file's package lines, read here with a plain
+# grep independent of the loader. Data-driven, so paying a package's debt (deleting its line, #2592) needs no edit here.
+# An absent file or a failing loader is a FAIL, never an empty-equals-empty pass; an emptied list (all debt paid)
+# passes under its own label so it reads as that state, not as a match.
+if [ ! -r "$MOD/teeth-debt.txt" ]; then no "debt list: checked-in teeth-debt.txt is absent or unreadable at $MOD"
+elif ! got_debt="$(bash "$0" --load-debt "$MOD/teeth-debt.txt")"; then no "debt list: --load-debt failed on the checked-in teeth-debt.txt"
+else
+  got_debt="$(LC_ALL=C sort <<<"$got_debt")"
+  want_debt="$(grep -oE '^\./internal/[^[:space:]]+' "$MOD/teeth-debt.txt" | LC_ALL=C sort)"
+  if [ "$want_debt" != "$got_debt" ]; then no "debt list: checked-in teeth-debt.txt loads as [${got_debt//$'\n'/ }], its package lines are [${want_debt//$'\n'/ }]"
+  elif [ -z "$want_debt" ]; then ok "debt list: the checked-in teeth-debt.txt lists no package (all teeth debt paid) and loads empty"
+  else ok "debt list: --load-debt reads every package line of the checked-in teeth-debt.txt and nothing else"; fi
+fi
 
 mkdir -p "$ROOT/st"; selftest_teeth "$ROOT/st"; unset RSDD_GO_SELFTEST_NESTED
 
