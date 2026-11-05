@@ -27,6 +27,15 @@ Intended divergences from the retired script (each pinned by a declared case of 
   that also holds a NUL is reported once (the raw and the NUL-stripped scan each reported it).
 - **Order is C-locale.** History entries are sorted bytewise (the script's `sort -u` followed the caller's locale), a working-tree walk
   reports in path order (the script: directory order), `--files-from` in list order.
+- **Corpus-root selection is bytewise.** Default mode narrows to the shallowest directory holding a `*block*.md` file; among equally
+  deep candidates the legacy script chose with `sort -k2,2` in the caller's locale, so `b` or `B` won depending on `LC_ALL`. The
+  engine picks the bytewise smallest (`B` before `a-` before `a_` before `b`), the same on every machine. Pinned by
+  `TestNarrowRootTieBreakIsByteOrder`; the differential runs the legacy script under `LC_ALL=C`.
+- **Committed scope is not a copy of the walk scope (no divergence, pinned).** The history scan matches the whole path, as the legacy
+  awk did: a `config.`-prefixed directory component puts everything under it in scope (`config.d/x.txt`, `app/config.old/x.txt`),
+  while the working-tree walk and `--files-from` test the base name only and so never look inside such a directory (legacy
+  behaviour, kept). The history scan excludes only the vendored names, not `.git`: a hand-built tree holding `sub/.git/notes.md` is
+  scanned, never skipped. Pinned by the `hist-scope-*`, `scope-wt-*` and `ff-config-*` cases and `TestCommittedScopeMatchesWholePath`.
 - **The live-install reminder matches the target name literally** (a name with a regex metacharacter matched other lines), and `.` / `..`
   use the physical directory name.
 - **No temporary files, no per-blob processes.** One `git cat-file --batch` streams every unique blob (the script started one `git`
