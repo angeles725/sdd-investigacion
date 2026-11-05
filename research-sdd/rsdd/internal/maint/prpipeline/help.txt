@@ -30,7 +30,7 @@
 #   state              exit  meaning
 #   merged               0   the PR merged
 #   usage                2   bad arguments, missing worktree, or a state dir inside the worktree
-#   degraded             3   a runtime dependency is missing (git gh gentle-ai python3, flock unless --no-gate)
+#   degraded             3   a runtime dependency is missing (git gh gentle-ai, flock unless --no-gate)
 #   restack-conflict    11   the merge of the base left unmerged paths; it was aborted, nothing was pushed
 #   bad-base-ref        23   the base ref does not resolve (git merge-base failed); nothing was merged or pushed
 #   dirty-tree          24   tracked files have uncommitted changes; stopped before any fetch, merge or push
