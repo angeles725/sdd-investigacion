@@ -188,7 +188,7 @@ func profSec(us int64) string { return fmt.Sprintf("%d.%06d", us/1000000, us%100
 // sweepRetros runs the sweep, writing the human report to out and the stderr lines to errw.
 func sweepRetros(o options, s cli.Stdio, out, errw io.Writer) sweepResult {
 	res := sweepResult{}
-	kitDir, err := resolveKit(o, s, errw)
+	kitDir, err := resolveKit(o, s)
 	if err != nil {
 		fmt.Fprintf(errw, "sweep-retros: %v\n", err)
 		res.rc = cli.ExitOperational

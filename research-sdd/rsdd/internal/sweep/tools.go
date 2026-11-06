@@ -61,7 +61,7 @@ type toolsTotals struct {
 
 // sweepTools runs the census, writing the report to out and the diagnostics to errw. It returns the exit code.
 func sweepTools(o options, s cli.Stdio, out, errw io.Writer, read readFunc) int {
-	kitDir, err := resolveKit(o, s, errw)
+	kitDir, err := resolveKit(o, s)
 	if err != nil {
 		fmt.Fprintf(errw, "sweep-tools: %v\n", err)
 		return cli.ExitOperational

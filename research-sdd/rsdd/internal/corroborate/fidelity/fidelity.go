@@ -114,9 +114,10 @@ func execute(args []string, s cli.Stdio, d deps) int {
 		}
 	}
 	e := &experiment{s: s, d: d}
+	toolbeltDir := toolbeltLookup(toolbelt, s)
 
 	if !fixturesSet {
-		tb, err := toolbeltDir(toolbelt, s)
+		tb, err := toolbeltDir()
 		if err != nil {
 			fmt.Fprintln(s.Err, err)
 			return cli.ExitUsage
@@ -145,7 +146,7 @@ func execute(args []string, s cli.Stdio, d deps) int {
 	e.javap = e.tool("RSDD_FIDELITY_JAVAP", "javap")
 	e.decompiler = s.Env("RSDD_FIDELITY_DECOMPILER")
 	if e.decompiler == "" {
-		tb, err := toolbeltDir(toolbelt, s)
+		tb, err := toolbeltDir()
 		if err != nil {
 			fmt.Fprintln(s.Err, err)
 			return cli.ExitUsage

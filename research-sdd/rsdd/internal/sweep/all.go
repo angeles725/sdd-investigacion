@@ -73,7 +73,7 @@ func RunAll(args []string, s cli.Stdio) int {
 		fmt.Fprintf(s.Err, "sweep-all: %v\n", err)
 		return cli.ExitUsage
 	}
-	kitDir, err := resolveKit(o, s, s.Err)
+	kitDir, err := resolveKit(o, s)
 	if err != nil {
 		fmt.Fprintf(s.Err, "sweep-all: %v\n", err)
 		return cli.ExitOperational

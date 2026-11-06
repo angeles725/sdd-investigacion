@@ -2,7 +2,6 @@ package sweep
 
 import (
 	"fmt"
-	"io"
 	"path/filepath"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
@@ -10,15 +9,14 @@ import (
 )
 
 // resolveKit is `cd -P -- "$_RSDD_SELF/.." && pwd -P`: the physical kit directory.
-// A run without --kit finds the kit root without naming a script; the resolver's warnings go to errw.
-func resolveKit(o options, s cli.Stdio, errw io.Writer) (string, error) {
+// A run without --kit finds the kit root without naming a script; the resolver's warnings go to the process's
+// stderr (s.Err) in every mode, never into the diagnostics a hook run merges into the context it hands the model.
+func resolveKit(o options, s cli.Stdio) (string, error) {
 	k := o.kit
 	if k == "" {
 		root, warns, err := kit.ResolveKitRoot(s.Env)
 		for _, w := range warns {
-			if !o.hook { // a hook run merges stderr into the context it hands the model: the line stays out of it
-				fmt.Fprintln(errw, w)
-			}
+			fmt.Fprintln(s.Err, w)
 		}
 		if err != nil {
 			return "", err

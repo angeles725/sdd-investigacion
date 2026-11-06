@@ -43,7 +43,7 @@ internal/corroborate/classfile/zip.go 391 legacy recorded when the ratchet was c
 internal/corroborate/decompile/decompile.go 407 legacy recorded when the ratchet was created (#2738)
 internal/corroborate/decompile/units.go 377 legacy recorded when the ratchet was created (#2738)
 internal/corroborate/fidelity/cell.go 226 legacy recorded when the ratchet was created (#2738)
-internal/corroborate/fidelity/fidelity.go 293 legacy recorded when the ratchet was created (#2738)
+internal/corroborate/fidelity/fidelity.go 294 legacy recorded when the ratchet was created (#2738)
 internal/corroborate/firmware/firmware.go 482 legacy recorded when the ratchet was created (#2738)
 internal/corroborate/firmware/trust_unix.go 204 legacy recorded when the ratchet was created (#2738)
 internal/corroborate/floss/args.go 495 legacy recorded when the ratchet was created (#2738)

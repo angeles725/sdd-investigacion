@@ -50,7 +50,8 @@ func TestSweepKitFound(t *testing.T) {
 }
 
 // A hook run hands its diagnostics to the model as context and a --json run promises one JSON document on stdout:
-// an invalid RESEARCH_SDD_KIT changes neither stdout nor the exit code, in a hook run the warning is not printed, in a --json run it is on stderr.
+// an invalid RESEARCH_SDD_KIT changes neither stdout nor the exit code, and the warning is on the process's stderr
+// in both modes, never in the hook's context.
 func TestSweepKitWarningStaysOutOfStdout(t *testing.T) {
 	suite := kitsite.Suite{Profile: kitsite.SystemPath, Bodies: siteBodies, Cmds: siteCmds}
 	for _, c := range siteCmds[1:] { // sweep all has no hook or --json mode
@@ -71,8 +72,6 @@ func TestSweepKitWarningStaysOutOfStdout(t *testing.T) {
 					warn += wantErr
 				} else if wantErr != "" {
 					t.Fatalf("the hook baseline wrote stderr: %q", wantErr)
-				} else {
-					warn = ""
 				}
 				if errOut != warn {
 					t.Fatalf("stderr %q, want %q", errOut, warn)

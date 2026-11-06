@@ -12,7 +12,7 @@ import (
 var siteBodies = map[string]string{}
 
 var siteCmds = []kitsite.Cmd{
-	{Name: "java-fidelity", Run: Run, Script: "toolbelt/decompile-java.sh", RelAsWritten: true, RC: 2, Err: "fixtures directory not found: @T@/tests/fixtures/java-fidelity-experiment\n"},
+	{Name: "java-fidelity", Run: Run, Script: "toolbelt/decompile-java.sh", Warn: true, RelAsWritten: true, RC: 2, Err: "fixtures directory not found: @T@/tests/fixtures/java-fidelity-experiment\n"},
 }
 
 func TestKitFoundWithoutAFlag(t *testing.T) {

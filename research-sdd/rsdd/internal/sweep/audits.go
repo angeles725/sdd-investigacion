@@ -118,7 +118,7 @@ func addedEpoch(g git.Runner, p, f string, now int64) int64 {
 
 // sweepAudits runs the sweep, writing the report to out and the diagnostics to errw. It returns the exit code.
 func sweepAudits(o options, s cli.Stdio, out, errw io.Writer) int {
-	kitDir, err := resolveKit(o, s, errw)
+	kitDir, err := resolveKit(o, s)
 	if err != nil {
 		fmt.Fprintf(errw, "sweep-audits: %v\n", err)
 		return cli.ExitOperational
