@@ -1,0 +1,1 @@
+{"schema":"gentle-ai.review-integration/v2","action":"started","next_transition":{"kind":"execute","execute":{"operation":"review.status","arguments":[{"token":"--cwd"},{"token":"/x"},{"token":"--lineage"},{"token":"L1"}]}}}

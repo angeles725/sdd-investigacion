@@ -17,10 +17,6 @@ import (
 //     head-kept slice when their total passes 7,500 minus its header and a 300 margin, which would drop exactly the
 //     tail this cap keeps. FailureCap stays below the largest value that never triggers that cut.
 //
-// One registered hook, verify-tool-catalog-hook.sh, is still bash and prints its whole output (kit issue #2749):
-// until its port, the worst case holds for the other hooks only, and TestEveryRegisteredHookIsCappedOrNamedDebt
-// names it.
-//
 // TestFailureCapFitsEveryConsumer derives both bounds from the registered hooks in .claude/settings.json and the pi
 // extension's own constants, so a ninth hook or a smaller pi budget turns it red instead of silently overflowing.
 const FailureCap = 800

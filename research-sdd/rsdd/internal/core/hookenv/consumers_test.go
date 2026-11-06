@@ -54,13 +54,12 @@ var cappedHooks = map[string]string{
 	"verify-registry-hook":     "rsdd verify registry-hook",
 	"verify-kit-clean-hook":    "rsdd verify kit-clean-hook",
 	"verify-skill-drift-hook":  "rsdd verify skill-drift --hook",
+	"verify-tool-catalog-hook": "rsdd verify tool-catalog-hook",
 }
 
 // uncappedHooks are registered hooks that still print their whole could-not-run output: debt, each with its issue.
 // Its port removes the entry here and adds one to cappedHooks.
-var uncappedHooks = map[string]string{
-	"verify-tool-catalog-hook": "#2749: still bash (lib/hook-emit.sh does not trim)",
-}
+var uncappedHooks = map[string]string{}
 
 // Every registered hook is either capped or a named debt: a ninth hook, or a capped hook that goes back to bash,
 // turns this red instead of silently widening the session's worst case.
