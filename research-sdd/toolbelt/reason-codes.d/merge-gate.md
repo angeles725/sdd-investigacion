@@ -4,4 +4,4 @@
 
   | state | exit | continuation |
   |---|---|---|
-  | `ci_skipped` | 1 | a required check did not run to success: find why the job was skipped (its `if:`, an upstream job, a path filter the exemption could not evaluate) and re-run it; do not remove the name from `--required-checks` to get past it unless the check is genuinely not required for this PR |
+  | `ci_skipped` | 1 | a required check did not run to success: find why the job was skipped (its `if:`, an upstream job) and re-run it; do not remove the name from `--required-checks` to get past it unless the check is genuinely not required for this PR |

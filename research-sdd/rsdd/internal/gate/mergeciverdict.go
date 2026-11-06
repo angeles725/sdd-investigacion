@@ -8,8 +8,9 @@ import "strings"
 // Declared divergence from the frozen merge-gate.sh (phase 8 slice 8.0): the jq counted the conclusions `skipped`
 // and `neutral` as green for every check, so a REQUIRED check GitHub reported as skipped (a job whose `if:` was
 // false, an upstream failure) merged as `ok`. Here a name in req must conclude `success`; `skipped` and `neutral`
-// stay acceptable only for checks outside req. A name the path-filter exemption removed from req is no longer
-// required. The refusal has its own verdict, never ci_failed, so the operator reads "skipped" and not "red".
+// stay acceptable only for checks outside req. The path-filter exemption removes from req only a name with no run
+// at all (mergefinish.go), so it never excuses a run that concluded skipped. The refusal has its own verdict, never
+// ci_failed, so the operator reads "skipped" and not "red".
 func ciVerdict(latest []ciRun, req []string) string {
 	var failed, pending, skipped []string
 	for _, r := range latest {

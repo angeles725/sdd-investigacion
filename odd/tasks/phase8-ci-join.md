@@ -124,3 +124,12 @@ PR until slice 10 (accepted, about 7 runner-minutes). Session 10 reads this docu
 without having looked: an empty shard set, an expected list derived from the run it judges, a renamed job.
 
 L4 (2026-11-06, T0 writer, S3): `ciVerdict` moved to `internal/gate/mergeciverdict.go`; a name in the required list must conclude success, a required skipped/neutral latest run gives `ci_skipped (names)` (precedence failed, pending, skipped, missing). RED before the fix: `mergeci_test.go:89: required skipped: got "ok" want "ci_skipped (toolbelt-tests)"` (9 cases red). Differential: the old "skipped neutral" case now covers non-required checks only; the divergence is named in `TestCISkippedRequiredDiverges` (legacy answers allow, Go refuses). Consumers checked: `core/kitwait/wait.go` retries only `refuse: ci_pending`, so `ci_skipped` stops at once; `kit-merge-train` runs the gate in-process and relays the refusal; no other module parses the CI verdict. `merge-gate.sh` is a shim; `merge-gate.test.sh` carries no verdict case. Docs: `tool-registry.d/merge-gate.md`, `reason-codes.d/merge-gate.md`, main registry row, `RunMerge` doc comment.
+
+L5 (2026-11-06, independent verifier on 47806494, PASS WITH ADVISORIES, no blocker): 30 probe rows run at the
+baseline and at the candidate, every difference explained by S3; five spot mutants killed by `TestCIVerdict` alone
+under `nodiff`; neither default required job can conclude skipped on a healthy PR (`shellcheck` has no `if:` and no
+`needs`; the join has `if: always()`). Corrected from its advisories: the exemption sentence in the registry entry
+and in the `ciVerdict` comment claimed an exempted name's skip is fine, but the exemption only removes a name with
+no run at all (a skipped required run on a docs-only PR is refused); the reason-code continuation named a path
+filter as a cause of `ci_skipped`, which is a cause of `ci_missing`. A second app reporting a required name as
+skipped refuses the merge (pinned by the case "one app skipped, one success").
