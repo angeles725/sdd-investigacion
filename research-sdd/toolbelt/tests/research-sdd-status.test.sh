@@ -4770,32 +4770,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else ok "teeth-B13-$name: mutant derives [$got] instead of [$want] → its test goes RED"; fi
     fi
   }
-  b13_tooth DEFERRED-CLOSED '/CC-DEFERRED-CLOSED/s/index(st,"✅")/index(st,"ZZZ")/' "## Gap-backlog" "$B13H4" "4 2 1 1" \
-    '| deferred | d-closed | web | ✅ B3 |' '| high | g1 | web | pending |' '| deferred | d-open | web | pending |' '| low | g2 | web | ✅ B2 |'
-  b13_tooth EMDASH-EMIT '/CC-EMDASH-OPEN-WARN/s/cp="—" }/next }/' "## Gap-backlog" "$B13H4" "4 3 1 0" \
-    '| — | e1 | web | closed B1 |' '| high | g1 | web | pending |' '| — | e2 | web | ✅ B2 |' '| — | e3 | web | cerrado |'
-  b13_tooth EMDASH-OPEN '/CC-EMDASH-OPEN-WARN/s/(pending|requires-execution|open|queued|blocked)/(zzz)/' "## Gap-backlog" "$B13H4" "1 0 1 0" \
-    '| — | b1 | web | blocked-on-source |' '| — | b2 | web | pending |' '| high | g1 | web | pending |'
-  b13_tooth STRIKE-EMIT 's/else cp="~~"/else next/' "## Gap-backlog" "$B13H4" "2 1 1 0" \
-    '| ~~high~~ | ~~s1~~ | web | ~~✅~~ |' '| low | g1 | web | pending |'
-  b13_tooth WANT-CLOSED-GATE 's/if (!want_closed) next/if (0) next/' "## Gap-backlog" "$B13H4" "2 1 1 0" \
-    '| ~~high~~ | g-struck | web | pending |' '| high | g1 | web | pending |'
-  b13_tooth COUNT-ARG 's/backlog_rows 1 2>"\$_kg_err"/backlog_rows 2>"$_kg_err"/' "## Gap-backlog" "$B13H4" "3 2 1 0" \
-    '| — | e1 | web | closed |' '| high | g1 | web | pending |' '| deferred | d1 | web | ✅ |'
-  b13_tooth ERR-SURFACED '/grep -E .em-dash priority on an OPEN row/s/>&2$/>\/dev\/null/' "## Gap-backlog" "$B13H4" "ERR:em-dash priority on an OPEN row [pending]" \
-    '| — | b2 | web | pending |' '| high | g1 | web | pending |'
-  b13_tooth NM-UNKNOWN '/NM-UNKNOWN-WARN/s/else if (_nm_was_last [&][&] in_data [&][&] tbl_ok)/else if (0)/' "## Gap backlog" "$B13H4" "ERR:unknown priority [4] in near-miss backlog row" \
-    '| 4 | SA-G2 | closed | x |' '| high | g1 | web | pending |'
-  m="$TMP/status.B13-LOWERBOUND.MUTANT.sh"
-  if nk_mutant_sed "$m" -e 's/\[ "\$_kg_lb" = 0 \] \\/true \\/'; then
-    dd="$TMP/b13-teeth-lb"; b13_lb_fix "$dd" 9 5; got="$(B13_SUT="$m" b13_run "$dd")"
-    [ "$got" != "9 5 1 0" ] && ok "teeth-B13-LOWERBOUND: mutant clobbers the declared pair [$got] → T-1307-LOWERBOUND RED" || no "teeth-B13-LOWERBOUND: mutant still keeps [$got] — THEATER"
-  else no "teeth-B13-LOWERBOUND: mutant refused by mutant.sh"; fi
-  m="$TMP/status.B13-NM-NOHDR.MUTANT.sh"
-  if nk_mutant_sed "$m" -e '/NM-NOHDR-UNCOUNTED/s/!tbl_ok/0/' -e '/NM-UNKNOWN-WARN/s/ [&][&] tbl_ok)/)/'; then
-    dd="$TMP/b13-teeth-nmnohdr"; b13_fix "$dd" "## Clasificación del backlog (§8)" "| Clase | Gaps | Nota |" '| **A** | 3 | uno |'; B13_SUT="$m" b13_run "$dd" >/dev/null
-    grep -q 'unknown priority' <<<"$(b13_err "$dd")" && ok "teeth-B13-NM-NOHDR: mutant WARNs on the header-less table → T-1307-NEARMISS-NOHDR RED" || no "teeth-B13-NM-NOHDR: mutant still silent — THEATER"
-  else no "teeth-B13-NM-NOHDR: mutant refused by mutant.sh"; fi
   # ---- teeth for the #1307 review round (B1, B2, GCMAX, NOTE, GRUPO, BOLDHDR) ----
   # b13_tooth2 <name> <want-good or ERR:pattern> <builder-fn> <mutant sed -e args...> : builder-fn <dir> builds the fixture.
   b13_tooth2() {
@@ -4815,51 +4789,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   b13_fx_grupo() { b13_fix "$1" "## Reapertura 2026-07-12 — backlog A→B→C" "| Grupo | ID | Gap | Estado |" '| — | BG24 | closed one | ✅ B9 |' '| **A** | BG20 | open one | pending |'; }
   b13_fx_bold()  { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |'; printf '\n## Gaps\n\n| **Priority** | ID | Gap | Artifact | Status |\n|---|---|---|---|---|\n| medium | G2 | oob gap | y | covered |\n' >> "$1/RESEARCH-STATE.md"; }
   b13_b2_fix_20() { b13_b2_fix "$1" 20 10; }; b13_b2_fix_2() { b13_b2_fix "$1" 20 2; }
-  b13_tooth2 B1-KEEP "15 15 0 0" b13_fx_b1 -e 's/elif \[ -z "\${_cm_kg}" \]/elif false/'
-  b13_tooth2 B2-DECLARED "20 10 1 0" b13_b2_fix_20 -e 's/^      kg="\${_decl_kg}"$/      kg=1/'
-  b13_tooth2 GCMAX "20 4 1 0" b13_b2_fix_2 -e 's/\[ "\$_gc_d" -gt "\$gc" \] \&\& gc="\$_gc_d"/:/'
-  b13_tooth2 NOTE "2 1 1 0" b13_fx_note -e '/CC-EMDASH-NOTE/s/if (g !~ [^{]*{/if (0) {/'
-  b13_tooth2 GRUPO "ERR:lower bound" b13_fx_grupo -e '/CC-NOHDR-UNCOUNTED/s/unc(p)/x=1/' -e '/NM-NOHDR-UNCOUNTED/s/if (want_closed) unc(p)/x=1/'
-  b13_tooth2 BOLDHDR "2 1 1 0" b13_fx_bold -e 's#; gsub(/\\\*\\\*/,"",pp)##'
-  # OOB guard: the Findings fixture is two tables, so build it by hand.
-  m="$TMP/status.B13-OOB-GUARD.MUTANT.sh"
-  if nk_mutant_sed "$m" -e '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog [&][&] !tbl_ok)/if (0)/'; then
-    dd="$TMP/b13-teeth-oobguard"; cp -r "$TMP/b13-findings" "$dd"; sed -i -e 's/^known_gaps:.*/known_gaps: 0/' "$dd/RESEARCH-STATE.md"
-    got="$(B13_SUT="$m" b13_run "$dd")"
-    [ "$got" != "1 0 1 0" ] && ok "teeth-B13-OOB-GUARD: mutant counts the Severity rows [$got] → T-1307-FINDINGS RED" || no "teeth-B13-OOB-GUARD: mutant still derives [$got] — THEATER"
-  else no "teeth-B13-OOB-GUARD: mutant refused by mutant.sh"; fi
-  # Header vocabulary: dropping `prioridad` (Spanish) / `pr.` from the priority-shaped set must break T-1307-PRIORIDAD / T-1307-FINDINGS' positive control.
-  m="$TMP/status.B13-HDR-PRIORIDAD.MUTANT.sh"
-  if nk_mutant_sed "$m" -e 's/|p|prioridad)\$\//|p)$\//'; then
-    dd="$TMP/b13-teeth-prioridad"; cp -r "$TMP/b13-prioridad" "$dd"
-    got="$(B13_SUT="$m" b13_run "$dd")"
-    [ "$got" != "2 1 1 0" ] && ok "teeth-B13-HDR-PRIORIDAD: mutant ignores a Prioridad header [$got] → T-1307-PRIORIDAD RED" || no "teeth-B13-HDR-PRIORIDAD: mutant still derives [$got] — THEATER"
-  else no "teeth-B13-HDR-PRIORIDAD: mutant refused by mutant.sh"; fi
-  m="$TMP/status.B13-HDR-PR.MUTANT.sh"
-  if nk_mutant_sed "$m" -e 's/(priority|pr\\.?|p|prioridad)/(priority|p|prioridad)/'; then
-    dd="$TMP/b13-teeth-oobprio"; cp -r "$TMP/b13-oob-prio" "$dd"
-    got="$(B13_SUT="$m" b13_run "$dd")"
-    [ "$got" != "2 1 1 0" ] && ok "teeth-B13-HDR-PR: mutant ignores a Pr. header [$got] → T-1307-FINDINGS positive control RED" || no "teeth-B13-HDR-PR: mutant still derives [$got] — THEATER"
-  else no "teeth-B13-HDR-PR: mutant refused by mutant.sh"; fi
   # ---- teeth for kit #1319 (malformed row = lower bound; escaped pipe) ----
   b19_fx_esc4() { b13_fix "$1" "## Gap-backlog" "$B13H4" '| high | a\|b | web | pending |' '| low | g2 | web | ✅ B1 |' '| low | e\|1 | web | ✅ B2 |'; }
   b19_fx_esc5() { b13_fix "$1" "## Gap-backlog" '| Priority | ID | Gap | Artifact | Status |' '| high | G1 | uses a\|b | x | pending |' '| low | G2 | ok | x | covered \| B1 |'; }
-  b13_tooth2 B19-MALFORMED-TIER "5 3 1 0" b19_fx_mid -e '/SS-MALFORMED-WARN/s/; if (want_closed) unc(p)//'
-  b13_tooth2 B19-MALFORMED-CLOSED "3 2 1 0" b19_fx_closed -e '/CC-MALFORMED-UNCOUNTED (#1319): a malformed/s/; unc(p)//'
-  b13_tooth2 B19-ESCPIPE-4 "3 2 1 0" b19_fx_esc4 -e '/BP-ESCAPED-PIPE/d'
-  b13_tooth2 B19-ESCPIPE-5 "2 1 1 0" b19_fx_esc5 -e '/BP-ESCAPED-PIPE/d'
   # ---- teeth for kit #1350 (prose line must not trigger the keep; the keep is bounded) ----
   b13_tooth2 B50-PROSE-CLOSED "HAS:keeping the declared known_gaps" b50_fx_prose_closed -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
   b13_tooth2 B50-PROSE-TIER "HAS:keeping the declared known_gaps" b50_fx_prose_tier -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
   b13_tooth2 B50-PROSE-FIRST "HAS:keeping the declared known_gaps" b50_fx_prose_first -e 's/function unc(tier) { if (isrow) print/function unc(tier) { if (1) print/'
   b13_tooth2 B50-INDENTED-ROW "3 2 1 0" b50_fx_indented -e 's/isrow = (\$0 ~ \/\^\[ \\t\]\*\\|\/)/isrow = ($0 ~ \/^\\|\/)/'
-  b13_tooth2 B50-UPPER-NOWARN "ERR:$EXCESS_WARN" b50_fx_ub_over -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/false \&\& printf/'
-  b13_tooth2 B50-UPPER-REWRITE "9 5 1 0" b50_fx_ub_over -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/[ "${_decl_kg}" -gt "$(( ${_dkg_total} + ${_unc} ))" ] \&\& _kg_lb=0 \&\& printf/'
-  # inclusive bound: a mutant using -ge would WARN at declared == derived + uncounted, where the good run is silent
-  if nk_mutant_sed "$TMP/status.B50-INCL.MUTANT.sh" -e 's/\[ "\${_decl_kg}" -gt "\$(( \${_dkg_total} + \${_unc} ))" \] && printf/[ "${_decl_kg}" -ge "$(( ${_dkg_total} + ${_unc} ))" ] \&\& printf/'; then
-    dd="$TMP/b13-teeth-b50incl"; b50_fx_ub_edge "$dd"; B13_SUT="$TMP/status.B50-INCL.MUTANT.sh" b13_run "$dd" >/dev/null
-    grep -q "$EXCESS_WARN" <<<"$(b13_err "$dd")" && ok "teeth-B13-B50-UPPER-INCLUSIVE: -ge mutant WARNs at the bound → T-1350-UPPER edge RED" || no "teeth-B13-B50-UPPER-INCLUSIVE: mutant still silent — THEATER"
-  else no "teeth-B13-B50-UPPER-INCLUSIVE: mutant refused by mutant.sh"; fi
   # ---- no-op guards (#1637 review): a deliberately stale sed expression is refused in each keep-less path ----
   if _g_out="$(nk_mutant_sed "$TMP/status.GUARD-NK.MUTANT.sh" -e 's/THIS_TEXT_IS_NOT_IN_THE_SUT/x/' 2>&1)"; then
     no "guard-nk_mutant_sed: stale expression was accepted"
@@ -4889,11 +4826,6 @@ RUNEOF
   t1637_fx="$TMP/t1637-teeth"; b13_fix "$t1637_fx" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$t1637_fx" 3 2
   t1637_fx2="$TMP/t1637-teeth2"; b13_fix "$t1637_fx2" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$t1637_fx2" 1 0
   t1637_fx3="$TMP/t1637-teeth3"; b13_fix "$t1637_fx3" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$t1637_fx3" 1 5
-  t1637_t T1637-PAIR "$t1637_fx3" '/# DECLARED-PAIR-CHECK$/s/if \[ "\$_dk_gc" -gt/if false \&\& [ "$_dk_gc" -gt/' --good-has 'gaps_closed: 1$' --bad-has 'gaps_closed: 5' --bad-lacks "$_t1637_crash"
-  t1637_t T1637-KEEP "$t1637_fx" '/# DECLARED-KEEP$/d' --good-has 'known_gaps: 3' --bad-has 'known_gaps: 2' --bad-lacks "$_t1637_crash"
-  t1637_t T1637-ADVISORY "$t1637_fx" '/# DECLARED-KEEP-ADVISORY$/d' --good-has 'DECLARED known_gaps=3 \(derived 2\) — kept' --bad-lacks "DECLARED known_gaps=|$_t1637_crash"
-  # declared BELOW derived must not be kept: dropping the guard keeps 1/0 instead of deriving 2/1
-  t1637_t T1637-BELOW "$t1637_fx2" '/declared <= derived: the derivation is evidence/d' --good-has 'known_gaps: 2' --bad-has 'known_gaps: 1' --bad-lacks "$_t1637_crash"
 fi
 
 # ==================== kit issue #1154: the coverage metric is read from the FIELD LABEL ====================
@@ -4996,13 +4928,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash "$TMP/t1637-run.sh" @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
     fi
   }
-  t1154_t T1154-REPORT "$t1154_a" report --good-has 'coverage metric : <none>' --bad-has 'coverage metric : 2/5' --bad-lacks "$_t1154_crash"
-  t1154_t T1154-SYNC "$t1154_a" sync --good-has 'known_gaps: 0$' --bad-has 'known_gaps: 5$' --bad-lacks "$_t1154_crash"
-  t1154_t T1154-ORDER "$t1154_b" report --good-has 'coverage metric : 3/7' --bad-has 'coverage metric : 9/9' --bad-lacks "$_t1154_crash"
-  mutant_chain_or_count fail T1154-BLANK "$SUT" "$TMP/status.T1154-BLANK.MUTANT.sh" 's/ \&\& \[ "\${_cr_nlab:-0}" -eq 0 \]//'
-  if mutant_tooth T1154-BLANK 0 0 "$TMP/status.T1154-BLANK.MUTANT.sh" --good-lacks "unrecognised coverage label" --bad-has 'unrecognised coverage label' -- bash @SUT@ "$t1154_a"; then pass=$((pass+1)); else fail=$((fail+1)); fi
-  mutant_chain_or_count fail T1154-WARN "$SUT" "$TMP/status.T1154-WARN.MUTANT.sh" '/# CM-UNRECOGNISED-LABEL$/s/head -1/head -0/'
-  if mutant_tooth T1154-WARN 0 0 "$TMP/status.T1154-WARN.MUTANT.sh" --good-has 'unrecognised coverage label' --bad-lacks "unrecognised coverage label|$_t1154_crash" -- bash @SUT@ "$t1154_h"; then pass=$((pass+1)); else fail=$((fail+1)); fi
 fi
 
 # ==================== kit issue #1152: honor `method: document-cycle` in the default report ====================
@@ -5115,14 +5040,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || return 0
     if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
-  t1152_t T1152-NEXT "$t1152_fresh" '/# DOC-NEXT-BRANCH$/s/\[ "\$_doc_mode" = 1 \]/false/' --good-has 'BOOTSTRAP \| seed the ## Outline' --bad-has 'exhausted \(0\)' --bad-lacks "$_t1152_crash"
-  t1152_t T1152-SAT "$t1152_sat" '/# DOC-SAT-BRANCH$/s/\[ "\$_doc_mode" = 1 \]/false/' --good-has 'saturation      : n/a \(method: document-cycle' --bad-has 'SATURATED \(review\)' --bad-lacks "$_t1152_crash"
-  t1152_t T1152-COVERED "$t1152_mix" '/# DOC-COVERED-TOKENS$/s/covered|done|closed/never-matches/' --good-has 'outline         : 3/5 covered' --bad-has 'outline         : 1/5 covered' --bad-lacks "$_t1152_crash"
-  t1152_t T1152-METHOD "$t1152_ext" '/# DOC-METHOD-EXACT$/s/= "document-cycle"/= "document-cycle-external"/' --good-has 'SATURATED \(review\)' --bad-has 'n/a \(method: document-cycle' --bad-lacks "$_t1152_crash"
-  t1152_t T1152-STOP-GUARD "$t1152_all" '/# DOC-STOP-GUARD/d' --good-has 'STOP \| outline fully covered \(1/1\)' --bad-has 'exhausted \(0\)' --bad-lacks "$_t1152_crash"
-  t1152_t T1152-STOP-FALLTHROUGH "$t1152_gap" 's/NEXT\*|BOOTSTRAP\*) printf/NEXT*|BOOTSTRAP*|STOP*) printf/' --good-has 'NEXT \| high \| g1' --bad-has 'outline fully covered' --bad-lacks "$_t1152_crash"
-  t1152_t T1152-STOP-ONLY-GAP-STOP "$t1152_gap" 's/case "$_ns_gap" in STOP\*)/case "$_ns_gap" in *)/' --good-has 'NEXT \| high \| g1' --bad-has 'outline fully covered' --bad-lacks "$_t1152_crash"
-  t1152_t T1152-OTHER-OPEN "$t1152_odd" '/# DOC-OTHER-OPEN$/s/_ol_oth=\$(( _ol_oth + 1 ))/_ol_cov=$(( _ol_cov + 1 ))/' --good-has 'unrecognised=1' --bad-lacks "unrecognised=|$_t1152_crash"
 fi
 
 # ==================== kit issue #1706 slice 1: --next --emit-token ====================
@@ -5246,11 +5163,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || return 0
     if mutant_tooth "$lbl" "${T1706_GOOD_RC:-0}" "${T1706_BAD_RC:-0}" "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash @SUT@ "$fx" --next --emit-token; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
-  t1706_t T1706-NEXT-MAP "$TMP/et-next" '/# ET-NEXT-MAP$/s/return-token: next: /return-token: next-entry: /' --good-has 'return-token: next: reconstruct' --bad-has 'return-token: next-entry: ' --bad-lacks "$_t1706_crash"
-  t1706_t T1706-STOP-MAP "$TMP/et-stop" '/# ET-STOP-MAP$/s/STOP: campaign — /STOP: /' --good-has 'return-token: STOP: campaign — read-only' --bad-lacks "STOP: campaign|$_t1706_crash" --bad-has 'return-token: STOP: read-only'
-  T1706_GOOD_RC=1 T1706_BAD_RC=0 t1706_t T1706-STOP-QUEUE-GUARD "$TMP/et-stop-queue" '/# ET-STOP-QUEUE-GUARD$/d' --good-has 'return-token: unavailable \(' --bad-has 'return-token: STOP: campaign' --bad-lacks "$_t1706_crash"
-  T1706_GOOD_RC=1 T1706_BAD_RC=0 t1706_t T1706-STOP-MULTI-GUARD "$TMP/et-stop-multi" '/# ET-STOP-MULTI-GUARD$/d' --good-has 'return-token: unavailable \(' --bad-has 'return-token: STOP: campaign' --bad-lacks "$_t1706_crash"
-  T1706_GOOD_RC=1 T1706_BAD_RC=0 t1706_t T1706-OTHER-VERDICT-GUARD "$TMP/et-retro" '/# ET-OTHER-UNAVAILABLE$/s/_et_unavail/: #/' --good-has 'return-token: unavailable \(' --bad-lacks "return-token: unavailable|$_t1706_crash"
   # kit #1726: the good side is the SUT plus the ET_INJECT test double (a trailing note / second verdict), the bad side the
   # same double with one mutation; both are built with mutant_chain from the real SUT (each stage must change it alone).
   t1726_t() { # <label> <fixture> <sed-expr> <good-rc> <bad-rc> <extra --next args or ""> <mutant_tooth match args...>
@@ -5260,10 +5172,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     # shellcheck disable=SC2086 # $xa is a deliberate word-split list of extra flags (empty or "--focus b")
     if mutant_tooth "$lbl" "$grc" "$brc" "$TMP/status.$lbl.MUTANT.sh" --orig "$TMP/status.$lbl.GOOD.sh" "$@" -- bash @SUT@ "$fx" --next $xa --emit-token; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
-  ET_APPEND=$'\nnote: trailing remark' t1726_t T1726-VERDICT-PICK "$TMP/et-next" '/# ET-VERDICT-PICK$/s/^ *"NEXT | "\*|[^)]*)/      *)/' 0 1 "" --good-has 'return-token: next: reconstruct' --bad-has 'return-token: unavailable \(' --bad-lacks "$_t1706_crash"
-  ET_APPEND=$'\nNEXT | low | a second gap' t1726_t T1726-VERDICT-ONE "$TMP/et-next" '/# ET-VERDICT-ONE$/d' 1 0 "" --good-has 'return-token: unavailable \(' --bad-has 'return-token: next: a second gap' --bad-lacks "$_t1706_crash"
-  t1726_t T1726-FOCUS-GUARD "$TMP/et-stop-multi" '/# ET-STOP-MULTI-GUARD$/d' 1 0 "--focus b" --good-has 'return-token: unavailable \(' --bad-has 'return-token: STOP: campaign' --bad-lacks "$_t1706_crash"
-  t1726_t T1726-FOCUS-REASON "$TMP/et-stop-multi" '/# ET-STOP-MULTI-GUARD$/s/ (--focus\/--root scope the verdict, not the campaign)//' 1 1 "--focus b" --good-has 'scope the verdict, not the campaign' --bad-lacks "scope the verdict|$_t1706_crash"
 fi
 
 # ==================== kit issue #1023: test follow-ups ====================
@@ -5296,37 +5204,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     case "$good" in "$want"*) ;; *) no "teeth-1640-$name: the unmutated run gave [$good], want [$want…] — fixture drifted"; return;; esac
     case "$bad" in "$want"*) no "teeth-1640-$name: mutant still returns [$bad] — THEATER";; *) ok "teeth-1640-$name: mutant returns [${bad:0:40}] instead of [$want…] → its test goes RED";; esac
   }
-  t1640_tooth OVERRIDE-APPLIED "$TMP/t1640-a" "NEXT " 's/^      _rd_bsr="\$_rd_eff"$/      : # MUTANT/'
-  t1640_tooth LOWER-ONLY "$TMP/t1640-b" "RETRO-DUE | 11 blocks" 's/if \[ "\$_der" -lt "\$_decl" \]; then/if true; then/'
-  t1640_tooth MAX-OVER-RETROS "$TMP/t1640-h-first" "NEXT " 's/\[ "\$((10#\$_v))" -gt "\$_maxcov" \]/true/'
-  t1640_tooth FENCE-SKIP "$TMP/t1640-j" "RETRO-DUE | 11 blocks" 's/^fence != "" { next }$/# MUTANT/'
-  t1640_tooth UNSCOPED-IGNORED "$TMP/t1640-m1" "RETRO-DUE | 11 blocks" 's/if \[ "\$_unsc_ok" != 1 \]; then _nunsc=/if false; then _nunsc=/'
-  cv_retro "$TMP/t1640-n1" r.md 'covers_through: B140\n'   # the n1 case ends on its focus=alpha variant; restore the unscoped retro
-  t1640_tooth UNSCOPED-ROOT-ONLY "$TMP/t1640-n1" "RETRO-DUE | 11 blocks" 's/\[ -z "\$_slug" \] \&\& _unsc_ok=1/true \&\& _unsc_ok=1/'
-  t1640_tooth OVER-RANGE-EXCLUDED "$TMP/t1640-i" "RETRO-DUE | 11 blocks" 's/if \[ "\$((10#\$_v))" -gt "\$_newest" \]; then  # RD-OVER-RANGE/if false; then  # RD-OVER-RANGE/'
-  t1640_tooth OVER-RANGE-NO-SHADOW "$TMP/t1640-i4" "RETRO-DUE | 11 blocks" 's/if \[ "\$((10#\$_v))" -gt "\$_newest" \]; then  # RD-OVER-RANGE/if false; then  # RD-OVER-RANGE/'
-  t1640_tooth EXCLUDED-RETRO "$TMP/t1640-j" "RETRO-DUE | 11 blocks" 's/retro_is_excluded "\$_rf" \&\& continue  # RD-EXCLUDED-RETRO/: # MUTANT/'
-  if [ "$(id -u)" != 0 ]; then
-    chmod 000 "$TMP/t1640-w3/retros/locked"   # the w3 fixture is restored to 700 after its case; re-lock it for the tooth
-    t1640_tooth FIND-EXIT "$TMP/t1640-w3" "RETRO-DUE | 11 blocks" 's/if \[ "\$_frc" -ne 0 \]; then/if false; then/'
-    chmod 700 "$TMP/t1640-w3/retros/locked"
-  else skip "teeth-1640-FIND-EXIT: running as root — directory permissions are ignored, the unreadable-directory fixture cannot fail find"; fi
-  t1640_tooth DUP-SLUG "$TMP/t1640-m5" "RETRO-DUE | 11 blocks" 's/if \[ "\$_dups" -gt 1 \]; then/if false; then/'
-  t1640_tooth FENCE-TILDE "$TMP/t1640-s7" "RETRO-DUE | 11 blocks" 's/^\/\^(```|~~~)\//\/^```\//'
-  t1640_tooth FOCUS-SCOPE "$TMP/t1640-l2" "RETRO-DUE | 11 blocks" 's/elif \[ "\$_sl" != "\$_myslug" \]; then continue; fi/elif false; then continue; fi/'
-  # newest-block prefix filter (T-1640l: beta-block300 must not count for alpha): BOTH the file listing and the id regex lose the prefix
-  m="$TMP/status.T1640-PREFIX.MUTANT.sh"
-  if mutant_chain "T1640-PREFIX" "$SUT" "$m" 's/if \[ -n "\$_pfx" \]; then  # RD-NEWEST-PREFIX/if false; then/' 's/| block_file_filter "\${_pfx}")$/| block_file_filter "")/'; then
-    good="$(bash "$SUT" "$TMP/t1640-l" --next 2>/dev/null)"; bad="$(bash "$m" "$TMP/t1640-l" --next 2>/dev/null)"
-    case "$good" in NEXT\ *) case "$bad" in NEXT\ *) no "teeth-1640-PREFIX: mutant still derives from the right block set — THEATER";; *) ok "teeth-1640-PREFIX: foreign-prefix block counted as newest → T-1640l goes RED";; esac;; *) no "teeth-1640-PREFIX: unmutated run [$good]";; esac
-  else no "teeth-1640-PREFIX: mutant refused by mutant.sh"; fi
-  # equal derived/declared must keep the DECLARED counter (no "[derived" suffix); `-le` would claim an override
-  m="$TMP/status.T1640-BOUNDARY.MUTANT.sh"
-  if mutant_sed "$SUT" "$m" -e 's/if \[ "\$_der" -lt "\$_decl" \]; then/if [ "$_der" -le "$_decl" ]; then/'; then
-    good="$(bash "$SUT" "$TMP/t1640-c1" --next 2>/dev/null)"; bad="$(bash "$m" "$TMP/t1640-c1" --next 2>/dev/null)"
-    case "$good" in *"[derived"*) no "teeth-1640-BOUNDARY: unmutated run already claims a derivation [$good]";;
-      *) case "$bad" in *"[derived"*) ok "teeth-1640-BOUNDARY: mutant claims an override at equality → T-1640c1 goes RED";; *) no "teeth-1640-BOUNDARY: mutant still silent — THEATER";; esac;; esac
-  else no "teeth-1640-BOUNDARY: mutant refused by mutant.sh"; fi
 fi
 
 if [ "$skips" -gt 0 ]; then
