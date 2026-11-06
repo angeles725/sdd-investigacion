@@ -21,6 +21,8 @@ export CGO_ENABLED := 0
 TEST_MEM_KB  ?= 1048576
 TEST_TIMEOUT ?= 5m
 TESTFLAGS    ?=
+# Packages `make test` runs (space-separated import paths or patterns); the CI Go shards pass their share.
+PKGS         ?= ./...
 define CAPPED
 d="$$(mktemp -d)" && trap 'rm -rf "$$d"' EXIT && case "$$d" in *[[:space:]]*) echo "temp dir path has whitespace: $$d" >&2; exit 2 ;; esac && \
 ( ulimit -v $(TEST_MEM_KB) ) || { echo "cannot set ulimit -v $(TEST_MEM_KB) (set TEST_MEM_KB=unlimited to opt out)" >&2; exit 2; } && \
@@ -39,7 +41,7 @@ vet:
 	go vet ./...
 
 test:
-	@$(CAPPED) go test -timeout $(TEST_TIMEOUT) $(TESTFLAGS) ./...
+	@$(CAPPED) go test -timeout $(TEST_TIMEOUT) $(TESTFLAGS) $(PKGS)
 
 # Live bash differential of internal/core/retrogrammar: runs the real toolbelt/lib/retro-grammar.sh per case
 # (minutes) and compares it with the Go port and with the frozen goldens `make test` replays. Opt-in because the

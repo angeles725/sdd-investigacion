@@ -1,0 +1,6 @@
+{"ImportPath":"example.com/fx/buildfail [example.com/fx/buildfail.test]","Action":"build-output","Output":"# example.com/fx/buildfail [example.com/fx/buildfail.test]\n"}
+{"ImportPath":"example.com/fx/buildfail [example.com/fx/buildfail.test]","Action":"build-output","Output":"buildfail/b.go:3:23: undefined: undefinedSymbol\n"}
+{"ImportPath":"example.com/fx/buildfail [example.com/fx/buildfail.test]","Action":"build-fail"}
+{"Time":"2026-11-06T08:23:08.120199559-06:00","Action":"start","Package":"example.com/fx/buildfail"}
+{"Time":"2026-11-06T08:23:08.120453565-06:00","Action":"output","Package":"example.com/fx/buildfail","Output":"FAIL\texample.com/fx/buildfail [build failed]\n","OutputType":"frame"}
+{"Time":"2026-11-06T08:23:08.120504698-06:00","Action":"fail","Package":"example.com/fx/buildfail","Elapsed":0,"FailedBuild":"example.com/fx/buildfail [example.com/fx/buildfail.test]"}

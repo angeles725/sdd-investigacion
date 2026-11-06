@@ -1,0 +1,4 @@
+{"Time":"2026-11-06T08:23:09.200372628-06:00","Action":"start","Package":"example.com/fx/crash"}
+{"Time":"2026-11-06T08:23:09.202982133-06:00","Action":"output","Package":"example.com/fx/crash","Output":"exit status 3\n"}
+{"Time":"2026-11-06T08:23:09.203033723-06:00","Action":"output","Package":"example.com/fx/crash","Output":"FAIL\texample.com/fx/crash\t0.002s\n","OutputType":"frame"}
+{"Time":"2026-11-06T08:23:09.203043869-06:00","Action":"fail","Package":"example.com/fx/crash","Elapsed":0.003}
