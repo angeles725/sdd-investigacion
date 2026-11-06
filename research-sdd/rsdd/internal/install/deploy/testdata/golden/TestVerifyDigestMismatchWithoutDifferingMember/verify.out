@@ -1,0 +1,2 @@
+verify harness=claude status=degraded reason=digest differs from the record but no member differs (inconsistent record)
+verify kit status=degraded reason=kit dir is not a git checkout (<ROOT>/kit); cannot tell whether it is behind its upstream

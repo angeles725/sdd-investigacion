@@ -16,10 +16,19 @@ import (
 
 var hexDigest = regexp.MustCompile(`[0-9a-f]{64}`)
 
-// normalize makes captured text independent of the scratch root: the root becomes <ROOT> and every sha256 digest
-// becomes <sha256>, because a digest of a file that embeds the root path (the launcher block) changes per run.
+// mktempName is the random suffix mktemp gives a file in TMPDIR (`tmp.` plus ten characters).
+var mktempName = regexp.MustCompile(`\btmp\.[A-Za-z0-9]{10}\b`)
+
+// utcStamp is the `date -u +%Y%m%dT%H%M%SZ` stamp the installer embeds in a backup directory name.
+var utcStamp = regexp.MustCompile(`[0-9]{8}T[0-9]{6}Z`)
+
+// normalize makes captured text independent of the scratch root: the root becomes <ROOT>, every sha256 digest
+// becomes <sha256> (a digest of a file that embeds the root path, the launcher block, changes per run), a UTC
+// backup stamp becomes <UTC> and a mktemp name becomes tmp.<RAND>.
 func (w *world) normalize(s string) string {
-	return hexDigest.ReplaceAllString(strings.ReplaceAll(s, w.root, "<ROOT>"), "<sha256>")
+	s = hexDigest.ReplaceAllString(strings.ReplaceAll(s, w.root, "<ROOT>"), "<sha256>")
+	s = utcStamp.ReplaceAllString(s, "<UTC>")
+	return mktempName.ReplaceAllString(s, "tmp.<RAND>")
 }
 
 // snapshot lists every entry below dir, one line each, sorted by path: type, permission bits, and for a file the
@@ -43,9 +52,9 @@ func (w *world) snapshot(dir string) string {
 		switch {
 		case fi.Mode()&os.ModeSymlink != 0:
 			target, _ := os.Readlink(p)
-			lines = append(lines, fmt.Sprintf("L %s -> %s", rel, w.normalize(target)))
+			lines = append(lines, fmt.Sprintf("L %s -> %s", w.normalize(rel), w.normalize(target)))
 		case fi.IsDir():
-			lines = append(lines, fmt.Sprintf("D %04o %s", perm, rel))
+			lines = append(lines, fmt.Sprintf("D %04o %s", perm, w.normalize(rel)))
 		case fi.Mode().IsRegular():
 			b, err := os.ReadFile(p)
 			if err != nil {
@@ -53,9 +62,9 @@ func (w *world) snapshot(dir string) string {
 			}
 			txt := w.normalize(string(b))
 			sum := sha256.Sum256([]byte(txt))
-			lines = append(lines, fmt.Sprintf("F %04o %s %d %s", perm, rel, len(txt), hex.EncodeToString(sum[:8])))
+			lines = append(lines, fmt.Sprintf("F %04o %s %d %s", perm, w.normalize(rel), len(txt), hex.EncodeToString(sum[:8])))
 		default:
-			lines = append(lines, fmt.Sprintf("? %v %s", fi.Mode(), rel))
+			lines = append(lines, fmt.Sprintf("? %v %s", fi.Mode(), w.normalize(rel)))
 		}
 		return nil
 	})

@@ -1,0 +1,3 @@
+research-sdd-install: REFUSED to re-install over <ROOT>/home/.pi/agent/research-sdd/profile/general — it holds regular file(s) the bundle record does not name or whose bytes changed since the install (the bundle record is absent or unreadable); nothing was removed:
+  unrecorded: <ROOT>/home/.pi/agent/research-sdd/profile/general/KEEP.md
+  Move them away yourself, or re-run with --backup-unrecorded to move them to a timestamped backup under <ROOT>/home/.pi/agent/research-sdd/backups/ first.
