@@ -325,5 +325,6 @@ func s4Scenarios() []s4Scenario {
 		m4("walk-emit-token-stop-over-two-files-is-unavailable", stopLine, files{"corpus/RESEARCH-STATE.md": one("root", "covered", 0, "0"), "corpus/RESEARCH-STATE-act.md": one("act", "covered", 0, "0")}, "--emit-token"),
 		m4("walk-emit-token-queue", "NEXT | low | G3 third gap", files{stateRel: st4("next_session_queue: G3", "0", -1, "", qrows...)}, "--queue", "--emit-token"),
 	)
+	add(s8aNextScenarios()...) // the UNMAPPED cases of the bash suites (S8a)
 	return scs
 }

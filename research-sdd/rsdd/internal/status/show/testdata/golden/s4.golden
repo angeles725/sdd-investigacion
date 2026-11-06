@@ -5789,6 +5789,753 @@ call 1: <ROOT>/corpus
 rc: 0
 out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=1 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
 --- end verify
+=== s8a-L1859-stale-beats-retro-due
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh <ROOT>/corpus [first failure: RESEARCH-STATE.md: envelope investigable_open=5 != 1 NEXT-eligible pending gap(s) — re-seed: --sync-state]
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# T-627d stale+bsr state
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 1
+investigable_open: 5
+requires_execution_open: 0
+blocked_open: 0
+undocumented_findings: 0
+blocks_since_retro: 11
+<!-- /research-state.v1 -->
+
+## Gap-backlog
+
+| Priority | Gap | type | Status |
+|---|---|---|---|
+| high | stale-gap | web | pending |
+
+## Blocked gaps
+- none
+
+## Stop control
+- **Open gaps — read-only investigable**: 1
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 1
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=5/1 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=0  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=5 != 1 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope known_gaps=1 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=5 — stale denominator; reconcile.\n   WARN   envelope blocks_since_retro=11 > 10 — §18 retro cadence exceeded; write a retro and reset to 0.\n== exit 1 ==\n"
+call 2: <ROOT>/corpus
+rc: 1
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=5/1 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=0  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=5 != 1 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope known_gaps=1 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=5 — stale denominator; reconcile.\n   WARN   envelope blocks_since_retro=11 > 10 — §18 retro cadence exceeded; write a retro and reset to 0.\n== exit 1 ==\n"
+--- end verify
+=== s8a-L202-gap-text-mentioning-the-phrase-does-not-mask-stop
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+STOP | read-only-investigable exhausted (0)
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# T
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | type | Status |
+|---|---|---|---|
+| high | audit the read-only investigable subsystems | web | covered |
+
+## Blocked gaps
+- none
+
+## Stop control
+- **Open gaps — read-only investigable**: 0
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-L282-next-with-a-ledger
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the gap
+--- stderr
+--- tree
+--- file corpus/CONTRADICTIONS.md mode=0644
+# T — Contradictions ledger
+
+| id | claim A (block) | claim B (block) | status | note |
+|---|---|---|---|---|
+| C1 | A says X (B1) | B says Y (B2) | open | cannot adjudicate yet |
+| C2 | foo=1 (B3) | foo=2 (B4) | open | |
+| C3 | baz (B5) | qux (B6) | resolved | B5 won per §14 |
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 1
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+
+## Blocked gaps (each tagged with what it needs)
+
+- gpu profiling — needs: hardware
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=1/1 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=2 — stale denominator; reconcile.\n   WARN   1 blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input.\n   WARN   1 blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>; presence-only check) — a wall is a waypoint; METHODOLOGY §21.1.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-L282-next-without-a-ledger
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the gap
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 1
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+
+## Blocked gaps (each tagged with what it needs)
+
+- gpu profiling — needs: hardware
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=1/1 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=2 — stale denominator; reconcile.\n   WARN   1 blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input.\n   WARN   1 blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>; presence-only check) — a wall is a waypoint; METHODOLOGY §21.1.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-L406-next-with-an-iteration-history
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the gap
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 1
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+
+## Blocked gaps (each tagged with what it needs)
+
+- gpu profiling — needs: hardware
+
+## Iteration history
+
+| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |
+|---|---|---|---|---|---|
+| 1 | 2026-01-01 | g | B1 | no · inline | 0 |
+| 2 | 2026-01-02 | g | B2 | no · inline | 0 |
+| 3 | 2026-01-03 | g | B3 | no · inline | 0 |
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=1/1 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=2 — stale denominator; reconcile.\n   WARN   1 blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input.\n   WARN   1 blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>; presence-only check) — a wall is a waypoint; METHODOLOGY §21.1.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-L406-next-without-an-iteration-history
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the gap
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 1
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+
+## Blocked gaps (each tagged with what it needs)
+
+- gpu profiling — needs: hardware
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=1/1 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=2 — stale denominator; reconcile.\n   WARN   1 blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input.\n   WARN   1 blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>; presence-only check) — a wall is a waypoint; METHODOLOGY §21.1.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-queue-2s-column-0-declaration-inside-a-multi-line-comment
+run 1: <ROOT>/corpus --next --queue
+rc: 0
+--- stdout
+NEXT | high | G1 first gap
+--- stderr
+INFO: queue-absent [root]: no next_session_queue field in the header — priority order used
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- note
+next_session_queue: G3
+-->
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 3
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | G1 first gap | web | pending |
+| medium | G2 second gap | web | pending |
+| low | G3 third gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 3
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 3\n   envelope        : covered_blocks=0/0 · investigable_open=3/3 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=3 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-queue-2v-deferred-row-outside-the-backlog-is-unknown
+run 1: <ROOT>/corpus --next --queue
+rc: 0
+--- stdout
+NEXT | high | G1 first gap
+--- stderr
+WARN: queue-unknown-gap [root]: queued id [G11] (position 1) matches no backlog row — skipped
+INFO: queue-exhausted [root]: next_session_queue (1 ids: 0 done, 0 deferred, 0 blocked, 0 in-progress, 1 unknown) has no pending gap — priority order used
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+next_session_queue: G11
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | G1 first gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+
+## Notes
+
+| Severity | Gap | Type | Status |
+|---|---|---|---|
+| deferred | G11 not a backlog row | web | parked |
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=1 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-queue-2w-closed-row-first-pending-second
+run 1: <ROOT>/corpus --next --queue
+rc: 0
+--- stdout
+NEXT | medium | G4 reopened
+--- stderr
+WARN: queue-ambiguous-id [root]: queued id [G4] (2 rows) matches several backlog rows — a servable one wins
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+next_session_queue: G4
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | G4 old attempt | web | covered |
+| medium | G4 reopened | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=1 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-queue-2w-pending-row-first-closed-second
+run 1: <ROOT>/corpus --next --queue
+rc: 0
+--- stdout
+NEXT | high | G4 reopened
+--- stderr
+WARN: queue-ambiguous-id [root]: queued id [G4] (2 rows) matches several backlog rows — a servable one wins
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+next_session_queue: G4
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | G4 reopened | web | pending |
+| medium | G4 old attempt | web | covered |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=1 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-queue-2x-closed-g1-plus-pending-g1-b
+run 1: <ROOT>/corpus --next --queue
+rc: 0
+--- stdout
+NEXT | high | G1-b follow-up of G1
+--- stderr
+INFO: queue-exhausted [root]: next_session_queue (1 ids: 1 done, 0 deferred, 0 blocked, 0 in-progress, 0 unknown) has no pending gap — priority order used
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+PAUSED (operator-directed). Resume G1 first.
+next_session_queue: G1
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 2
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | G1 canonical gap | web | covered |
+| high | G1-b follow-up of G1 | web | pending |
+| medium | G2 sibling | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 2
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 2\n   envelope        : covered_blocks=0/0 · investigable_open=2/2 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=2 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-queue-4b-root-reads-the-root-queue
+run 1: <ROOT>/corpus --next --queue --root
+rc: 0
+--- stdout
+NEXT | low | G3 third gap
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE-act.md mode=0644
+# S — Research State
+
+next_session_queue: G2
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 3
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | G1 first gap | web | pending |
+| medium | G2 second gap | web | pending |
+| low | G3 third gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 3
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+next_session_queue: G3
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 3
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | G1 first gap | web | pending |
+| medium | G2 second gap | web | pending |
+| low | G3 third gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 3
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-act.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 3\n   envelope        : covered_blocks=0/0 · investigable_open=3/3 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=3 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 3\n   envelope        : covered_blocks=0/0 · investigable_open=3/3 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=3 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-queue-4d-sibling-queue-does-not-steer-the-root
+run 1: <ROOT>/corpus --next --queue --root
+rc: 0
+--- stdout
+NEXT | high | G1 first gap
+--- stderr
+INFO: queue-absent [root]: no next_session_queue field in the header — priority order used
+--- tree
+--- file corpus/RESEARCH-STATE-act.md mode=0644
+# S — Research State
+
+next_session_queue: G3
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 3
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | G1 first gap | web | pending |
+| medium | G2 second gap | web | pending |
+| low | G3 third gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 3
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 3
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | G1 first gap | web | pending |
+| medium | G2 second gap | web | pending |
+| low | G3 third gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 3
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-act.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 3\n   envelope        : covered_blocks=0/0 · investigable_open=3/3 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=3 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 3\n   envelope        : covered_blocks=0/0 · investigable_open=3/3 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=3 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-rootpick-7-split-layout-focus-x
+run 1: <ROOT>/corpus --next --focus x
+rc: 0
+--- stdout
+NEXT | high | split-a gap
+--- stderr
+--- tree
+--- file corpus/a/RESEARCH-STATE-x.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | split-a gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/b/RESEARCH-STATE-y.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| medium | split-b gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- verify
+call 1: <ROOT>/corpus --focus x
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-x.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=1 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
+=== s8a-rootpick-7b-split-layout-focus-y
+run 1: <ROOT>/corpus --next --focus y
+rc: 0
+--- stdout
+NEXT | medium | split-b gap
+--- stderr
+--- tree
+--- file corpus/a/RESEARCH-STATE-x.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | split-a gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/b/RESEARCH-STATE-y.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| medium | split-b gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- verify
+call 1: <ROOT>/corpus --focus y
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-y.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=1 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
 === scope-A-all
 run 1: <ROOT>/corpus --next --all
 rc: 0
