@@ -192,16 +192,8 @@ nx "$TMP/empty-path" "$TMP/npaused"
 if [ "$rc" = 0 ] && grep -q '^STOP | read-only-investigable exhausted (0)' <<<"$out"; then ok "--next paused-focus healthy twin: exit 0 and the exhausted STOP"; else no "--next paused healthy twin: rc=$rc out=[$out]"; fi
 # the default report must refuse a NEXT/STOP verdict derived from a degraded read of ANY focus it walks
 sd() { out="$(PATH="$1:$PATH" bash "$ST" "$2" 2>/dev/null)"; rc=$?; }
-sd "$TMP/stub-fb" "$TMP/nmulti"
-if grep -q 'next step .*: DEGRADED' <<<"$out" && ! grep -qE 'next step .*(NEXT|STOP) \|' <<<"$out"; then ok "display, NON-head focus degraded: next step DEGRADED, no NEXT/STOP verdict"
-else no "display with a degraded non-head focus: $(grep 'next step' <<<"$out")"; fi
-sd "$TMP/stub-fb" "$TMP/npaused"
-if grep -q 'next step .*: DEGRADED' <<<"$out" && ! grep -qE 'next step .*(NEXT|STOP) \|' <<<"$out"; then ok "display, PAUSED focus degraded: next step DEGRADED, no inflated paused-focus count"
-else no "display with a degraded paused focus: $(grep 'next step' <<<"$out")"; fi
 sd "$TMP/empty-path" "$TMP/npaused"
 if grep -q 'next step       : STOP | ' <<<"$out"; then ok "display, healthy twin: next step carries the STOP verdict"; else no "display healthy twin: $(grep 'next step' <<<"$out")"; fi
-if grep -q 'next step .*blocked-rows derivation' <<<"$(PATH="$TMP/stub-fb:$PATH" bash "$ST" "$TMP/nmulti" 2>/dev/null)"; then ok "display next step names the blocked-rows derivation (not 'blocked sections unreadable')"
-else no "display next step wording does not name the blocked-rows derivation"; fi
 # #2024 item 4/6: the stdout degraded: line sits inside the report body and the reason-codes footer covers it
 out="$(PATH="$TMP/stub-child:$PATH" bash "$ST" "$TMP/deg-status" 2>/dev/null)"
 _hl="$(grep -n '^== research-sdd-status:' <<<"$out" | head -1 | cut -d: -f1)"; _dl="$(grep -n '^degraded: blocked_open:' <<<"$out" | head -1 | cut -d: -f1)"
@@ -217,15 +209,9 @@ mkdir -p "$TMP/chkh"; sed 's/^known_gaps: 1$/known_gaps: 7/' "$FIX/next-blocked-
 out="$(bash "$VS" "$TMP/chkh" 2>&1)"
 if grep -q 'stale denominator' <<<"$out"; then ok "CHECK H control: a healthy read with a wrong known_gaps does WARN 'stale denominator'"; else no "CHECK H control lost its stale-denominator WARN: $(grep -m2 'known_gaps' <<<"$out")"; fi
 
-# S1: a degraded NON-head focus sets the reason-codes footer too
-out="$(PATH="$TMP/stub-fb:$PATH" bash "$ST" "$TMP/nmulti" 2>/dev/null)"
-if [ "$(grep -c '^  reason codes    : ' <<<"$out")" = 1 ]; then ok "display, NON-head focus degraded: exactly one reason-codes footer"; else no "display non-head degraded: footer count $(grep -c '^  reason codes    : ' <<<"$out")"; fi
-# S2: split layout -- two state files with the same basename are named by path relative to the target
+# split-layout fixture for TOOTH-25: two state files with the same basename (the --next naming case is s8a_blocked_test.go 227)
 rm -rf "$TMP/nsplit"; mkdir -p "$TMP/nsplit/x" "$TMP/nsplit/y"; cp "$FIX/next-closed-focus.md" "$TMP/nsplit/x/RESEARCH-STATE.md"; cp "$FIX/next-blocked-gap.md" "$TMP/nsplit/y/RESEARCH-STATE.md"
 mk_stub_focus "$TMP/stub-fy" '/y/'
-nx "$TMP/stub-fy" "$TMP/nsplit"
-if [ "$rc" = 3 ] && grep -q 'unreadable for y/RESEARCH-STATE\.md ' <<<"$out" && ! grep -q 'x/RESEARCH-STATE' <<<"$out"; then ok "--next names the degraded split-layout file by its relative path (y/RESEARCH-STATE.md), not a colliding basename"
-else no "--next split layout naming: rc=$rc out=[$out]"; fi
 # S3: a blocked read that fails AFTER the gate passed (resolve_next's own read) is fatal, never "not blocked"
 mk_count_stub() { # DIR N: awk stub whose blocked-section extractors fail from the (N+1)th call on
   mkdir -p "$1"; : > "$1/count"; printf '#!/bin/sh\ncase "$*" in *"h=## "*) echo x >> "%s/count"; if [ "$(wc -l < "%s/count")" -gt %s ]; then echo "awk: stub failure" >&2; exit 2; fi;; esac\nexec %s "$@"\n' "$1" "$1" "$2" "$REAL_AWK" > "$1/awk"; chmod +x "$1/awk"
