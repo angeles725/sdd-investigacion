@@ -124,7 +124,7 @@ func runSkillDriftHook(args []string, s cli.Stdio) int {
 func runSkillDriftHookWith(args []string, s cli.Stdio, b hookBudgets) int {
 	var buf bytes.Buffer // only a panic writes here: the body prints its own envelope
 	if hookenv.Guard(&buf, func() int { return skillDriftHookBody(args, s, b) }) != cli.ExitOK {
-		hookenv.WriteSessionStart(s.Out, hdrCannotRun+"\n"+strings.TrimRight(buf.String(), "\n"))
+		hookenv.WriteSessionStart(s.Out, hookenv.FailureContext(hdrCannotRun, strings.TrimRight(buf.String(), "\n"), skillDriftRerun))
 	}
 	return cli.ExitOK // a hook never fails the session
 }
@@ -190,7 +190,7 @@ func skillDriftHookBody(args []string, s cli.Stdio, b hookBudgets) int {
 	if extra != "" {
 		out = joinNL(out, extra)
 	}
-	hookenv.WriteSessionStart(s.Out, msg+"\n"+out)
+	hookenv.WriteSessionStart(s.Out, capIf(rc >= 2, msg, out, skillDriftRerun)) // rc >= 2: the check could not run
 	return cli.ExitOK
 }
 

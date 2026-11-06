@@ -22,6 +22,7 @@ import (
 
 const (
 	toolsHookFailedFmt  = "Research-SDD tools sweep could not run (exit %d — check TARGETS.md and lib/ helper):"
+	toolsRerun          = "rsdd sweep tools" // the command whose own output a capped failure context points at (#2631)
 	toolsHookNoSummary  = "Research-SDD tools sweep: missing Summary line — unexpected output from sweep-tools.sh:"
 	toolsHookAbsentHdr  = "Research-SDD tool ledger (targets not traversed):"
 	toolsHookUnrecorded = "Research-SDD tool ledger (unrecorded tools found):"
@@ -56,12 +57,12 @@ func linesWith(out string, keep func(string) bool) string {
 // its exit code, and whether anything is to be said at all.
 func toolsHookContext(out string, rc int) (ctx string, emit bool) {
 	if rc != 0 {
-		return fmt.Sprintf(toolsHookFailedFmt, rc) + "\n" + out, true
+		return hookenv.FailureContext(fmt.Sprintf(toolsHookFailedFmt, rc), out, toolsRerun), true
 	}
 	summary := linesWith(out, func(l string) bool { return strings.HasPrefix(l, "Summary:") })
 	// ANTI-SILENT-ZERO: a census that ran but printed no Summary line is a broken instrument, not a clean fleet.
 	if summary == "" {
-		return toolsHookNoSummary + "\n" + out, true
+		return hookenv.FailureContext(toolsHookNoSummary, out, toolsRerun), true // a broken instrument is capped too
 	}
 	unrecorded := "0"
 	if m := reUnrecorded.FindStringSubmatch(summary); m != nil {

@@ -63,7 +63,7 @@ func RunRegistryHook(args []string, s cli.Stdio) int {
 	rc := hookenv.Guard(&buf, func() int { return RunRegistry(regArgs, sc) })
 	out := strings.TrimRight(buf.String(), "\n")
 	if rc != 0 {
-		hookenv.WriteSessionStart(s.Out, fmt.Sprintf(hdrRegistryCouldNo, rc)+"\n"+out)
+		hookenv.WriteSessionStart(s.Out, hookenv.FailureContext(fmt.Sprintf(hdrRegistryCouldNo, rc), out, registryRerun))
 		return cli.ExitOK
 	}
 	if !full {
