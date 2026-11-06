@@ -22,3 +22,9 @@ Intended divergences of `rsdd retro stage` from the frozen script. Every parity 
 | `cannot find helper` / `failed to define retro_review_status` / `target_name_for_retro` exits are gone (`TestNoHelperFilesAreNeeded`) | Shell wiring: the script sourced two libraries and failed closed when one was missing or empty (exit 1). | The marker grammar and the registry reader are linked in; the port runs with no `lib/` beside it. The shim reports a missing rsdd binary (`degraded: rsdd-unavailable`, exit 2) instead. |
 
 Shared-helper note: the kit-root derivation of `RunCommand` (`--toolbelt`, two directories up, physical) is a copy of the one in `internal/retro/reconcile` and `internal/retro/stageissues`; no `core` helper owns it yet, so a change to the rule must be made in all three until one does.
+
+Kit root (#2770): the path of the kit is found without naming the legacy script.
+
+| Divergence | Legacy script | Port |
+|---|---|---|
+| Kit found without `--kit` (#2770) | The kit was found by resolving the legacy script `stage-retro.sh` and keeping its directory: a kit without that script failed with `<kit>/toolbelt/stage-retro.sh is missing`, and a directory without `toolbelt/` was reported as `research-sdd kit not found`. | `rsdd retro stage` finds the kit root (`RESEARCH_SDD_KIT`, the launcher files, the default checkout; the first with a `toolbelt/` directory) without naming a script, so a kit whose legacy script was deleted resolves. A directory that exists but holds no `toolbelt/` is its own error: `research-sdd kit has no toolbelt/ directory: <dir> (set RESEARCH_SDD_KIT)`. The path text for a kit given with a trailing slash, a `.` segment or as a relative path is unchanged. `internal/retro/stage/kitroot_site_test.go`. |

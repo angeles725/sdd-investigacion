@@ -101,7 +101,7 @@ func RunSkillDrift(args []string, s cli.Stdio) int {
 func resolveSkillDriftKit(flag string, s cli.Stdio) (string, bool) {
 	root := flag
 	if root == "" {
-		p, warns, err := kit.ResolveKitScript("toolbelt/verify-skill-drift.sh", s.Env)
+		p, warns, err := kit.ResolveKitRoot(s.Env)
 		for _, w := range warns {
 			fmt.Fprintln(s.Err, w)
 		}
@@ -109,7 +109,7 @@ func resolveSkillDriftKit(flag string, s cli.Stdio) (string, bool) {
 			fmt.Fprintf(s.Err, "%s: ERROR: cannot resolve the kit: %v\n", skillDriftName, err)
 			return "", false
 		}
-		root = filepath.Dir(filepath.Dir(p))
+		root = filepath.Clean(p)
 	}
 	if !filepath.IsAbs(root) {
 		root = filepath.Join(s.Cwd, root)

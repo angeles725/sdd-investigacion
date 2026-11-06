@@ -11,3 +11,9 @@ Intended divergences of `rsdd retro reconcile` (the Go port behind `reconcile-is
 | `RSDD_GH_TIMEOUT` | gh ran without a bound. | Each gh call is bounded (default 120 s, `RSDD_GH_TIMEOUT` seconds); a call that outlives it reads as exit 124 and renders as `degraded: gh issue list failed for <retro> (exit 124)`. Exit 1. |
 
 Test-side guards (not behaviour): the reconcile tests run the repository tool through a logging wrapper first on the box PATH and fail when the port runs any verb outside `rev-parse`, `cat-file` and `merge-base` (never fetch, pull, push, ls-remote or remote; the legacy suite's case 45i), and the stub gh rejects an unknown flag, an unknown `--json` field, `--limit 0` and a stray argument (legacy case 41e).
+
+Kit root (#2770): the path of the kit is found without naming the legacy script.
+
+| Divergence | Legacy script | Port |
+|---|---|---|
+| Kit found without `--kit` (#2770) | The kit was found by resolving the legacy script `reconcile-issues.sh` and keeping its directory: a kit without that script failed with `<kit>/toolbelt/reconcile-issues.sh is missing`, and a directory without `toolbelt/` was reported as `research-sdd kit not found`. | `rsdd retro reconcile` finds the kit root (`RESEARCH_SDD_KIT`, the launcher files, the default checkout; the first with a `toolbelt/` directory) without naming a script, so a kit whose legacy script was deleted resolves. A directory that exists but holds no `toolbelt/` is its own error: `research-sdd kit has no toolbelt/ directory: <dir> (set RESEARCH_SDD_KIT)`. The path text for a kit given with a trailing slash, a `.` segment or as a relative path is unchanged. `internal/retro/reconcile/kitroot_site_test.go`. |

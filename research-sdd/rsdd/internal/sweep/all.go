@@ -3,7 +3,6 @@ package sweep
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
@@ -74,15 +73,7 @@ func RunAll(args []string, s cli.Stdio) int {
 		fmt.Fprintf(s.Err, "sweep-all: %v\n", err)
 		return cli.ExitUsage
 	}
-	if o.kit == "" {
-		script, _, err := kit.ResolveKitScript("toolbelt/sweep-all.sh", s.Env)
-		if err != nil {
-			fmt.Fprintf(s.Err, "sweep-all: %v\n", err)
-			return cli.ExitOperational
-		}
-		o.kit = filepath.Dir(filepath.Dir(script))
-	}
-	kitDir, err := resolveKit(o, s)
+	kitDir, err := resolveKit(o, s, s.Err)
 	if err != nil {
 		fmt.Fprintf(s.Err, "sweep-all: %v\n", err)
 		return cli.ExitOperational

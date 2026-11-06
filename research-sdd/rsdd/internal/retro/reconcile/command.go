@@ -117,7 +117,7 @@ func runCommand(args []string, s cli.Stdio, h hooks) int {
 // kitRootOf is the legacy KIT_ROOT: two directories above the toolbelt, resolved physically (kit issue #993).
 func kitRootOf(s cli.Stdio, toolbelt string, errf func(string, ...any)) (string, bool) {
 	if toolbelt == "" {
-		p, warns, err := kit.ResolveKitScript("toolbelt/reconcile-issues.sh", s.Env)
+		root, warns, err := kit.ResolveKitRoot(s.Env)
 		for _, w := range warns {
 			errf("%s", w)
 		}
@@ -125,7 +125,7 @@ func kitRootOf(s cli.Stdio, toolbelt string, errf func(string, ...any)) (string,
 			errf("reconcile-issues: cannot find the kit toolbelt: %v", err)
 			return "", false
 		}
-		toolbelt = filepath.Dir(p)
+		toolbelt = filepath.Join(root, "toolbelt")
 	}
 	if !filepath.IsAbs(toolbelt) {
 		toolbelt = filepath.Join(s.Cwd, toolbelt)

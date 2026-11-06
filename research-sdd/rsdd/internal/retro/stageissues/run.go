@@ -174,7 +174,7 @@ func (a *app) main(args []string) (rc int) {
 	if len(args) >= 2 && args[0] == "--toolbelt" {
 		a.toolbelt, args = args[1], args[2:]
 	} else {
-		p, warns, err := kit.ResolveKitScript("toolbelt/stage-retro-issues.sh", a.env)
+		root, warns, err := kit.ResolveKitRoot(a.env)
 		for _, w := range warns {
 			a.errf("%s\n", w)
 		}
@@ -182,7 +182,7 @@ func (a *app) main(args []string) (rc int) {
 			a.errf("stage-retro-issues: cannot find the kit toolbelt: %v\n", err)
 			return 1
 		}
-		a.toolbelt = filepath.Dir(p)
+		a.toolbelt = filepath.Join(root, "toolbelt")
 	}
 	retro := ""
 	if len(args) > 0 {

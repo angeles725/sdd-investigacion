@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
@@ -58,18 +57,6 @@ func RunBreakthroughs(args []string, s cli.Stdio) int {
 	return sweepBreakthroughs(o, s, s.Out, s.Err, os.ReadFile)
 }
 
-// resolveBreakthroughsKit is resolveKit for a run without --kit: the kit of toolbelt/sweep-breakthroughs.sh.
-func resolveBreakthroughsKit(o options, s cli.Stdio) (string, error) {
-	if o.kit == "" {
-		script, _, err := kit.ResolveKitScript("toolbelt/sweep-breakthroughs.sh", s.Env)
-		if err != nil {
-			return "", err
-		}
-		o.kit = filepath.Dir(filepath.Dir(script))
-	}
-	return resolveKit(o, s)
-}
-
 // isRegularFile is `[ -f p ]`: a regular file, or a symbolic link to one.
 func isRegularFile(p string) bool {
 	st, err := os.Stat(p)
@@ -99,7 +86,7 @@ func (t *btTotals) markUnreadable(f string) {
 // sweepBreakthroughs runs the check, writing the report to out and the diagnostics to errw. It returns the
 // exit code.
 func sweepBreakthroughs(o options, s cli.Stdio, out, errw io.Writer, read readFunc) int {
-	kitDir, err := resolveBreakthroughsKit(o, s)
+	kitDir, err := resolveKit(o, s, errw)
 	if err != nil {
 		fmt.Fprintf(errw, "sweep-breakthroughs: %v\n", err)
 		return cli.ExitOperational

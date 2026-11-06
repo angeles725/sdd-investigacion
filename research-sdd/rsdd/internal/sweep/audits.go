@@ -71,18 +71,6 @@ func (r auditRow) serial() string {
 	return strings.Join([]string{strconv.FormatInt(r.epoch, 10), r.file, r.target, r.claims, r.status, r.age, r.tag}, "\t")
 }
 
-// resolveAuditsKit is resolveKit for a run without --kit: the kit of toolbelt/sweep-audits.sh.
-func resolveAuditsKit(o options, s cli.Stdio) (string, error) {
-	if o.kit == "" {
-		script, _, err := kit.ResolveKitScript("toolbelt/sweep-audits.sh", s.Env)
-		if err != nil {
-			return "", err
-		}
-		o.kit = filepath.Dir(filepath.Dir(script))
-	}
-	return resolveKit(o, s)
-}
-
 // auditAgeDays is `${RSDD_RETRO_AGE_DAYS:-7}` as the right operand of `[ n -gt v ]`: bash reads it as a decimal
 // integer between optional blanks; anything else is an error, i.e. false, so the audit is never escalated.
 func auditAgeDays(v string) int64 {
@@ -130,7 +118,7 @@ func addedEpoch(g git.Runner, p, f string, now int64) int64 {
 
 // sweepAudits runs the sweep, writing the report to out and the diagnostics to errw. It returns the exit code.
 func sweepAudits(o options, s cli.Stdio, out, errw io.Writer) int {
-	kitDir, err := resolveAuditsKit(o, s)
+	kitDir, err := resolveKit(o, s, errw)
 	if err != nil {
 		fmt.Fprintf(errw, "sweep-audits: %v\n", err)
 		return cli.ExitOperational

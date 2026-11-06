@@ -144,14 +144,20 @@ type sweepResult struct {
 }
 
 // resolveKit is `cd -P -- "$_RSDD_SELF/.." && pwd -P`: the physical kit directory.
-func resolveKit(o options, s cli.Stdio) (string, error) {
+// A run without --kit finds the kit root without naming a script; the resolver's warnings go to errw.
+func resolveKit(o options, s cli.Stdio, errw io.Writer) (string, error) {
 	k := o.kit
 	if k == "" {
-		script, _, err := kit.ResolveKitScript("toolbelt/sweep-retros.sh", s.Env)
+		root, warns, err := kit.ResolveKitRoot(s.Env)
+		for _, w := range warns {
+			if !o.hook { // a hook run merges stderr into the context it hands the model: the line stays out of it
+				fmt.Fprintln(errw, w)
+			}
+		}
 		if err != nil {
 			return "", err
 		}
-		k = filepath.Dir(filepath.Dir(script))
+		k = filepath.Clean(root)
 	}
 	if !filepath.IsAbs(k) {
 		k = filepath.Join(s.Cwd, k)
@@ -207,7 +213,7 @@ func profSec(us int64) string { return fmt.Sprintf("%d.%06d", us/1000000, us%100
 // sweepRetros runs the sweep, writing the human report to out and the stderr lines to errw.
 func sweepRetros(o options, s cli.Stdio, out, errw io.Writer) sweepResult {
 	res := sweepResult{}
-	kitDir, err := resolveKit(o, s)
+	kitDir, err := resolveKit(o, s, errw)
 	if err != nil {
 		fmt.Fprintf(errw, "sweep-retros: %v\n", err)
 		res.rc = cli.ExitOperational

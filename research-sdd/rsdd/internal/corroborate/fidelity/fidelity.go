@@ -281,11 +281,13 @@ func toolbeltDir(flagValue string, s cli.Stdio) (string, error) {
 	if flagValue != "" {
 		return flagValue, nil
 	}
-	p, _, err := kit.ResolveKitScript("toolbelt/decompile-java.sh", kit.Getenv(s.Env))
+	// The resolver's warnings are dropped here: this function runs once per missing flag and a run can need both, so
+	// printing them would repeat the line.
+	root, _, err := kit.ResolveKitRoot(kit.Getenv(s.Env))
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve the toolbelt directory (pass --toolbelt DIR or set RESEARCH_SDD_KIT): %w", err)
 	}
-	return filepath.Dir(p), nil
+	return filepath.Join(root, "toolbelt"), nil
 }
 
 // jdkVersion reads the first complete "javac <digit>..." line of `javac -version` output (JVM notices may come

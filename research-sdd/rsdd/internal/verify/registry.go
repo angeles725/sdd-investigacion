@@ -160,7 +160,7 @@ func (r *registry) flush(allAbsent bool) {
 func (r *registry) resolveKit(flag string) (string, bool) {
 	root := flag
 	if root == "" {
-		p, warns, err := kit.ResolveKitScript("toolbelt/verify-registry.sh", r.env)
+		p, warns, err := kit.ResolveKitRoot(r.env)
 		for _, w := range warns {
 			fmt.Fprintln(r.s.Err, w)
 		}
@@ -168,7 +168,7 @@ func (r *registry) resolveKit(flag string) (string, bool) {
 			fmt.Fprintf(r.s.Err, "verify-registry: cannot resolve the kit: %v\n", err)
 			return "", false
 		}
-		root = filepath.Dir(filepath.Dir(p))
+		root = filepath.Clean(p)
 	}
 	if !filepath.IsAbs(root) {
 		root = filepath.Join(r.s.Cwd, root)

@@ -51,18 +51,6 @@ func RunTools(args []string, s cli.Stdio) int {
 	return sweepTools(o, s, s.Out, s.Err, os.ReadFile)
 }
 
-// resolveToolsKit is resolveKit for a run without --kit: the kit of toolbelt/sweep-tools.sh.
-func resolveToolsKit(o options, s cli.Stdio) (string, error) {
-	if o.kit == "" {
-		script, _, err := kit.ResolveKitScript("toolbelt/sweep-tools.sh", s.Env)
-		if err != nil {
-			return "", err
-		}
-		o.kit = filepath.Dir(filepath.Dir(script))
-	}
-	return resolveKit(o, s)
-}
-
 // toolsTotals are the counters of one census, as the summary prints them.
 type toolsTotals struct {
 	tools, retro, ledger, unrecorded int
@@ -73,7 +61,7 @@ type toolsTotals struct {
 
 // sweepTools runs the census, writing the report to out and the diagnostics to errw. It returns the exit code.
 func sweepTools(o options, s cli.Stdio, out, errw io.Writer, read readFunc) int {
-	kitDir, err := resolveToolsKit(o, s)
+	kitDir, err := resolveKit(o, s, errw)
 	if err != nil {
 		fmt.Fprintf(errw, "sweep-tools: %v\n", err)
 		return cli.ExitOperational

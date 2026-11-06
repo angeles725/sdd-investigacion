@@ -145,10 +145,14 @@ func (m *meter) toolbeltDir() string {
 	if m.toolbelt != "" {
 		return m.toolbelt
 	}
-	if p, _, err := kit.ResolveKitScript("toolbelt/lib/session-budget-pi.mjs", kit.Getenv(m.s.Env)); err == nil {
-		return filepath.Dir(filepath.Dir(p))
+	root, warns, err := kit.ResolveKitRoot(kit.Getenv(m.s.Env))
+	for _, w := range warns {
+		fmt.Fprintln(m.s.Err, w)
 	}
-	return ""
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(root, "toolbelt")
 }
 
 // claude is the default harness: the SessionStart hooks of <target>/.claude/settings.json, per source.

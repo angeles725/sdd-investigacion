@@ -38,7 +38,7 @@ func RunCommand(args []string, s cli.Stdio) int {
 // reached through a symlink (the profile installer's, kit issue #1024) still finds the real kit repo.
 func kitRootOf(s cli.Stdio, toolbelt string) (string, bool) {
 	if toolbelt == "" {
-		p, warns, err := kit.ResolveKitScript("toolbelt/stage-retro.sh", s.Env)
+		root, warns, err := kit.ResolveKitRoot(s.Env)
 		for _, w := range warns {
 			fmt.Fprintln(s.Err, w)
 		}
@@ -46,7 +46,7 @@ func kitRootOf(s cli.Stdio, toolbelt string) (string, bool) {
 			fmt.Fprintf(s.Err, "stage-retro: cannot find the kit toolbelt: %v\n", err)
 			return "", false
 		}
-		toolbelt = filepath.Dir(p)
+		toolbelt = filepath.Join(root, "toolbelt")
 	}
 	if !filepath.IsAbs(toolbelt) {
 		toolbelt = filepath.Join(s.Cwd, toolbelt)
