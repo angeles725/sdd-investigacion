@@ -29,11 +29,11 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   d. listed, n > recorded, n > 400: `<path>: grew from <recorded> to <n> lines and is over 400. A file over 400 lines may not grow: split it first.`
   e. listed, n <= 200: `<path>: <n> lines, no longer over 200. Delete this line from modularity-debt.txt:` then the line
   f. listed, not a production file of the tree (missing, a test, generated): `<path>: listed but not a production Go file in this tree. Delete this line from modularity-debt.txt, or, if the file moved, change the path on it (same count and kind, list kept sorted):` then the line
-  g. `accepted` with recorded > 400 and n >= recorded: `modularity-debt.txt:<lineno>: an accepted entry may not be above 400 lines (<path> <recorded>): split the file.`
+  g. `accepted` with recorded > 400 and n > 400: `modularity-debt.txt:<lineno>: an accepted entry may not be above 400 lines (<path> <recorded>): split the file.`
   h. malformed, unknown kind, short reason, unsorted or duplicate: `modularity-debt.txt:<lineno>: <what is wrong>; expected "<path> <lines> <legacy|accepted> <reason of at least 10 characters>", entries sorted by path`
-  i. listed, recorded > 400, 200 < n < recorded: `<path>: <n> lines, below its recorded <recorded>. A count over 400 is exact, so the file cannot grow back unseen: change its line in modularity-debt.txt to:` then `<path> <n> <kind> <reason>`
-  One message per entry, in this order: f, e, i, g, then c or d, so a line to delete or to lower is said before
-  "split". A file whose line is malformed (h) is not also reported as unlisted (a, b): its line is its message (L15).
+  i. listed, recorded > 400, 200 < n < recorded (for `accepted`, n <= 400): `<path>: <n> lines, below its recorded <recorded>. A count over 400 is exact, so the file cannot grow back unseen: change its line in modularity-debt.txt to:` then `<path> <n> <kind> <reason>`
+  One message per entry, in this order: f, e, g, i, then c or d, so a line to delete or to lower is said before
+  "split", and a line is printed only when the next run admits it (L16). A file whose line is malformed (h) is not also reported as unlisted (a, b): its line is its message (L15).
 - S6 Ceiling semantics (rewritten in L15). A count of 400 or less is a ceiling: a listed file with 200 < n <= recorded
   passes, so a small edit never forces a debt-file edit, and the result counts how many such entries could be
   lowered. A count over 400 is exact: the file passes only at n = recorded, and below it the lowered line is required
@@ -79,6 +79,9 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
 - [x] T5 (S5, S6, S7, S12) the two blockers of the orchestrator's cross-read and its advisories (L15) · route: inline ·
   commit: the one after e6a59aac · observed: five tests red before the change, package tests under both tag sets,
   33 hand mutants killed, dry run 111 runnable and 0 not covered, real tree unchanged, pre-push checks
+- [x] T6 (S5, S6) advisories of the native review of T5 (L16) · route: inline · commit: the one after 84866923 ·
+  observed: two cases and the summary test red before the change, package tests under both tag sets, 40 hand
+  mutants killed, dry run 113 runnable and 0 not covered
 
 ## Log
 
@@ -199,7 +202,7 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   malformed line no longer makes its file read as unlisted; (2) the checks are ordered so that a line to delete or
   lower is said before "split" (an `accepted 450` entry whose file is at 150 lines is deleted, at 300 lowered);
   (3) an unreadable directory has a test and its error names the path; (8) the zero-file and unreadable-file tests
-  check the error text; (9) S12 and the pull request body make one statement on the base comparison; (7) the
+  check the error text (the cross-read numbered its advisories 1 to 4 and 7 to 9; there was no 5 or 6); (9) S12 and the pull request body make one statement on the base comparison; (7) the
   not-rewritten test uses os.SameFile. Not applied, optional (4): the import-check walker of archtest.go does not
   share the go-tool ignore rule of the new scan; it is an existing check with its own tests and goes to a follow-up.
   RED, executed before the change: `TestMovedFileKeepsItsLineUnderTheNewPath` (both messages without the move
@@ -213,4 +216,21 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   non-test files, 3 generated, 618 scanned from then on (recounted independently at this commit). The dry run read
   104 runnable at 85e917af, 107 at e6a59aac (the order comparison has three mutants) and reads 111 at this commit.
   The real tree is unchanged by the new rule: no entry over 400 is above its file (lowerable=0).
+- L16 Native review of 85e917af..84866923 (lineage review-2ba496502eac05ca, lenses readability and reliability):
+  approved and acknowledged, six advisories, all applied in the next commit. (a) Reliability: an `accepted` entry
+  recorded above 400 whose file is still above 400 but below the recorded count (450 recorded, 420 measured) got
+  message i with the line `a.go 420 accepted`, which the next run refuses with message g; the printed line was not
+  admissible. Message g now comes before i and only while the file is over 400; at 400 or less the lowered line is
+  printed, and it is admissible. Cases: 450 recorded with 420, 401 (split) and 400 (lowered); `accepted 400` with
+  401 lines stays growth, not a bad entry. (b) Readability: the comment on the printed summary said a -v or -json run
+  keeps the print and drops the log line; both are kept there. The true difference is a run from the package
+  directory with no flag, which shows a print of a passing test and not its log lines; a package-list run drops
+  both. (c) The set of paths named on malformed lines is called `malformed`, not `named`. (d) The disposition of
+  advisories 5 and 6 of L15: there were none. (e) The summary line has one formatter, `SizeResult.Summary`, and a
+  test fixes its text, since a later slice reads it from the test output. (f) The unreadable-directory test is
+  skipped for a user who can read a directory with no permission bits; a missing root reaches the same branch of
+  the walk and needs no permission bits, so `TestMissingRootIsAnErrorThatNamesIt` proves the wrapping there (both
+  walk-error mutants die on that test alone). RED, executed before the change:
+  `TestCountOverTheHardLimitIsExact` (accepted 450 at 420 and at 401: the lowered line instead of "split the file")
+  and `TestSummaryLineFormat` (against a stub that returned an empty line). Dry run: 113 runnable, 0 not covered.
 

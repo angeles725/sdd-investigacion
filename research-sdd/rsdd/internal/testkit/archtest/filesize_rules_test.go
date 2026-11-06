@@ -34,6 +34,7 @@ func TestMovedFileKeepsItsLineUnderTheNewPath(t *testing.T) {
 // A count over the hard limit is exact; a count at or under it keeps its slack.
 func TestCountOverTheHardLimitIsExact(t *testing.T) {
 	const why = " " + reason
+	const acceptedHigh = "modularity-debt.txt:1: an accepted entry may not be above 400 lines (a.go 450): split the file."
 	shrunk := func(n, recorded int, line string) string {
 		return "a.go: " + strconv.Itoa(n) + " lines, below its recorded " + strconv.Itoa(recorded) +
 			". A count over 400 is exact, so the file cannot grow back unseen: change its line in modularity-debt.txt to:\n" + line + why
@@ -55,6 +56,13 @@ func TestCountOverTheHardLimitIsExact(t *testing.T) {
 			[]string{shrunk(300, 450, "a.go 300 accepted")}, 0},
 		{"accepted above the limit whose file is small is deleted, not split", 150, 450, "accepted",
 			[]string{"a.go: 150 lines, no longer over 200. Delete this line from modularity-debt.txt:\na.go 450 accepted" + why}, 0},
+		// No lowered line is admissible while the file is over the limit: the next run would refuse it.
+		{"accepted above the limit whose file is still above it is split", 420, 450, "accepted", []string{acceptedHigh}, 0},
+		{"accepted above the limit, file one line over it", 401, 450, "accepted", []string{acceptedHigh}, 0},
+		{"accepted above the limit, file at it: the lowered line is admissible", 400, 450, "accepted",
+			[]string{shrunk(400, 450, "a.go 400 accepted")}, 0},
+		{"accepted at the limit that grew past it is growth, not a bad entry", 401, 400, "accepted",
+			[]string{"a.go: grew from 400 to 401 lines and is over 400. A file over 400 lines may not grow: split it first."}, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

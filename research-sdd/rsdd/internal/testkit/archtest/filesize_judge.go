@@ -22,7 +22,8 @@ const (
 // lines (isProd false: not a production file of the tree), or "" when it
 // passes. Plain if statements, not a tagless switch: the mutation tool does
 // not exercise conditions written as case expressions. The order matters: a
-// line to delete or to lower is said before "split the file".
+// line to delete or to lower is said before "split the file", and a line is
+// printed only when the next run admits it.
 func judgeEntry(e debtEntry, n int, isProd bool) string {
 	if !isProd {
 		return fmt.Sprintf(msgNotProd, e.Path, DebtFileName, e.Raw)
@@ -30,12 +31,13 @@ func judgeEntry(e debtEntry, n int, isProd bool) string {
 	if n <= SoftLimit {
 		return fmt.Sprintf(msgNotOver, e.Path, n, SoftLimit, DebtFileName, e.Raw)
 	}
+	// An accepted entry above the hard limit whose file is still above it has no admissible line, lowered or not.
+	if e.Kind == "accepted" && e.Lines > HardLimit && n > HardLimit {
+		return fmt.Sprintf(msgAcceptedHigh, DebtFileName, e.LineNo, HardLimit, e.Path, e.Lines)
+	}
 	// A count over the hard limit is exact: with slack, a file that shrank could grow back to its old count unseen.
 	if e.Lines > HardLimit && n < e.Lines {
 		return fmt.Sprintf(msgShrunkHard, e.Path, n, e.Lines, HardLimit, DebtFileName, e.Path, n, e.Kind, e.Reason)
-	}
-	if e.Kind == "accepted" && e.Lines > HardLimit {
-		return fmt.Sprintf(msgAcceptedHigh, DebtFileName, e.LineNo, HardLimit, e.Path, e.Lines)
 	}
 	if n <= e.Lines {
 		return ""
@@ -47,10 +49,10 @@ func judgeEntry(e debtEntry, n int, isProd bool) string {
 }
 
 // judge compares measured sizes with the debt entries (S5, S6). It fills
-// r.Over and r.Lowerable and returns the violation messages. A path in named
-// has a malformed line, already reported: its file is listed, badly, and is
-// not reported again as unlisted.
-func judge(files map[string]int, entries []debtEntry, named map[string]bool, r *SizeResult) []string {
+// r.Over and r.Lowerable and returns the violation messages. A path in
+// malformed has a malformed line, already reported: its file is listed, badly,
+// and is not reported again as unlisted.
+func judge(files map[string]int, entries []debtEntry, malformed map[string]bool, r *SizeResult) []string {
 	var out []string
 	listed := map[string]bool{}
 	for _, e := range entries {
@@ -67,7 +69,7 @@ func judge(files map[string]int, entries []debtEntry, named map[string]bool, r *
 			continue
 		}
 		r.Over++
-		if listed[path] || named[path] {
+		if listed[path] || malformed[path] {
 			continue
 		}
 		if n > HardLimit {

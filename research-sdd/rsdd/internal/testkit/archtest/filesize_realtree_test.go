@@ -26,10 +26,9 @@ func TestFileSizesRealTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Printed, not logged: a log line is dropped from a passing test unless -v is given, while this one is in
-	// the test output a -json or -v run keeps, where a lowerable count can be seen.
-	fmt.Printf("modularity: scanned=%d generated=%d over%d=%d entries=%d lowerable=%d\n",
-		r.Scanned, r.Generated, SoftLimit, r.Over, r.Entries, r.Lowerable)
+	// Printed, not logged: a run from the package directory with no flag shows what a passing test prints and
+	// drops what it logs. A package-list run (go test ./...) drops both, so there the line needs -v or -json.
+	fmt.Println(r.Summary())
 	for _, v := range r.Violations {
 		t.Error(v)
 	}

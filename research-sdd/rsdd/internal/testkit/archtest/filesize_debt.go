@@ -73,8 +73,8 @@ func placeProblem(prev, path string, seen map[string]bool) (problem string, keep
 }
 
 // parseDebt returns the entries it read, a message for every bad line, and the paths that malformed lines name.
-func parseDebt(text string) (entries []debtEntry, bad []string, named map[string]bool) {
-	named = map[string]bool{}
+func parseDebt(text string) (entries []debtEntry, bad []string, malformed map[string]bool) {
+	malformed = map[string]bool{}
 	prev, seen := "", map[string]bool{}
 	for i, line := range strings.Split(text, "\n") {
 		e, isEntry, problem := parseLine(line)
@@ -83,7 +83,7 @@ func parseDebt(text string) (entries []debtEntry, bad []string, named map[string
 		}
 		keep := false
 		if problem != "" {
-			named[e.Path] = true
+			malformed[e.Path] = true
 		} else {
 			problem, keep = placeProblem(prev, e.Path, seen)
 		}
@@ -97,5 +97,5 @@ func parseDebt(text string) (entries []debtEntry, bad []string, named map[string
 		entries = append(entries, e)
 		prev, seen[e.Path] = e.Path, true
 	}
-	return entries, bad, named
+	return entries, bad, malformed
 }

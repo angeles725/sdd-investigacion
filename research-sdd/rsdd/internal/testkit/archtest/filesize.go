@@ -26,6 +26,12 @@ type SizeResult struct {
 	Violations []string // exact, actionable messages, sorted
 }
 
+// Summary is the one-line reading of a run. The real-tree test prints it, and a test fixes its format.
+func (r SizeResult) Summary() string {
+	return fmt.Sprintf("modularity: scanned=%d generated=%d over%d=%d entries=%d lowerable=%d",
+		r.Scanned, r.Generated, SoftLimit, r.Over, r.Entries, r.Lowerable)
+}
+
 var generatedLine = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
 
 // CheckFileSizes measures every production Go file under root against the
@@ -41,9 +47,9 @@ func CheckFileSizes(root, debtPath string) (SizeResult, error) {
 	if err != nil {
 		return r, fmt.Errorf("archtest: cannot read debt file: %w", err)
 	}
-	entries, bad, named := parseDebt(string(data))
+	entries, bad, malformed := parseDebt(string(data))
 	r.Scanned, r.Generated, r.Entries = len(files), generated, len(entries)
-	r.Violations = append(bad, judge(files, entries, named, &r)...)
+	r.Violations = append(bad, judge(files, entries, malformed, &r)...)
 	sort.Strings(r.Violations)
 	return r, nil
 }

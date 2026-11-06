@@ -136,3 +136,21 @@ func TestUnreadableSourceFileIsAnError(t *testing.T) {
 		t.Error("update mode must refuse a tree it cannot read in full")
 	}
 }
+
+// A root that cannot be read is an error that names it. It needs no permission bits, so it also proves the wrapping
+// of a walk error for a user who can read every directory.
+func TestMissingRootIsAnErrorThatNamesIt(t *testing.T) {
+	_, dp := tree(t, map[string]string{"ok.go": gen(1)}, "")
+	root := filepath.Join(t.TempDir(), "absent")
+	if _, err := CheckFileSizes(root, dp); err == nil || !strings.HasPrefix(err.Error(), "archtest: cannot read "+root+": ") {
+		t.Errorf("err = %v, want it to name the root that could not be read", err)
+	}
+}
+
+// The summary line is read from the test output, so its format is fixed.
+func TestSummaryLineFormat(t *testing.T) {
+	got := SizeResult{Scanned: 1, Generated: 2, Over: 3, Entries: 4, Lowerable: 5}.Summary()
+	if want := "modularity: scanned=1 generated=2 over200=3 entries=4 lowerable=5"; got != want {
+		t.Errorf("Summary() = %q, want %q", got, want)
+	}
+}
