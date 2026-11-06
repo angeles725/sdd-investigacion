@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 )
 
 // ran is one run: stdout, stderr and the exit code.
@@ -36,10 +37,13 @@ func gitDir(t *testing.T) string {
 	return filepath.Dir(p)
 }
 
+// envFor is the environment of the fixture's git commands and of the command under test. It goes through
+// gitfixture.Env: after a commit git starts its maintenance detached, and the lock file that appears and vanishes
+// under .git/objects would read as a write to a test that compares the repository before and after a run.
 func envFor(t *testing.T, root, path string) []string {
-	return []string{"PATH=" + path, "HOME=" + root + "/home", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+	return gitfixture.Env([]string{"PATH=" + path, "HOME=" + root + "/home", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CEILING_DIRECTORIES=" + filepath.Dir(root), "GIT_TERMINAL_PROMPT=0",
-		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t"}
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t"})
 }
 
 func tempRoot(t *testing.T) string {
