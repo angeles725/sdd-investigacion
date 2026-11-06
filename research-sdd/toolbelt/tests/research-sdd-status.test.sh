@@ -37,7 +37,7 @@ skip(){ printf '  SKIP  %s\n' "$1"; skips=$((skips+1)); }
 # the same rules the SUT uses: covered_blocks=0 (mkstate writes no block files), blocked_open=1 (the fixed
 # 'gpu profiling' entry), investigable_open = pending (leading-token) non-'gpu profiling' rows.
 mkstate() {
-  local dir="$1" inv="$2"; shift 2; mkdir -p "$dir"
+  local dir="$1"; shift 2; mkdir -p "$dir"   # arg 2 (inv) is ignored: the count is derived from the rows
   local io=0 r p g s
   for r in "$@"; do IFS='|' read -r p g s <<<"$r"
     [ "${s%% *}" = "pending" ] || continue
