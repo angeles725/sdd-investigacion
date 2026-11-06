@@ -67,6 +67,10 @@ func cancelRan(t *testing.T, w *world, sig os.Signal, args ...string) ran {
 	done := make(chan ran, 1)
 	go func() { done <- w.goRunSig(sigs, 4242, args...) }()
 	waitFor(t, "the stub to start", func() bool { return exists(w.root + "/started") })
+	if pf := w.envValue("STUB_HANG_PIDFILE"); pf != "" {
+		// The stubs write the marker before the pid file: a signal sent in between leaves no pid to check.
+		waitFor(t, "the stub's pid file", func() bool { b, _ := os.ReadFile(pf); return strings.HasSuffix(string(b), "\n") })
+	}
 	sigs <- sig
 	select {
 	case r := <-done:

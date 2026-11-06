@@ -94,6 +94,17 @@ func (w *world) environ() []string {
 
 func (w *world) setEnv(kv ...string) { w.extraEnv = append(w.extraEnv, kv...) }
 
+// envValue is the last value setEnv gave a variable, or "".
+func (w *world) envValue(key string) string {
+	v := ""
+	for _, kv := range w.extraEnv {
+		if rest, ok := strings.CutPrefix(kv, key+"="); ok {
+			v = rest
+		}
+	}
+	return v
+}
+
 // path is dir-relative to an absolute path in the target directory.
 func (w *world) path(rel string) string { return w.dir + "/" + rel }
 
