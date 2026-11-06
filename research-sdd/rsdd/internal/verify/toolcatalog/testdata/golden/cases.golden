@@ -1,0 +1,925 @@
+absent: INSTALLED-TOOLS.md [C]
+  input  n=1 sha256=0d7e46a7a1458656 args=[]
+  exit   1
+  stdout ""
+  stderr "verify-tool-catalog: ERROR — cannot find {D}/INSTALLED-TOOLS.md (absent-input)\n"
+absent: INSTALLED-TOOLS.md [C.UTF-8]
+  input  n=1 sha256=0d7e46a7a1458656 args=[]
+  exit   1
+  stdout ""
+  stderr "verify-tool-catalog: ERROR — cannot find {D}/INSTALLED-TOOLS.md (absent-input)\n"
+absent: tool-registry.md [C]
+  input  n=1 sha256=a6dcefdb3b552b0c args=[]
+  exit   1
+  stdout ""
+  stderr "verify-tool-catalog: ERROR — cannot find {D}/tool-registry.md (absent-input)\n"
+absent: tool-registry.md [C.UTF-8]
+  input  n=1 sha256=a6dcefdb3b552b0c args=[]
+  exit   1
+  stdout ""
+  stderr "verify-tool-catalog: ERROR — cannot find {D}/tool-registry.md (absent-input)\n"
+absent: both inputs [C]
+  input  n=0 sha256=e3b0c44298fc1c14 args=[]
+  exit   1
+  stdout ""
+  stderr "verify-tool-catalog: ERROR — cannot find {D}/INSTALLED-TOOLS.md (absent-input)\n"
+absent: both inputs [C.UTF-8]
+  input  n=0 sha256=e3b0c44298fc1c14 args=[]
+  exit   1
+  stdout ""
+  stderr "verify-tool-catalog: ERROR — cannot find {D}/INSTALLED-TOOLS.md (absent-input)\n"
+absent: INSTALLED-TOOLS.md is a directory [C]
+  input  n=2 sha256=b29a801ae281a563 args=[]
+  exit   1
+  stdout ""
+  stderr "verify-tool-catalog: ERROR — cannot find {D}/INSTALLED-TOOLS.md (absent-input)\n"
+absent: INSTALLED-TOOLS.md is a directory [C.UTF-8]
+  input  n=2 sha256=b29a801ae281a563 args=[]
+  exit   1
+  stdout ""
+  stderr "verify-tool-catalog: ERROR — cannot find {D}/INSTALLED-TOOLS.md (absent-input)\n"
+absent: tool-registry.md is a directory [C]
+  input  n=2 sha256=2a6781a3eb15ba06 args=[]
+  exit   1
+  stdout ""
+  stderr "verify-tool-catalog: ERROR — cannot find {D}/tool-registry.md (absent-input)\n"
+absent: tool-registry.md is a directory [C.UTF-8]
+  input  n=2 sha256=2a6781a3eb15ba06 args=[]
+  exit   1
+  stdout ""
+  stderr "verify-tool-catalog: ERROR — cannot find {D}/tool-registry.md (absent-input)\n"
+empty-input: header and separator only [C]
+  input  n=2 sha256=a6f9e9f19153140f args=[]
+  exit   0
+  stdout "verify-tool-catalog: INSTALLED-TOOLS.md has no tool log rows (empty-input) — nothing to reconcile.\n"
+  stderr ""
+empty-input: header and separator only [C.UTF-8]
+  input  n=2 sha256=a6f9e9f19153140f args=[]
+  exit   0
+  stdout "verify-tool-catalog: INSTALLED-TOOLS.md has no tool log rows (empty-input) — nothing to reconcile.\n"
+  stderr ""
+empty-input: zero-byte log [C]
+  input  n=2 sha256=1d9e0fde01cda552 args=[]
+  exit   0
+  stdout "verify-tool-catalog: INSTALLED-TOOLS.md has no tool log rows (empty-input) — nothing to reconcile.\n"
+  stderr ""
+empty-input: zero-byte log [C.UTF-8]
+  input  n=2 sha256=1d9e0fde01cda552 args=[]
+  exit   0
+  stdout "verify-tool-catalog: INSTALLED-TOOLS.md has no tool log rows (empty-input) — nothing to reconcile.\n"
+  stderr ""
+empty-input: pipe rows that are only separators and headers [C]
+  input  n=2 sha256=592b74151dfe6451 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+empty-input: pipe rows that are only separators and headers [C.UTF-8]
+  input  n=2 sha256=592b74151dfe6451 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+no-match: every tool cataloged [C]
+  input  n=2 sha256=309c848c4b79758f args=[]
+  exit   0
+  stdout "\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+no-match: every tool cataloged [C.UTF-8]
+  input  n=2 sha256=309c848c4b79758f args=[]
+  exit   0
+  stdout "\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+drift: one tool [C]
+  input  n=2 sha256=d74685d0235f439c args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'typst' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: typst\n"
+  stderr ""
+drift: one tool [C.UTF-8]
+  input  n=2 sha256=d74685d0235f439c args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'typst' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: typst\n"
+  stderr ""
+drift: only the first of five [C]
+  input  n=2 sha256=5ebb8dc5b4404b1f args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'first-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 4 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: first-tool\n"
+  stderr ""
+drift: only the first of five [C.UTF-8]
+  input  n=2 sha256=5ebb8dc5b4404b1f args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'first-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 4 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: first-tool\n"
+  stderr ""
+drift: only the middle of five [C]
+  input  n=2 sha256=72f3005113042822 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'middle-gap' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 4 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: middle-gap\n"
+  stderr ""
+drift: only the middle of five [C.UTF-8]
+  input  n=2 sha256=72f3005113042822 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'middle-gap' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 4 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: middle-gap\n"
+  stderr ""
+drift: only the last of five [C]
+  input  n=2 sha256=5b8b6b3211ade4d7 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'last-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 4 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: last-tool\n"
+  stderr ""
+drift: only the last of five [C.UTF-8]
+  input  n=2 sha256=5b8b6b3211ade4d7 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'last-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 4 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: last-tool\n"
+  stderr ""
+drift: all of five [C]
+  input  n=2 sha256=e462456ed1216b11 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'first-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'second-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'middle-gap' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'fourth-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'last-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 5 not cataloged.\nCatalog gap(s) — not cataloged: first-tool, second-tool, middle-gap, fourth-tool, last-tool\n"
+  stderr ""
+drift: all of five [C.UTF-8]
+  input  n=2 sha256=e462456ed1216b11 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'first-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'second-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'middle-gap' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'fourth-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'last-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 5 not cataloged.\nCatalog gap(s) — not cataloged: first-tool, second-tool, middle-gap, fourth-tool, last-tool\n"
+  stderr ""
+tool cataloged only in the Tool paths table [C]
+  input  n=2 sha256=db38fe732546af20 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+tool cataloged only in the Tool paths table [C.UTF-8]
+  input  n=2 sha256=db38fe732546af20 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+cataloged on the first line only [C]
+  input  n=2 sha256=ccb092e62cbbc506 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+cataloged on the first line only [C.UTF-8]
+  input  n=2 sha256=ccb092e62cbbc506 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+cataloged on the last line without a newline [C]
+  input  n=2 sha256=1f76c28a0cbe2795 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+cataloged on the last line without a newline [C.UTF-8]
+  input  n=2 sha256=1f76c28a0cbe2795 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+registry empty [C]
+  input  n=2 sha256=30e595dcd75ff6a9 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'alpha' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: alpha\n"
+  stderr ""
+registry empty [C.UTF-8]
+  input  n=2 sha256=30e595dcd75ff6a9 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'alpha' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: alpha\n"
+  stderr ""
+form 2 headings: first, middle and last [C]
+  input  n=2 sha256=94c2d48161f1b43d args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'bb' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: bb\n"
+  stderr ""
+form 2 headings: first, middle and last [C.UTF-8]
+  input  n=2 sha256=94c2d48161f1b43d args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'bb' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: bb\n"
+  stderr ""
+form 2 headings: all cataloged [C]
+  input  n=2 sha256=dc53e759067a6a4c args=[]
+  exit   0
+  stdout "\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+form 2 headings: all cataloged [C.UTF-8]
+  input  n=2 sha256=dc53e759067a6a4c args=[]
+  exit   0
+  stdout "\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+form 1 and form 2 together, form 1 first [C]
+  input  n=2 sha256=4971c34c126dc229 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'table-gap' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'section-gap' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 4 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 2 not cataloged.\nCatalog gap(s) — not cataloged: table-gap, section-gap\n"
+  stderr ""
+form 1 and form 2 together, form 1 first [C.UTF-8]
+  input  n=2 sha256=4971c34c126dc229 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'table-gap' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'section-gap' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 4 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 2 not cataloged.\nCatalog gap(s) — not cataloged: table-gap, section-gap\n"
+  stderr ""
+heading shapes [C]
+  input  n=2 sha256=ffdbb4e5eff94df5 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'a(b)' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'tabbed' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'trailing' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 3 not cataloged.\nCatalog gap(s) — not cataloged: a(b), tabbed, trailing\n"
+  stderr ""
+heading shapes [C.UTF-8]
+  input  n=2 sha256=ffdbb4e5eff94df5 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'a(b)' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'tabbed' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'trailing' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 3 not cataloged.\nCatalog gap(s) — not cataloged: a(b), tabbed, trailing\n"
+  stderr ""
+heading with CRLF [C]
+  input  n=2 sha256=ad12e6f66125712f args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'crlf-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: crlf-tool\n"
+  stderr ""
+heading with CRLF [C.UTF-8]
+  input  n=2 sha256=ad12e6f66125712f args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'crlf-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: crlf-tool\n"
+  stderr ""
+duplicates in form 1 [C]
+  input  n=2 sha256=3a58ffc96f7549e8 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'blutter' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'blutter-build' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 2 not cataloged.\nCatalog gap(s) — not cataloged: blutter, blutter-build\n"
+  stderr ""
+duplicates in form 1 [C.UTF-8]
+  input  n=2 sha256=3a58ffc96f7549e8 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'blutter' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'blutter-build' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 2 not cataloged.\nCatalog gap(s) — not cataloged: blutter, blutter-build\n"
+  stderr ""
+duplicate across the forms [C]
+  input  n=2 sha256=4215f4a23cef241f args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'dup' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: dup\n"
+  stderr ""
+duplicate across the forms [C.UTF-8]
+  input  n=2 sha256=4215f4a23cef241f args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'dup' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: dup\n"
+  stderr ""
+duplicates are case-sensitive [C]
+  input  n=2 sha256=c9c7705e1a3e43a4 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'Tool-A' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'tool-a' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'TOOL-A' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 3 not cataloged.\nCatalog gap(s) — not cataloged: Tool-A, tool-a, TOOL-A\n"
+  stderr ""
+duplicates are case-sensitive [C.UTF-8]
+  input  n=2 sha256=c9c7705e1a3e43a4 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'Tool-A' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'tool-a' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'TOOL-A' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 3 not cataloged.\nCatalog gap(s) — not cataloged: Tool-A, tool-a, TOOL-A\n"
+  stderr ""
+duplicate heading [C]
+  input  n=2 sha256=d013ea059b3da21a args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'h' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'i' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 2 not cataloged.\nCatalog gap(s) — not cataloged: h, i\n"
+  stderr ""
+duplicate heading [C.UTF-8]
+  input  n=2 sha256=d013ea059b3da21a args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'h' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'i' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 2 not cataloged.\nCatalog gap(s) — not cataloged: h, i\n"
+  stderr ""
+last log row without a trailing newline [C]
+  input  n=2 sha256=4102d5cebea53f77 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'only-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: only-tool\n"
+  stderr ""
+last log row without a trailing newline [C.UTF-8]
+  input  n=2 sha256=4102d5cebea53f77 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'only-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: only-tool\n"
+  stderr ""
+last heading without a trailing newline [C]
+  input  n=2 sha256=c2c593f8f5f18379 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'lone' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: lone\n"
+  stderr ""
+last heading without a trailing newline [C.UTF-8]
+  input  n=2 sha256=c2c593f8f5f18379 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'lone' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: lone\n"
+  stderr ""
+last row of several without a trailing newline [C]
+  input  n=2 sha256=42e480fbe197f1f5 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'three' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: three\n"
+  stderr ""
+last row of several without a trailing newline [C.UTF-8]
+  input  n=2 sha256=42e480fbe197f1f5 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'three' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: three\n"
+  stderr ""
+case-insensitive match [C]
+  input  n=2 sha256=cd11e6824736d978 args=[]
+  exit   0
+  stdout "\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 3 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+case-insensitive match [C.UTF-8]
+  input  n=2 sha256=cd11e6824736d978 args=[]
+  exit   0
+  stdout "\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 3 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+whole word: cfr against cfrx [C]
+  input  n=2 sha256=7da2ebf2f60474c2 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'cfr' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: cfr\n"
+  stderr ""
+whole word: cfr against cfrx [C.UTF-8]
+  input  n=2 sha256=7da2ebf2f60474c2 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'cfr' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: cfr\n"
+  stderr ""
+whole word: cfr against xcfr [C]
+  input  n=2 sha256=661fe7e3aa896b9a args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'cfr' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: cfr\n"
+  stderr ""
+whole word: cfr against xcfr [C.UTF-8]
+  input  n=2 sha256=661fe7e3aa896b9a args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'cfr' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: cfr\n"
+  stderr ""
+whole word: underscore and digit are word characters [C]
+  input  n=2 sha256=e07fd2e34bdccb7f args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'cfr' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: cfr\n"
+  stderr ""
+whole word: underscore and digit are word characters [C.UTF-8]
+  input  n=2 sha256=e07fd2e34bdccb7f args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'cfr' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: cfr\n"
+  stderr ""
+whole word: punctuation is a boundary [C]
+  input  n=2 sha256=7a73099348dd7cb2 args=[]
+  exit   0
+  stdout "\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 3 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+whole word: punctuation is a boundary [C.UTF-8]
+  input  n=2 sha256=7a73099348dd7cb2 args=[]
+  exit   0
+  stdout "\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 3 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+whole word: a later occurrence matches after an earlier miss [C]
+  input  n=2 sha256=f7bf29fcb267ab39 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+whole word: a later occurrence matches after an earlier miss [C.UTF-8]
+  input  n=2 sha256=f7bf29fcb267ab39 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+whole word: line edges [C]
+  input  n=2 sha256=f29e8366e394619f args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+whole word: line edges [C.UTF-8]
+  input  n=2 sha256=f29e8366e394619f args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+whole word: the match may sit on a non-table line [C]
+  input  n=2 sha256=4f64e1c4eac91731 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'capa' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: capa\n"
+  stderr ""
+whole word: the match may sit on a non-table line [C.UTF-8]
+  input  n=2 sha256=4f64e1c4eac91731 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'capa' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: capa\n"
+  stderr ""
+alias token carries the match [C]
+  input  n=2 sha256=1c163c3a1511d0f4 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+alias token carries the match [C.UTF-8]
+  input  n=2 sha256=1c163c3a1511d0f4 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+alias token absent [C]
+  input  n=2 sha256=df0c996aeb24addd args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'kaitai-struct-compiler' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: kaitai-struct-compiler\n"
+  stderr ""
+alias token absent [C.UTF-8]
+  input  n=2 sha256=df0c996aeb24addd args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'kaitai-struct-compiler' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: kaitai-struct-compiler\n"
+  stderr ""
+names with dot and hyphen [C]
+  input  n=2 sha256=8bf49adcecda21f0 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'xz-utils' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 4 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: xz-utils\n"
+  stderr ""
+names with dot and hyphen [C.UTF-8]
+  input  n=2 sha256=8bf49adcecda21f0 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'xz-utils' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 4 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: xz-utils\n"
+  stderr ""
+dot is not a wildcard [C]
+  input  n=2 sha256=4e158782faa8156d args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'a.b' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: a.b\n"
+  stderr ""
+dot is not a wildcard [C.UTF-8]
+  input  n=2 sha256=4e158782faa8156d args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'a.b' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: a.b\n"
+  stderr ""
+fixed-string metacharacters [C]
+  input  n=2 sha256=f0f929349015e161 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: '*' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'a$b' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 6 distinct tool(s) logged in INSTALLED-TOOLS.md · 4 cataloged · 2 not cataloged.\nCatalog gap(s) — not cataloged: *, a$b\n"
+  stderr ""
+fixed-string metacharacters [C.UTF-8]
+  input  n=2 sha256=f0f929349015e161 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: '*' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'a$b' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 6 distinct tool(s) logged in INSTALLED-TOOLS.md · 4 cataloged · 2 not cataloged.\nCatalog gap(s) — not cataloged: *, a$b\n"
+  stderr ""
+name with inner spaces [C]
+  input  n=2 sha256=9ea9d311c2d8ca65 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'my  tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: my  tool\n"
+  stderr ""
+name with inner spaces [C.UTF-8]
+  input  n=2 sha256=9ea9d311c2d8ca65 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'my  tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: my  tool\n"
+  stderr ""
+name starting with a hyphen [C]
+  input  n=2 sha256=7d5b47cfeec34284 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+name starting with a hyphen [C.UTF-8]
+  input  n=2 sha256=7d5b47cfeec34284 args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+cell hygiene: empty and short rows [C]
+  input  n=2 sha256=be8504dd425e1aaf args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'onlyname' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'spaced' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'tab' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 3 not cataloged.\nCatalog gap(s) — not cataloged: onlyname, spaced, tab\n"
+  stderr ""
+cell hygiene: empty and short rows [C.UTF-8]
+  input  n=2 sha256=be8504dd425e1aaf args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'onlyname' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'spaced' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'tab' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 3 not cataloged.\nCatalog gap(s) — not cataloged: onlyname, spaced, tab\n"
+  stderr ""
+cell hygiene: CRLF log [C]
+  input  n=2 sha256=9a9756b2808c1cb6 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'crlf-b' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: crlf-b\n"
+  stderr ""
+cell hygiene: CRLF log [C.UTF-8]
+  input  n=2 sha256=9a9756b2808c1cb6 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'crlf-b' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: crlf-b\n"
+  stderr ""
+cell hygiene: CRLF registry [C]
+  input  n=2 sha256=ae7a34be6ef4f5df args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+cell hygiene: CRLF registry [C.UTF-8]
+  input  n=2 sha256=ae7a34be6ef4f5df args=[]
+  exit   0
+  stdout "\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+rows not starting with a pipe are not log rows [C]
+  input  n=2 sha256=28447120f62454e1 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'real' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: real\n"
+  stderr ""
+rows not starting with a pipe are not log rows [C.UTF-8]
+  input  n=2 sha256=28447120f62454e1 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'real' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: real\n"
+  stderr ""
+unicode: case and boundary [C]
+  input  n=2 sha256=0bbad222ae422e61 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'Éclair' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'naïve' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 'ΣΊΣΥΦΟΣ' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 4 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 3 not cataloged.\nCatalog gap(s) — not cataloged: Éclair, naïve, ΣΊΣΥΦΟΣ\n"
+  stderr ""
+unicode: case and boundary [C.UTF-8]
+  input  n=2 sha256=0bbad222ae422e61 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'naïve' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 4 distinct tool(s) logged in INSTALLED-TOOLS.md · 3 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: naïve\n"
+  stderr ""
+unicode: boundary next to a non-letter [C]
+  input  n=2 sha256=178111ce25c98348 args=[]
+  exit   0
+  stdout "verify-tool-catalog: INSTALLED-TOOLS.md has no tool log rows (empty-input) — nothing to reconcile.\n"
+  stderr ""
+unicode: boundary next to a non-letter [C.UTF-8]
+  input  n=2 sha256=178111ce25c98348 args=[]
+  exit   0
+  stdout "verify-tool-catalog: INSTALLED-TOOLS.md has no tool log rows (empty-input) — nothing to reconcile.\n"
+  stderr ""
+unicode: combining mark and kelvin sign [C]
+  input  n=2 sha256=5a3d34d6c83b6e23 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'kit' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: kit\n"
+  stderr ""
+unicode: combining mark and kelvin sign [C.UTF-8]
+  input  n=2 sha256=5a3d34d6c83b6e23 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'kit' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\nCatalog gap(s) — not cataloged: kit\n"
+  stderr ""
+unicode: spaces around a cell [C]
+  input  n=2 sha256=e07f22a58ddc9171 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: '\u2003em-space\u2003' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: '\u00a0nbsp\u00a0' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 2 not cataloged.\nCatalog gap(s) — not cataloged: \u2003em-space\u2003, \u00a0nbsp\u00a0\n"
+  stderr ""
+unicode: spaces around a cell [C.UTF-8]
+  input  n=2 sha256=e07f22a58ddc9171 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 'em-space' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: '\u00a0nbsp\u00a0' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 2 not cataloged.\nCatalog gap(s) — not cataloged: em-space, \u00a0nbsp\u00a0\n"
+  stderr ""
+invalid UTF-8 in the registry [C]
+  input  n=2 sha256=9a09370511fecfe9 args=[]
+  exit   0
+  stdout "\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 3 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+invalid UTF-8 in the registry [C.UTF-8]
+  input  n=2 sha256=9a09370511fecfe9 args=[]
+  exit   0
+  stdout "\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 3 cataloged · 0 not cataloged.\nTool catalog consistent with INSTALLED-TOOLS.md (no-match: every logged tool is cataloged).\n"
+  stderr ""
+many tools, half uncataloged [C]
+  input  n=2 sha256=99c8bf1b34c37123 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 't01' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't03' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't05' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't07' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't09' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't11' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't13' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't15' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't17' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't19' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 20 distinct tool(s) logged in INSTALLED-TOOLS.md · 10 cataloged · 10 not cataloged.\nCatalog gap(s) — not cataloged: t01, t03, t05, t07, t09, t11, t13, t15, t17, t19\n"
+  stderr ""
+many tools, half uncataloged [C.UTF-8]
+  input  n=2 sha256=99c8bf1b34c37123 args=[]
+  exit   0
+  stdout "WARN  installed-but-not-cataloged: 't01' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't03' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't05' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't07' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't09' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't11' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't13' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't15' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't17' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\nWARN  installed-but-not-cataloged: 't19' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \"## Tool paths (verified)\" (propose-never-apply; never auto-edited).\n\nSummary: 20 distinct tool(s) logged in INSTALLED-TOOLS.md · 10 cataloged · 10 not cataloged.\nCatalog gap(s) — not cataloged: t01, t03, t05, t07, t09, t11, t13, t15, t17, t19\n"
+  stderr ""
+hook clean sentinel [C]
+  input  n=2 sha256=45b31a46974c9a55 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog: clean (2 logged tools, 0 uncataloged).\"\n  }\n}\n"
+  stderr ""
+hook clean sentinel [C.UTF-8]
+  input  n=2 sha256=45b31a46974c9a55 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog: clean (2 logged tools, 0 uncataloged).\"\n  }\n}\n"
+  stderr ""
+hook clean sentinel, one tool [C]
+  input  n=2 sha256=ebad841f31f43a50 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog: clean (1 logged tools, 0 uncataloged).\"\n  }\n}\n"
+  stderr ""
+hook clean sentinel, one tool [C.UTF-8]
+  input  n=2 sha256=ebad841f31f43a50 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog: clean (1 logged tools, 0 uncataloged).\"\n  }\n}\n"
+  stderr ""
+hook empty-input is silent [C]
+  input  n=2 sha256=a6f9e9f19153140f args=[]
+  exit   0
+  stdout ""
+  stderr ""
+hook empty-input is silent [C.UTF-8]
+  input  n=2 sha256=a6f9e9f19153140f args=[]
+  exit   0
+  stdout ""
+  stderr ""
+hook absent log could not run [C]
+  input  n=1 sha256=0d7e46a7a1458656 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check could not run (exit 1 — check INSTALLED-TOOLS.md and tool-registry.md):\\nverify-tool-catalog: ERROR — cannot find {D}/INSTALLED-TOOLS.md (absent-input)\"\n  }\n}\n"
+  stderr ""
+hook absent log could not run [C.UTF-8]
+  input  n=1 sha256=0d7e46a7a1458656 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check could not run (exit 1 — check INSTALLED-TOOLS.md and tool-registry.md):\\nverify-tool-catalog: ERROR — cannot find {D}/INSTALLED-TOOLS.md (absent-input)\"\n  }\n}\n"
+  stderr ""
+hook absent registry could not run [C]
+  input  n=1 sha256=d34ac0bcae5960f1 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check could not run (exit 1 — check INSTALLED-TOOLS.md and tool-registry.md):\\nverify-tool-catalog: ERROR — cannot find {D}/tool-registry.md (absent-input)\"\n  }\n}\n"
+  stderr ""
+hook absent registry could not run [C.UTF-8]
+  input  n=1 sha256=d34ac0bcae5960f1 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check could not run (exit 1 — check INSTALLED-TOOLS.md and tool-registry.md):\\nverify-tool-catalog: ERROR — cannot find {D}/tool-registry.md (absent-input)\"\n  }\n}\n"
+  stderr ""
+hook drift one tool, compact [C]
+  input  n=2 sha256=614b95e33598b72c args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (1): typst — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift one tool, compact [C.UTF-8]
+  input  n=2 sha256=614b95e33598b72c args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (1): typst — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift one tool, full [C]
+  input  n=2 sha256=614b95e33598b72c args=[--full]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged: 'typst' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift one tool, full [C.UTF-8]
+  input  n=2 sha256=614b95e33598b72c args=[--full]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged: 'typst' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift ten tools, compact [C]
+  input  n=2 sha256=c86c59c1487f687e args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (10): alpha-tool, bravo-tool, charlie-tool, delta-tool, echo-tool, foxtrot-tool, golf-tool, hotel-tool, india-tool, juliet-tool — add a tool-registry.md row each (propose-never-apply).\\nSummary: 10 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 10 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift ten tools, compact [C.UTF-8]
+  input  n=2 sha256=c86c59c1487f687e args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (10): alpha-tool, bravo-tool, charlie-tool, delta-tool, echo-tool, foxtrot-tool, golf-tool, hotel-tool, india-tool, juliet-tool — add a tool-registry.md row each (propose-never-apply).\\nSummary: 10 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 10 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift ten tools, full [C]
+  input  n=2 sha256=c86c59c1487f687e args=[--full]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged: 'alpha-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'bravo-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'charlie-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'delta-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'echo-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'foxtrot-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'golf-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'hotel-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'india-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'juliet-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nSummary: 10 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 10 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift ten tools, full [C.UTF-8]
+  input  n=2 sha256=c86c59c1487f687e args=[--full]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged: 'alpha-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'bravo-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'charlie-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'delta-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'echo-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'foxtrot-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'golf-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'hotel-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'india-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'juliet-tool' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nSummary: 10 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 10 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift names with comma and apostrophe [C]
+  input  n=2 sha256=20a8771b7ce8f162 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (3): a, b, o, plain — add a tool-registry.md row each (propose-never-apply).\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 3 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift names with comma and apostrophe [C.UTF-8]
+  input  n=2 sha256=20a8771b7ce8f162 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (3): a, b, o, plain — add a tool-registry.md row each (propose-never-apply).\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 3 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift names with comma and apostrophe, full [C]
+  input  n=2 sha256=20a8771b7ce8f162 args=[--full]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged: 'a,b' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'o'brien' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'plain' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 3 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift names with comma and apostrophe, full [C.UTF-8]
+  input  n=2 sha256=20a8771b7ce8f162 args=[--full]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged: 'a,b' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'o'brien' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nWARN  installed-but-not-cataloged: 'plain' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row (Artifact type / Tool / Wrapper, or the '(direct)' pattern for a manual tool) and, if it has a resolvable binary, a row in \\\"## Tool paths (verified)\\\" (propose-never-apply; never auto-edited).\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 3 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift from a heading [C]
+  input  n=2 sha256=902570e266d8208b args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (2): t-tool, h-tool — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 2 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift from a heading [C.UTF-8]
+  input  n=2 sha256=902570e266d8208b args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (2): t-tool, h-tool — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 2 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift first, middle and last [C]
+  input  n=2 sha256=1ec8f2a11033a837 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (3): one, three, five — add a tool-registry.md row each (propose-never-apply).\\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 3 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+hook drift first, middle and last [C.UTF-8]
+  input  n=2 sha256=1ec8f2a11033a837 args=[]
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (3): one, three, five — add a tool-registry.md row each (propose-never-apply).\\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 3 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub clean sentinel
+  input  out=91 bytes sha256=855117dc7392d18592c8baf11f58b8dc18fb05912c9f86c5d176ac6f36d09844 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog: clean (5 logged tools, 0 uncataloged).\"\n  }\n}\n"
+  stderr ""
+stub clean, logged count missing
+  input  out=32 bytes sha256=8a5a423cc5ee93f51516431c36fc78294a3eb0038e8535ae1979ac24f62cd4e0 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog: clean (? logged tools, 0 uncataloged).\"\n  }\n}\n"
+  stderr ""
+stub clean, no not-cataloged count at all
+  input  out=35 bytes sha256=59a31108733d7c54a282c0dd2a711c39d3e4cc877d45d1730f298f05fc8c3c10 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog: clean (3 logged tools, 0 uncataloged).\"\n  }\n}\n"
+  stderr ""
+stub two Summary lines
+  input  out=183 bytes sha256=fc2212db02c0ae94514d07307e43e7aadaa7764a3c8bc0e56490721cf3f99e8c rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nSummary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 5 cataloged · 0 not cataloged.\\nSummary: 7 distinct tool(s) logged in INSTALLED-TOOLS.md · 7 cataloged · 0 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub drift one tool
+  input  out=230 bytes sha256=9c1606c62c3acdf9f3023f79eedb640528101567ba4894e7d1ceb1cd98aff819 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (1): typst — add a tool-registry.md row each (propose-never-apply).\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub drift, compact and full
+  input  out=370 bytes sha256=e87237c7abebc38b343bdb573759bf34895d3fd8d2f51c371c715e67e6afe9bd rc=0 full=true
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged: 'typst' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row.\\nWARN  installed-but-not-cataloged: 'bkcrack' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row.\\nSummary: 4 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 2 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub drift keeps another WARN line
+  input  out=260 bytes sha256=673dc590b5f82b7585192c93ba9a19900ac05b531402af7e8ba55800ddfd7e85 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  something else entirely\\nWARN  installed-but-not-cataloged (1): typst — add a tool-registry.md row each (propose-never-apply).\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub drift, another WARN line only
+  input  out=122 bytes sha256=1d24ad0beed5d7f093ca304b227249375aee828d23e0d449ecb23f20a9b09b53 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  something else entirely\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub drift, WARN lines without a Summary tool name
+  input  out=140 bytes sha256=a70070692c8415dcdccaffb3d9f0e0d9016bc59d238d311cb3cef2c6d2bfc653 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged: no quote here\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub drift, name with a comma
+  input  out=361 bytes sha256=7d56abb063ef39693c97b548b74b3cb63b4327ecc02ba0909e58a33a2e66a66d rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (2): a, b, c — add a tool-registry.md row each (propose-never-apply).\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 2 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub drift, name with a comma, full
+  input  out=227 bytes sha256=d6ebee47fcd06549f02d24b65a3287f4c1335e7fd4b4eeabe0937a06a60213bd rc=0 full=true
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged: 'a,b' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row.\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 2 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub drift, empty name
+  input  out=224 bytes sha256=6d99e8f00b5a4a41a6b4bfbb5db38364cc9e98c2b30728da371bca5ea8786cca rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  installed-but-not-cataloged (1):  — add a tool-registry.md row each (propose-never-apply).\\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub drift, the Summary leaves counts unparseable
+  input  out=153 bytes sha256=1d11722781b2199ef36bccdb9105e66b0b9c0e912a1349dc6e0a213e9a33a7e7 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog: clean (? logged tools, 0 uncataloged).\"\n  }\n}\n"
+  stderr ""
+stub drift, a prose line starting with WARN
+  input  out=119 bytes sha256=7955b1e5ebc283f4062417497830c0f85b15a72e6a97159920b5ab9fc4f34dea rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARNING: not a catalog line\\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub rc 1 could not run
+  input  out=79 bytes sha256=ed5db71a7eab3fbbda4752f7936b0e6ed2bedfe23225a2aa5e501f26c5fcaa89 rc=1 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check could not run (exit 1 — check INSTALLED-TOOLS.md and tool-registry.md):\\nverify-tool-catalog: ERROR — cannot find /x/INSTALLED-TOOLS.md (absent-input)\"\n  }\n}\n"
+  stderr ""
+stub rc 2
+  input  out=4 bytes sha256=81f52337ebb4cb1669bb802c708807dde0519d15cb102a6313d26ad5cd821713 rc=2 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check could not run (exit 2 — check INSTALLED-TOOLS.md and tool-registry.md):\\nboom\"\n  }\n}\n"
+  stderr ""
+stub rc 127 with empty output
+  input  out=0 bytes sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 rc=127 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check could not run (exit 127 — check INSTALLED-TOOLS.md and tool-registry.md):\\n\"\n  }\n}\n"
+  stderr ""
+stub rc 1 with a long output
+  input  out=2146 bytes sha256=1ff71b886478d62114045f56bbb557add9cba8928bc94bcd74c9ff77e89b7fd0 rc=1 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check could not run (exit 1 — check INSTALLED-TOOLS.md and tool-registry.md):\\nline of failure output that is long enough to matter\\n… 30 line(s) dropped, 0 line(s) clipped to fit the SessionStart budget — run `rsdd verify tool-catalog` for the full output\\nline of failure output that is long enough to matter\\nline of failure output that is long enough to matter\\nline of failure output that is long enough to matter\\nline of failure output that is long enough to matter\\nline of failure output that is long enough to matter\\nline of failure output that is long enough to matter\\nline of failure output that is long enough to matter\\nline of failure output that is long enough to matter\\nline of failure output that is long enough to matter\\nthe last line is the cause\"\n  }\n}\n"
+  stderr ""
+stub rc 1 with one long line
+  input  out=3000 bytes sha256=e1630f843370f402870799e14abbf2b06af2d23b0153658e1211dffabc61ad8f rc=1 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check could not run (exit 1 — check INSTALLED-TOOLS.md and tool-registry.md):\\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\\n… 0 line(s) dropped, 1 line(s) clipped to fit the SessionStart budget — run `rsdd verify tool-catalog` for the full output\"\n  }\n}\n"
+  stderr ""
+stub rc 1 with non-ASCII output
+  input  out=4000 bytes sha256=c2cad557d96ee9cf4ae810e237fc25d604c426ff14b0b44191ed2997bb4ff6ae rc=1 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check could not run (exit 1 — check INSTALLED-TOOLS.md and tool-registry.md):\\né€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€😀 é€…\\n… 0 line(s) dropped, 1 line(s) clipped to fit the SessionStart budget — run `rsdd verify tool-catalog` for the full output\"\n  }\n}\n"
+  stderr ""
+stub missing Summary
+  input  out=44 bytes sha256=36210742dbf5ff0fd0b534f0d95761dad030259c19e03f39af7d72017e320eed rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check: missing Summary line — unexpected output from verify-tool-catalog.sh:\\nsome unexpected garbage with no Summary line\"\n  }\n}\n"
+  stderr ""
+stub missing Summary, empty output
+  input  out=0 bytes sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check: missing Summary line — unexpected output from verify-tool-catalog.sh:\\n\"\n  }\n}\n"
+  stderr ""
+stub missing Summary with a long output
+  input  out=2001 bytes sha256=f1062cf8f9a0a27b327a954294e0453bb053ce9ca7719e28addc2a210f0ebed9 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check: missing Summary line — unexpected output from verify-tool-catalog.sh:\\ngarbage line number n\\n… 65 line(s) dropped, 0 line(s) clipped to fit the SessionStart budget — run `rsdd verify tool-catalog` for the full output\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\ngarbage line number n\\nthe last garbage line\"\n  }\n}\n"
+  stderr ""
+stub empty-input sentence is silent
+  input  out=100 bytes sha256=4adbba8b2b9b7f0fa9bda8cfc08e29a4a9b75d4db3ba3e289bf6e8e3660a9326 rc=0 full=false
+  exit   0
+  stdout ""
+  stderr ""
+stub EMPTY-INPUT uppercase is silent
+  input  out=11 bytes sha256=d40f6294daa48085e834839c28cea6ba038db2d21ad0dfa07dbb4d4e6e33b43a rc=0 full=false
+  exit   0
+  stdout ""
+  stderr ""
+stub the no-log-rows phrase alone is silent
+  input  out=33 bytes sha256=ad785c9127ed780b1f9974181bb88848e3ca7201ee9046eb775f90bd19e8242e rc=0 full=false
+  exit   0
+  stdout ""
+  stderr ""
+stub empty-input phrase but a Summary exists
+  input  out=103 bytes sha256=b0abd38303b778ceeef165b194e7af1b50500a7ca2bd41ee4f1ee0cfcf6ed728 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog: clean (2 logged tools, 0 uncataloged).\"\n  }\n}\n"
+  stderr ""
+stub Summary must start the line
+  input  out=93 bytes sha256=50601c533b6b4c97718a6de7e61554bdadbf935b6b4038be2991d7f72f25e1df rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog check: missing Summary line — unexpected output from verify-tool-catalog.sh:\\n  Summary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 0 not cataloged.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 2-byte char starting at byte 157
+  input  out=389 bytes sha256=e72492deae840f211e5fae852d3edfa953a7b46b0d19aa3f4331f717180001ff rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaét\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 2-byte char starting at byte 158
+  input  out=390 bytes sha256=a71f5fed4e4fab97726cb216d62716c4d9f78ec4bd589523cc8842da274dc10b rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaé\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 2-byte char starting at byte 159
+  input  out=391 bytes sha256=770f0b8edf15431d544644188ca19260dce3214c615e385228832de0d3ae1475 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 2-byte char starting at byte 160
+  input  out=392 bytes sha256=60cddba3d2fdc377196212708d9e21ce250e548bc01e81a8cefa8f2d93db7617 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 2-byte char starting at byte 161
+  input  out=393 bytes sha256=4abdf6c423fbcdc228d999e4e08e656771b5d96f359a0c0373cf14bbfbe83120 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 3-byte char starting at byte 156
+  input  out=389 bytes sha256=da481df3949e61010beb4b874146d1b60c860c6eca4e6064a1b8833574847f89 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa€t\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 3-byte char starting at byte 157
+  input  out=390 bytes sha256=2ac27423d37ec7ac3f0e3a8c7598444b0523001f88ab65ceed65b80a1542304e rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa€\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 3-byte char starting at byte 158
+  input  out=391 bytes sha256=a3490850a109f99c0044aa03e2e9ebd0da4c501f8d7e553a7c864699f620c92b rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 3-byte char starting at byte 159
+  input  out=392 bytes sha256=9ad50b44001da39c34009ceac3fd51419cf046c6c7b5679146136f9a6ef7d605 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 3-byte char starting at byte 160
+  input  out=393 bytes sha256=a7ab88ca82336e3a88744d54064a973ef54e9a896e530841bb0e194d385df1ee rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 3-byte char starting at byte 161
+  input  out=394 bytes sha256=ae017587c2d49b44df4b249993e03ef2472f158f89bc4b989acb62275339925f rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 4-byte char starting at byte 155
+  input  out=389 bytes sha256=1aa3c291125533c004f9d9aec97022f2a996e6785f5130c7df17891c599f65dd rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀t\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 4-byte char starting at byte 156
+  input  out=390 bytes sha256=6a8067a60df7facf20a596863586c6ade0a9389fdbf80cfd04b372f0322e8572 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 4-byte char starting at byte 157
+  input  out=391 bytes sha256=afe6d4e838293834e75eb809c5f766f616448000464da0a29fce8dd70fafe69c rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 4-byte char starting at byte 158
+  input  out=392 bytes sha256=88b1428b4c7bd21e7cabfeb3faff27bb808f82d1c7c4303b26a6f28a8f41394a rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 4-byte char starting at byte 159
+  input  out=393 bytes sha256=aaa7e177d898488c77745005a868267963f4c8b6a21d49080d7230d16e46e9cf rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 4-byte char starting at byte 160
+  input  out=394 bytes sha256=41c1daf76089ad04c00be8d6ebccb9cb02057027fe25a43d19f3f995c67037f4 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: 4-byte char starting at byte 161
+  input  out=395 bytes sha256=87d97ceb167f3040f30363c595871e5fd6cc64f2e4cb3bb4420cd992f9f3dea9 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\nWARN  installed-but-not-cataloged (1): t — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: ASCII line of exactly 160 bytes
+  input  out=252 bytes sha256=eaf3263211818131414990c20e6a4ce5497c4e40d87df7bcc47c81dcb196bfc0 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\nSummary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: ASCII line of 161 bytes
+  input  out=387 bytes sha256=dbfb3435bdde1709e73a7c25314e17b4550b5a22242bcae834b2082c952160f9 rc=0 full=false
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\nWARN  installed-but-not-cataloged (1): z — add a tool-registry.md row each (propose-never-apply).\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""
+stub cut at 160: full keeps the long line
+  input  out=391 bytes sha256=a3490850a109f99c0044aa03e2e9ebd0da4c501f8d7e553a7c864699f620c92b rc=0 full=true
+  exit   0
+  stdout "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": \"Research-SDD tool catalog drift (installed but not cataloged):\\nWARN  xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa€tail\\nWARN  installed-but-not-cataloged: 't' is logged in INSTALLED-TOOLS.md but has no entry in tool-registry.md — add a capability row.\\nSummary: 2 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 1 not cataloged.\\nRun toolbelt/verify-tool-catalog.sh for the full list.\"\n  }\n}\n"
+  stderr ""

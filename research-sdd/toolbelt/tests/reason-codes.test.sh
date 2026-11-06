@@ -74,6 +74,7 @@ GO_SRC=(
   "verify-registry.sh=../rsdd/internal/verify"   # registry.go prints unclassifiable-blocks (kit issue #2364)
   "verify-corrections.sh=../rsdd/internal/verify/corrections"   # its own sub-package (kit issue #2625), so no GO_FILES glob is needed
   "check-gap-drift.sh=../rsdd/internal/verify/gapdrift"         # its own sub-package (kit issue #2645), so no GO_FILES glob is needed
+  "verify-tool-catalog.sh=../rsdd/internal/verify/toolcatalog"  # its own sub-package (kit issue #2749), so no GO_FILES glob is needed
   "score-loop-transcript.sh=../rsdd/internal/eval/scoreloop"   # c2.go and c4.go print the empty-input n/a reason (kit issue #993)
   "scan-secrets.sh=../rsdd/internal/core/secretscan"           # the engine behind rsdd secrets scan; its DEGRADED lines are typed there
   "clean-check.sh=../rsdd/internal/core/cleancheck"      # the engine behind rsdd hygiene clean-check; the ABSENT-* and DEGRADED-* lines are typed there (kit issue #2270)
@@ -89,7 +90,7 @@ GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pca
   kit-gate.sh kit-wait-merge.sh kit-pr-pipeline.sh kit-writer-check.sh
   resume-state.sh resume-render.sh verify-block.sh verify-registry-hook.sh)   # verify-registry-hook.sh emits only the envelope of verify-registry.sh's states
 # The rsdd_exec_hook shims the scan newly sees (kit issue #2597), checked to emit no registry input state of their own.
-GO_NO_TYPED+=(return-token-gate.sh verify-kit-clean-hook.sh verify-skill-drift-hook.sh)
+GO_NO_TYPED+=(return-token-gate.sh verify-kit-clean-hook.sh verify-skill-drift-hook.sh verify-tool-catalog-hook.sh)
 # GO_SHARED lists degraded rows whose emitter is a shared Go package that several ports call, not one shim's package
 # (kit issue #2563): `code|row emitter label|package dir|literal`. The row counts as emitted only while the literal is
 # still in the package's non-test sources, so a removed emission turns it stale again.
