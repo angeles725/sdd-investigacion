@@ -29,7 +29,7 @@ type refusal string
 // treated it as "not given" and quietly scanned the working directory, the default tmp or no base). The ages are
 // checked after the loop exactly as before. Only flags are read here; the environment is the caller's.
 func parse(args []string) (parsed, refusal) {
-	p := parsed{opts: cleancheck.Options{StaleHours: cleancheck.DefaultStaleHours, BackupDays: cleancheck.DefaultBackupDays}}
+	p := parsed{opts: cleancheck.Options{}}
 	var stale, backup *string
 	paths := map[string]*string{
 		"--target": &p.opts.Target, "--tmp": &p.opts.Tmp, "--scratchpad": &p.opts.Scratchpad,
@@ -62,23 +62,23 @@ func parse(args []string) (parsed, refusal) {
 		}
 	}
 	var r refusal
-	if p.opts.StaleHours, r = age("--stale-hours", stale, cleancheck.DefaultStaleHours); r != "" {
+	if p.opts.StaleHours, r = age("--stale-hours", stale); r != "" {
 		return p, r
 	}
-	p.opts.BackupDays, r = age("--backup-days", backup, cleancheck.DefaultBackupDays)
+	p.opts.BackupDays, r = age("--backup-days", backup)
 	return p, r
 }
 
 // age reads a decimal age: digits only, at most nine of them, a leading zero still decimal (08 is 8). An age that
-// was not given is the default; one given as an empty word is refused like any other non-number.
-func age(flag string, raw *string, def int) (int, refusal) {
+// was not given is left unset (the engine applies the default); one given as an empty word is refused like any other non-number.
+func age(flag string, raw *string) (cleancheck.Age, refusal) {
 	if raw == nil {
-		return def, ""
+		return cleancheck.Age{}, ""
 	}
 	if n, err := strconv.Atoi(*raw); err == nil && digitsOnly(*raw) && len(*raw) <= maxDigits {
-		return n, ""
+		return cleancheck.AgeOf(n), ""
 	}
-	return 0, refusal(flag + " must be a decimal integer of at most 9 digits: '" + *raw + "'")
+	return cleancheck.Age{}, refusal(flag + " must be a decimal integer of at most 9 digits: '" + *raw + "'")
 }
 
 func digitsOnly(s string) bool {

@@ -4,6 +4,7 @@
 package cleancheck
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
@@ -24,11 +25,7 @@ func Run(args []string, s cli.Stdio) int {
 		return cli.ExitUsage
 	}
 	p.opts.Env, p.opts.Cwd, p.opts.Now = s.Environment(), s.Cwd, s.Clock
-	p.opts.UID = s.Env("CLEAN_CHECK_UID")
-	if p.opts.Scratchpad == "" { // --scratchpad wins over the environment
-		p.opts.Scratchpad = s.Env("CLEAN_CHECK_SCRATCHPAD")
-	}
-	res := cleancheck.Check(p.opts)
+	res := cleancheck.Check(context.Background(), p.opts)
 	for _, l := range res.Lines {
 		w := s.Out
 		if l.Stream == cleancheck.Err {

@@ -3,6 +3,7 @@
 package cleancheck
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"os"
@@ -34,7 +35,7 @@ func TestCleanCheckDifferential(t *testing.T) {
 			golden[sc.name] = goldenCase{Merged: wl.show(l.merged), Out: wl.show(l.out), Err: wl.show(l.err), RC: l.rc}
 			wg := newWorld(t)
 			sc.prepare(wg)
-			g := Check(wg.optionsFor(sc.environ(wg), sc.args(wg)...))
+			g := Check(context.Background(), wg.optionsFor(sc.environ(wg), sc.args(wg)...))
 			if l.rc != sc.want || g.Exit != sc.want {
 				t.Fatalf("exit codes: legacy %d, go %d, scenario wants %d\nlegacy:\n%s\ngo:\n%s", l.rc, g.Exit, sc.want, l.merged, g.Merged())
 			}

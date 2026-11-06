@@ -2,7 +2,7 @@ package cleancheck
 
 import "strings"
 
-// Verdict is how a run ended. Exit maps it: Clean 0, Findings 1, Refused 2, Degraded 3.
+// Verdict is how a run ended. Exit maps it: Clean 0, Findings 1, Refused 2, Degraded 3, TimedOut 124.
 type Verdict int
 
 const (
@@ -10,6 +10,7 @@ const (
 	Findings                // at least one GARBAGE, UNPRESERVED-ARTIFACT or UNMANIFESTED-SCRIPT line
 	Refused                 // a refused input or a scan that failed partway: nothing is claimed
 	Degraded                // nothing was measured (git missing) or a scan could not run
+	TimedOut                // the caller's context ended the run: nothing is claimed, not even the findings seen so far
 )
 
 // Stream is stdout or stderr.

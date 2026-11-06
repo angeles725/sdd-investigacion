@@ -3,7 +3,6 @@ package cleancheck
 import (
 	"strings"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kitmaint"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
 )
 
@@ -48,14 +47,17 @@ type gitRes struct {
 
 // git is `git -C <target> args`. Stderr is kept even when git succeeds: the callers that left it visible forward it.
 func (r *run) git(args ...string) gitRes {
-	out, err := proc.Run(proc.Spec{
+	c, ok := r.runChild(proc.Spec{
 		Argv: append([]string{"git", "-C", r.targetP}, args...), Env: r.env,
-		Timeout: kitmaint.ChildCeiling, MaxBytes: 64 << 20, Now: r.o.Now,
+		MaxBytes: 64 << 20, Now: r.o.Now,
 	})
-	if err != nil {
-		return gitRes{rc: 127, err: err.Error()}
+	if !ok {
+		return gitRes{rc: 124}
 	}
-	return settle(out)
+	if c.err != nil {
+		return gitRes{rc: 127, err: c.err.Error()}
+	}
+	return settle(c.out)
 }
 
 // settle turns a bounded run into the exit status the callers test. A run stopped by its timeout or cut at the output

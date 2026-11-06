@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseAccepts(t *testing.T) {
-	def := cleancheck.Options{StaleHours: 24, BackupDays: 14}
+	def := cleancheck.Options{} // an age not given stays unset: the engine owns the defaults
 	with := func(f func(o *cleancheck.Options)) cleancheck.Options { o := def; f(&o); return o }
 	for name, c := range map[string]struct {
 		args []string
@@ -20,15 +20,15 @@ func TestParseAccepts(t *testing.T) {
 		"scratchpad":    {[]string{"--scratchpad", "s"}, with(func(o *cleancheck.Options) { o.Scratchpad = "s" })},
 		"base":          {[]string{"--base", "b"}, with(func(o *cleancheck.Options) { o.Base = "b" })},
 		"evidence":      {[]string{"--evidence", "e"}, with(func(o *cleancheck.Options) { o.Evidence = "e" })},
-		"stale":         {[]string{"--stale-hours", "5"}, with(func(o *cleancheck.Options) { o.StaleHours = 5 })},
-		"backup":        {[]string{"--backup-days", "7"}, with(func(o *cleancheck.Options) { o.BackupDays = 7 })},
-		"zero":          {[]string{"--stale-hours", "0", "--backup-days", "0"}, with(func(o *cleancheck.Options) { o.StaleHours, o.BackupDays = 0, 0 })},
-		"leading0":      {[]string{"--stale-hours", "08", "--backup-days", "010"}, with(func(o *cleancheck.Options) { o.StaleHours, o.BackupDays = 8, 10 })},
-		"nine digits":   {[]string{"--stale-hours", "999999999"}, with(func(o *cleancheck.Options) { o.StaleHours = 999999999 })},
-		"last wins":     {[]string{"--target", "a", "--target", "b", "--stale-hours", "1", "--stale-hours", "2"}, with(func(o *cleancheck.Options) { o.Target = "b"; o.StaleHours = 2 })},
+		"stale":         {[]string{"--stale-hours", "5"}, with(func(o *cleancheck.Options) { o.StaleHours = cleancheck.AgeOf(5) })},
+		"backup":        {[]string{"--backup-days", "7"}, with(func(o *cleancheck.Options) { o.BackupDays = cleancheck.AgeOf(7) })},
+		"zero":          {[]string{"--stale-hours", "0", "--backup-days", "0"}, with(func(o *cleancheck.Options) { o.StaleHours, o.BackupDays = cleancheck.AgeOf(0), cleancheck.AgeOf(0) })},
+		"leading0":      {[]string{"--stale-hours", "08", "--backup-days", "010"}, with(func(o *cleancheck.Options) { o.StaleHours, o.BackupDays = cleancheck.AgeOf(8), cleancheck.AgeOf(10) })},
+		"nine digits":   {[]string{"--stale-hours", "999999999"}, with(func(o *cleancheck.Options) { o.StaleHours = cleancheck.AgeOf(999999999) })},
+		"last wins":     {[]string{"--target", "a", "--target", "b", "--stale-hours", "1", "--stale-hours", "2"}, with(func(o *cleancheck.Options) { o.Target = "b"; o.StaleHours = cleancheck.AgeOf(2) })},
 		"flag as value": {[]string{"--target", "--tmp"}, with(func(o *cleancheck.Options) { o.Target = "--tmp" })},
 		"all": {[]string{"--target", "t", "--tmp", "m", "--stale-hours", "3", "--scratchpad", "s", "--base", "b", "--evidence", "e", "--backup-days", "4"},
-			cleancheck.Options{Target: "t", Tmp: "m", StaleHours: 3, Scratchpad: "s", Base: "b", Evidence: "e", BackupDays: 4}},
+			cleancheck.Options{Target: "t", Tmp: "m", StaleHours: cleancheck.AgeOf(3), Scratchpad: "s", Base: "b", Evidence: "e", BackupDays: cleancheck.AgeOf(4)}},
 	} {
 		p, bad := parse(c.args)
 		if bad != "" || p.help || !reflect.DeepEqual(p.opts, c.want) {

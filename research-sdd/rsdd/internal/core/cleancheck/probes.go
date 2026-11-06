@@ -55,7 +55,7 @@ func (r *run) readProbes() (probes, bool) {
 		}
 	}
 	var manifests, files []string
-	errs := walkTree(root, noLimit, func(path string, _ int, e entry) bool {
+	errs := walkTree(r.stopped, root, noLimit, func(path string, _ int, e entry) bool {
 		if e.info.Mode().IsRegular() {
 			files = append(files, path)
 			if e.name == manifestName {
@@ -81,6 +81,9 @@ func (r *run) readProbes() (probes, bool) {
 		}
 	}
 	for _, f := range files {
+		if r.stopped() {
+			return p, false
+		}
 		if sum, ok := fileSum(f); ok {
 			p.shas[sum] = true
 		}

@@ -1,6 +1,7 @@
 package cleancheck
 
 import (
+	"context"
 	"strconv"
 	"strings"
 )
@@ -15,29 +16,52 @@ import (
 // the evidence directory) and Degraded for each check that could not run. Retention WARNs are counted in Warnings and
 // never change the verdict. A run that stopped early (Refused, or git missing) has no Summary line.
 //
-// Check reads almost nothing from the process: the working directory, the environment (git, TMPDIR) and the clock
-// are in Options, and every relative path is resolved against Options.Cwd. The one process read is the owner uid,
-// taken from os.Getuid only when neither Options.UID nor Options.Self is set. Options.Now and Options.Cwd are
-// required: a nil clock or an empty working directory is a typed refusal (Refused, exit 2, no Summary), never a
-// panic or a path resolved against "/"; the rsdd command supplies the process clock and directory. It runs only git,
-// and only to read.
-func Check(o Options) Result {
-	r := newRun(o)
-	if o.Now == nil {
-		r.refuse("Options.Now is required (the command layer supplies the clock)")
+// The context bounds the run: once it is cancelled or its deadline passes, the walks and loops stop at the next
+// entry, a running git is stopped (when the context has a deadline: its timeout is cut to it) and the Result is the
+// typed TimedOut state (exit 124, one stderr line, nothing else), never a clean or a partial findings list. A context
+// that never ends bounds nothing beyond the ten-minute ceiling of each git.
+//
+// Check reads its inputs from Options (see there for the exact process reads): the working directory, the environment
+// (git, TMPDIR, CLEAN_CHECK_SCRATCHPAD, CLEAN_CHECK_UID) and the clock, and every relative path is resolved against
+// Options.Cwd. Options.Now, an absolute Options.Cwd and a context are required: a missing or relative one is a typed
+// refusal (Refused, exit 2, no Summary), never a panic or a path resolved against the process. It runs only git, and
+// only to read.
+func Check(ctx context.Context, o Options) Result {
+	r := newRun(ctx, o)
+	if !r.requirements() {
 		return r.res
 	}
-	if o.Cwd == "" {
-		r.refuse("Options.Cwd is required (relative paths are resolved against it)")
-		return r.res
+	if r.stopped() {
+		return r.timedOut()
 	}
+	r.applyEnv()
 	r.settleScratchpad()
 	if r.resolveInputs() && r.resolveBase() && r.loadKeep() && r.scanUntracked() && r.scanStaleTmp() {
 		if r.scan() {
 			r.summarize()
 		}
 	}
+	if r.stopped() {
+		return r.timedOut()
+	}
 	return r.res
+}
+
+// requirements refuses the Options a run cannot start from: no clock, no or a relative working directory, no context.
+func (r *run) requirements() bool {
+	if r.o.Now == nil {
+		return r.refuse("Options.Now is required (the command layer supplies the clock)")
+	}
+	if r.o.Cwd == "" {
+		return r.refuse("Options.Cwd is required (relative paths are resolved against it)")
+	}
+	if !strings.HasPrefix(r.o.Cwd, "/") {
+		return r.refuse("Options.Cwd must be an absolute path (a relative one would be resolved against the process): '" + r.o.Cwd + "'")
+	}
+	if r.ctx == nil {
+		return r.refuse("a context is required (context.Background() for a run nothing bounds)")
+	}
+	return true
 }
 
 // scan runs the scratchpad and retention scans in the script's order and keeps their summary fields.
@@ -49,7 +73,7 @@ func (r *run) scan() bool {
 	ws := r.scanWorktrees()
 	r.fields = []string{
 		"untracked in " + r.target,
-		"tmp.* in " + r.tmp + " older than " + strconv.Itoa(r.o.StaleHours) + "h",
+		"tmp.* in " + r.tmp + " older than " + strconv.Itoa(r.staleHours) + "h",
 		"keep-list entries: " + strconv.Itoa(len(r.keep.globs)),
 		"scratchpad: " + scratch,
 		"worktrees: " + ws.state,

@@ -98,7 +98,7 @@ func (w *world) show(s string) string { return strings.ReplaceAll(s, w.root, "<R
 // optionsFor turns legacy arguments into the engine's options (the command does this in production).
 func (w *world) optionsFor(extraEnv []string, args ...string) Options {
 	w.t.Helper()
-	o := Options{Cwd: w.root, Env: w.env, Now: time.Now, StaleHours: DefaultStaleHours, BackupDays: DefaultBackupDays}
+	o := Options{Cwd: w.root, Env: w.env, Now: time.Now}
 	for _, kv := range extraEnv {
 		switch {
 		case strings.HasPrefix(kv, "CLEAN_CHECK_UID="):
@@ -123,9 +123,9 @@ func (w *world) optionsFor(extraEnv []string, args ...string) Options {
 		case "--evidence":
 			o.Evidence = v
 		case "--stale-hours":
-			o.StaleHours = atoi(w.t, v)
+			o.StaleHours = AgeOf(atoi(w.t, v))
 		case "--backup-days":
-			o.BackupDays = atoi(w.t, v)
+			o.BackupDays = AgeOf(atoi(w.t, v))
 		default:
 			w.t.Fatalf("optionsFor: unknown flag %s", args[i])
 		}

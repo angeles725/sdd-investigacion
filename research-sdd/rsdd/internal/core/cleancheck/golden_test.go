@@ -1,6 +1,7 @@
 package cleancheck
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -56,7 +57,7 @@ func TestGoldenReplay(t *testing.T) {
 			}
 			w := newWorld(t)
 			sc.prepare(w)
-			got := Check(w.optionsFor(sc.environ(w), sc.args(w)...))
+			got := Check(context.Background(), w.optionsFor(sc.environ(w), sc.args(w)...))
 			ran++
 			if got.Exit != want.RC || w.show(got.Merged()) != want.Merged || w.show(got.Stdout()) != want.Out || w.show(got.Stderr()) != want.Err {
 				t.Errorf("rc %d\n%s\nwant rc %d\n%s", got.Exit, w.show(got.Merged()), want.RC, want.Merged)

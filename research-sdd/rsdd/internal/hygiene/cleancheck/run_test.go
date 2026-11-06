@@ -64,8 +64,11 @@ func (w *world) write(path, body string) {
 func (w *world) run(extraEnv map[string]string, args ...string) int {
 	w.t.Helper()
 	w.out, w.err = &bytes.Buffer{}, &bytes.Buffer{}
-	env := func(k string) string { return extraEnv[k] }
-	return Run(args, cli.Stdio{Out: w.out, Err: w.err, Env: env, Environ: func() []string { return w.env }, Clock: time.Now, Cwd: w.root})
+	env := append([]string(nil), w.env...)
+	for k, v := range extraEnv {
+		env = append(env, k+"="+v)
+	}
+	return Run(args, cli.Stdio{Out: w.out, Err: w.err, Env: func(string) string { return "" }, Environ: func() []string { return env }, Clock: time.Now, Cwd: w.root})
 }
 
 func TestRunWritesTheEngineLinesToTheirStreams(t *testing.T) {

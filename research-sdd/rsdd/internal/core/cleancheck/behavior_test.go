@@ -1,6 +1,7 @@
 package cleancheck
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -152,7 +153,7 @@ func TestAnEntryThatVanishesIsUnknownAge(t *testing.T) {
 	ageTmp(w, "tmp.old", 48, false)
 	w.mkdir(w.root + "/ev/backup-x")
 	w.ago(24*30, w.root+"/ev/backup-x")
-	r := newRun(w.opts())
+	r := newRun(context.Background(), w.opts())
 	r.lstat = func(p string) (fs.FileInfo, error) {
 		if strings.HasSuffix(p, "tmp.old") || strings.HasSuffix(p, "backup-x") {
 			return nil, fs.ErrNotExist
@@ -251,7 +252,7 @@ func TestSettleScratchpad(t *testing.T) {
 		"": "", "/": "/", "//": "/", w.root + "/link": w.root + "/real", w.root + "/link/": w.root + "/real", "link": w.root + "/real",
 		"nope": "nope", "nope/": "nope", "nope//": "nope/", w.root + "/real/../real": w.root + "/real",
 	} {
-		r := newRun(Options{Scratchpad: in, Cwd: w.root})
+		r := newRun(context.Background(), Options{Scratchpad: in, Cwd: w.root})
 		r.settleScratchpad()
 		if r.scratchP != want {
 			t.Errorf("scratchpad %q settled to %q, want %q", in, r.scratchP, want)
@@ -305,7 +306,7 @@ func TestSymlinkedEvidenceDirIsReadThrough(t *testing.T) {
 
 // Divergence: the scratchpad "/" is a scratchpad (the script cut it to nothing and reported "not set").
 func TestRootScratchpadIsConfigured(t *testing.T) {
-	r := newRun(Options{Scratchpad: "/", Cwd: "/"})
+	r := newRun(context.Background(), Options{Scratchpad: "/", Cwd: "/"})
 	r.settleScratchpad()
 	if r.scratchP != "/" {
 		t.Errorf("%q", r.scratchP)

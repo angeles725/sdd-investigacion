@@ -1,6 +1,7 @@
 package cleancheck
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"strings"
@@ -9,14 +10,16 @@ import (
 
 // run is the state of one Check: the resolved inputs, the counters of the summary and the lines printed so far.
 type run struct {
+	ctx context.Context
 	o   Options
 	res Result
 	env []string // the environment of git: Options.Env without the repository selectors
 
-	target, targetP string // --target as given, and its physical path
-	tmp, tmpP       string // the tmp directory as printed (one trailing slash stripped), and its physical path
-	uid             uint64 // the owner of the tmp.* entries that are reported
-	now             time.Time
+	target, targetP        string // --target as given, and its physical path
+	tmp, tmpP              string // the tmp directory as printed (one trailing slash stripped), and its physical path
+	uid                    uint64 // the owner of the tmp.* entries that are reported
+	staleHours, backupDays int    // the two ages, defaults applied
+	now                    time.Time
 
 	scratchP string // the scratchpad: physical when it exists, as given (one slash stripped) otherwise; empty = not set
 	keep     keepList
@@ -30,8 +33,8 @@ type run struct {
 	lstat func(string) (fs.FileInfo, error) // os.Lstat; a test replaces it to make an entry vanish
 }
 
-func newRun(o Options) *run {
-	return &run{o: o, lstat: os.Lstat}
+func newRun(ctx context.Context, o Options) *run {
+	return &run{ctx: ctx, o: o, lstat: os.Lstat, staleHours: o.StaleHours.or(DefaultStaleHours), backupDays: o.BackupDays.or(DefaultBackupDays)}
 }
 
 // stdout prints one line on stdout.

@@ -38,7 +38,7 @@ func (r *run) scanStaleTmp() bool {
 	}
 	var paths []string
 	for _, e := range ents {
-		if !strings.HasPrefix(e.name, "tmp.") || !r.ownedBy(e.info) || !olderThan(r.now, e.info.ModTime(), int64(r.o.StaleHours)*60) {
+		if !strings.HasPrefix(e.name, "tmp.") || !r.ownedBy(e.info) || !olderThan(r.now, e.info.ModTime(), int64(r.staleHours)*60) {
 			continue
 		}
 		paths = append(paths, join(r.tmpP, e.name))

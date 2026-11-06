@@ -69,6 +69,9 @@ func (r *run) scanScratchpad() (state string, ok bool) {
 	cites := &blockReader{r: r, blocks: blocks}
 	preserved := 0
 	for _, f := range files {
+		if r.stopped() {
+			return "", false
+		}
 		base := f[strings.LastIndex(f, "/")+1:]
 		citer, ok := cites.firstCiting(base)
 		if !ok {
@@ -92,7 +95,7 @@ func (r *run) scanScratchpad() (state string, ok bool) {
 // vanishes mid-walk is benign, any other read error ends the run.
 func (r *run) scratchFiles() ([]string, bool) {
 	var files []string
-	errs := walkTree(r.scratchP, noLimit, func(p string, _ int, e entry) bool {
+	errs := walkTree(r.stopped, r.scratchP, noLimit, func(p string, _ int, e entry) bool {
 		if e.info.Mode().IsRegular() {
 			files = append(files, p)
 		}

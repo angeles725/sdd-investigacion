@@ -1,6 +1,7 @@
 package cleancheck
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -36,7 +37,7 @@ func (w *world) stubRules(rules ...rule) {
 
 // opts is a plain run of the world: its repository and tmp directory, the default ages.
 func (w *world) opts() Options {
-	return Options{Target: w.repo, Tmp: w.tmp, Cwd: w.root, Env: w.env, Now: time.Now, StaleHours: DefaultStaleHours, BackupDays: DefaultBackupDays}
+	return Options{Target: w.repo, Tmp: w.tmp, Cwd: w.root, Env: w.env, Now: time.Now}
 }
 
 // check runs Check on a plain run of the world, after letting the test adjust the options.
@@ -46,7 +47,7 @@ func (w *world) check(adjust ...func(*Options)) Result {
 	for _, f := range adjust {
 		f(&o)
 	}
-	return Check(o)
+	return Check(context.Background(), o)
 }
 
 // has reports whether the merged output holds the line.

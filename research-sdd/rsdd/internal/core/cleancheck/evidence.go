@@ -49,11 +49,11 @@ func (r *run) scanEvidence() string {
 		}
 		scanned++
 		for _, p := range stale {
-			r.warn("stale-backup " + p + " age=" + r.ageIn(p, 86400, "d") + " retention=" + strconv.Itoa(r.o.BackupDays) + "d")
+			r.warn("stale-backup " + p + " age=" + r.ageIn(p, 86400, "d") + " retention=" + strconv.Itoa(r.backupDays) + "d")
 			old++
 		}
 	}
-	state := strconv.Itoa(scanned) + " dir(s) scanned, " + strconv.Itoa(old) + " older than " + strconv.Itoa(r.o.BackupDays) + "d"
+	state := strconv.Itoa(scanned) + " dir(s) scanned, " + strconv.Itoa(old) + " older than " + strconv.Itoa(r.backupDays) + "d"
 	if bad > 0 {
 		state += ", " + strconv.Itoa(bad) + " unreadable"
 	}
@@ -64,7 +64,7 @@ func (r *run) scanEvidence() string {
 // sorted. A directory it cannot read that is not under an _evidence directory only hides what is below it: it is
 // counted and named in an INFO line. Any other read error degrades the scan (ok false).
 func (r *run) discoverEvidence() (dirs []string, unreadable int, ok bool) {
-	errs := walkTree(r.targetP, discoverDepth, func(p string, _ int, e entry) bool {
+	errs := walkTree(r.stopped, r.targetP, discoverDepth, func(p string, _ int, e entry) bool {
 		if e.name == ".git" {
 			return false
 		}
@@ -116,9 +116,9 @@ func (r *run) staleBackups(dir string) ([]string, bool) {
 		start = r.o.Cwd + "/" + start // walked against Options.Cwd; the printed paths keep the name that was given
 	}
 	var stale []string
-	errs := walkTree(start, 2, func(p string, _ int, e entry) bool {
+	errs := walkTree(r.stopped, start, 2, func(p string, _ int, e entry) bool {
 		name := asciiFold(e.name)
-		if (strings.Contains(name, "rollback") || strings.Contains(name, "backup")) && olderThan(r.now, e.info.ModTime(), int64(r.o.BackupDays)*1440) {
+		if (strings.Contains(name, "rollback") || strings.Contains(name, "backup")) && olderThan(r.now, e.info.ModTime(), int64(r.backupDays)*1440) {
 			stale = append(stale, join(dir, strings.TrimPrefix(p, start+"/")))
 			return false
 		}
