@@ -302,5 +302,6 @@ func s3Scenarios() []s3Scenario {
 		ss("only-with-focus", ln("# R", fence(stale...), std), two, "--sync-state", "--focus", "b", "--only", "known_gaps"),
 		ss("sync-with-stall-minutes-flag", ln("# R", std), nil, "--sync-state", "--stall-minutes", "5"),
 	)
+	add(s8aSyncScenarios()...) // the UNMAPPED cases of the bash suites (S8a)
 	return scs
 }

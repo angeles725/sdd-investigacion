@@ -5193,6 +5193,545 @@ undocumented_findings: 0
 | low | done gap | web | ✅ covered |
 
 --- end
+=== s8a-L3093-malformed-row-outside-the-backlog-is-silent
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: CHANGED RESEARCH-STATE.md gaps_closed: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md known_gaps: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md blocked_open: (absent) -> 0
+sync-state: CHANGED RESEARCH-STATE.md deferred_open: (absent) -> 0
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=1 known_gaps=1 investigable_open=0 requires_execution_open=0 blocked_open=0 deferred_open=0 undocumented_findings=-
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# T
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 1
+known_gaps: 1
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 0
+deferred_open: 0
+<!-- /research-state.v1 -->
+
+## Other
+
+| P | G | t | S |
+|---|---|---|---|
+| high | g | t | pending | extra | cell |
+
+## Gap-backlog
+
+| Priority | Gap | type | Status |
+|---|---|---|---|
+| high | g | t | covered |
+
+## Coverage
+Coverage metric: 1/1
+## Blocked gaps
+
+## Stop control
+- **Open gaps — read-only investigable**: 0
+--- end
+=== s8a-L3165-pr-dot-priority-row-is-unknown
+run 1: <ROOT>/corpus --sync-state
+rc: 1
+--- stdout
+--- stderr
+backlog: unknown priority [pr.] in row: | pr. | g | t | pending |
+sync-state: ERROR: RESEARCH-STATE.md: backlog NOT FULLY PARSEABLE — unknown priority value(s) found
+  (diagnostics above name the offending row(s); envelope NOT rewritten — fix the priority value(s) first)
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# T
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 0
+requires_execution_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog
+
+| Priority | Gap | type | Status |
+|---|---|---|---|
+| pr. | g | t | pending |
+
+## Coverage
+Coverage metric: 0/0
+## Blocked gaps
+
+## Stop control
+- **Open gaps — read-only investigable**: 0
+--- end
+=== s8a-L6826-near-miss-table-at-eof-without-a-trailing-newline
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: CHANGED RESEARCH-STATE.md gaps_closed: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md known_gaps: 0 -> 2
+sync-state: CHANGED RESEARCH-STATE.md investigable_open: 0 -> 1
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=1 known_gaps=2 investigable_open=1 requires_execution_open=0 blocked_open=0 deferred_open=0 undocumented_findings=-
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: Coverage prose denominator is stale (coverage metric /?, backlog has 2 known gaps) — update Coverage metric to 1/2
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# T
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 1
+known_gaps: 2
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+deferred_open: 0
+<!-- /research-state.v1 -->
+
+## Backlog
+
+| Priority | Gap | type | Status |
+|---|---|---|---|
+| high | g1 | web | pending |
+| — | e-1 | web | closed |
+--- end
+=== s8a-br-128-two-focus-sync-with-an-unreadable-file-writes-nothing
+run 1: <ROOT>/corpus --sync-state
+rc: 1
+--- stdout
+--- stderr
+sync-state: WARN: 2 RESEARCH-STATE files found under <ROOT>/corpus — use --focus <slug> (or --root for the un-suffixed RESEARCH-STATE.md) to target one focus (refusing without explicit scope)
+--- tree
+--- file corpus/RESEARCH-STATE-a.md mode=0644
+# T — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 1
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 1
+deferred_open: 0
+undocumented_findings: 0
+<!-- /research-state.v1 -->
+
+## Coverage
+- **Coverage metric**: 0 / 1 closed
+
+## Gap-backlog (prioritized)
+| Priority | Gap | type | Status |
+|---|---|---|---|
+| high | alpha-gap | read | pending |
+
+## Blocked gaps
+
+- alpha-gap — needs: hardware access
+
+## Stop control
+- **Open gaps — read-only investigable**: 0
+--- file corpus/RESEARCH-STATE-b.md mode=0000 (unreadable)
+--- end
+=== s8a-doc-midrun-outline-ratio-does-not-feed-the-gap-counters
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=0 known_gaps=0 investigable_open=0 requires_execution_open=0 blocked_open=0 deferred_open=0 undocumented_findings=0
+--- stderr
+sync-state: WARN: RESEARCH-STATE.md: the backlog has only closed-class rows and there is no Coverage metric N/M — derived known_gaps=0 is not evidence the declared total shrank; keeping the declared known_gaps/gaps_closed.
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# Doc — Research State (document mode)
+
+> Operational state.
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 0
+deferred_open: 0
+undocumented_findings: 0
+method: document-cycle
+blocks_since_retro: 0
+last_iteration_ts: 
+<!-- /research-state.v1 -->
+
+## Coverage
+
+- **Covered blocks**: 0 (B1..B0)
+- **Outline coverage**: 2 / 5 covered   ← THE real document-mode progress number
+- **Coverage metric**: — (intentionally left blank in document mode; never fill this in)
+
+## Outline
+
+| # | Outline item | Genre | Block | Status |
+|---|---|---|---|---|
+| 1 | a topic | subject | | pending |
+
+## Gap-backlog
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+
+## Blocked gaps
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+--- end
+=== s8a-ib-11-1-row-id-AB.-matches-bullet-AB
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: CHANGED RESEARCH-STATE.md gaps_closed: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md known_gaps: 0 -> 3
+sync-state: CHANGED RESEARCH-STATE.md investigable_open: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md blocked_open: 0 -> 1
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=1 known_gaps=3 investigable_open=1 requires_execution_open=0 blocked_open=1 deferred_open=0 undocumented_findings=-
+--- stderr
+WARN: Coverage prose denominator is stale (coverage metric /?, backlog has 3 known gaps) — update Coverage metric to 1/3
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# T — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 1
+known_gaps: 3
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 1
+deferred_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | live gap | web | pending |
+| low | done gap | web | ✅ covered |
+| low | AB. Builders de config — x | web | blocked-on-tool: y |
+
+## Blocked gaps
+
+- **AB Offsets de campo** (X) — needs: a decompiler
+
+## Stop control
+
+--- end
+=== s8a-ib-11-2-row-id-AB-matches-bullet-ab:
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: CHANGED RESEARCH-STATE.md gaps_closed: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md known_gaps: 0 -> 3
+sync-state: CHANGED RESEARCH-STATE.md investigable_open: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md blocked_open: 0 -> 1
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=1 known_gaps=3 investigable_open=1 requires_execution_open=0 blocked_open=1 deferred_open=0 undocumented_findings=-
+--- stderr
+WARN: Coverage prose denominator is stale (coverage metric /?, backlog has 3 known gaps) — update Coverage metric to 1/3
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# T — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 1
+known_gaps: 3
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 1
+deferred_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | live gap | web | pending |
+| low | done gap | web | ✅ covered |
+| low | AB Builders de config — x | web | blocked-on-tool: y |
+
+## Blocked gaps
+
+- **ab: Offsets de campo** (X) — needs: a decompiler
+
+## Stop control
+
+--- end
+=== s8a-ib-11-3-row-id-ab:-matches-bullet-AB.
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: CHANGED RESEARCH-STATE.md gaps_closed: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md known_gaps: 0 -> 3
+sync-state: CHANGED RESEARCH-STATE.md investigable_open: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md blocked_open: 0 -> 1
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=1 known_gaps=3 investigable_open=1 requires_execution_open=0 blocked_open=1 deferred_open=0 undocumented_findings=-
+--- stderr
+WARN: Coverage prose denominator is stale (coverage metric /?, backlog has 3 known gaps) — update Coverage metric to 1/3
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# T — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 1
+known_gaps: 3
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 1
+deferred_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | live gap | web | pending |
+| low | done gap | web | ✅ covered |
+| low | ab: Builders de config — x | web | blocked-on-tool: y |
+
+## Blocked gaps
+
+- **AB. Offsets de campo** (X) — needs: a decompiler
+
+## Stop control
+
+--- end
+=== s8a-ib-12-needs-less-bullet-does-not-suppress-the-row
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: CHANGED RESEARCH-STATE.md gaps_closed: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md known_gaps: 0 -> 3
+sync-state: CHANGED RESEARCH-STATE.md investigable_open: 0 -> 1
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=1 known_gaps=3 investigable_open=1 requires_execution_open=0 blocked_open=0 deferred_open=0 undocumented_findings=-
+--- stderr
+sync-state: WARN: RESEARCH-STATE.md: 1 in-place blocked row(s) (Status blocked / blocked-on-*) are open but not in blocked_open (section-derived) — NOT counted as closed in gaps_closed; move them to ## Blocked gaps (METHODOLOGY §21.1) so blocked_open and the known_gaps identity (verify-state CHECK H) agree.
+WARN: Coverage prose denominator is stale (coverage metric /?, backlog has 3 known gaps) — update Coverage metric to 1/3
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# T — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 1
+known_gaps: 3
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+deferred_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | live gap | web | pending |
+| low | done gap | web | ✅ covered |
+| low | AB. Builders de config del equipo (TBL_X/Y) — offsets de campo | binario X.exe | blocked-on-tool: necesita decompilar X.exe · tried: y |
+
+## Blocked gaps
+
+- **AB. Offsets de campo** (X) — no clause here
+
+## Stop control
+
+--- end
+=== s8a-ib-5-dual-listed-by-exact-name-counted-once
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: CHANGED RESEARCH-STATE.md gaps_closed: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md known_gaps: 0 -> 3
+sync-state: CHANGED RESEARCH-STATE.md investigable_open: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md blocked_open: 0 -> 1
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=1 known_gaps=3 investigable_open=1 requires_execution_open=0 blocked_open=1 deferred_open=0 undocumented_findings=-
+--- stderr
+WARN: Coverage prose denominator is stale (coverage metric /?, backlog has 3 known gaps) — update Coverage metric to 1/3
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# T — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 1
+known_gaps: 3
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 1
+deferred_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | live gap | web | pending |
+| low | done gap | web | ✅ covered |
+| medium | blk-first | web | blocked (requires-hardware) |
+
+## Blocked gaps
+
+- blk-first — needs: a tool
+
+## Stop control
+
+--- end
+=== s8a-ib-7a-id-matched-dual-listing-counted-once
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: CHANGED RESEARCH-STATE.md gaps_closed: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md known_gaps: 0 -> 3
+sync-state: CHANGED RESEARCH-STATE.md investigable_open: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md blocked_open: 0 -> 1
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=1 known_gaps=3 investigable_open=1 requires_execution_open=0 blocked_open=1 deferred_open=0 undocumented_findings=-
+--- stderr
+WARN: Coverage prose denominator is stale (coverage metric /?, backlog has 3 known gaps) — update Coverage metric to 1/3
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# T — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 1
+known_gaps: 3
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 1
+deferred_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | live gap | web | pending |
+| low | done gap | web | ✅ covered |
+| low | AB. Builders de config del equipo (TBL_X/Y) — offsets de campo | binario X.exe | blocked-on-tool: necesita decompilar X.exe · tried: y |
+
+## Blocked gaps
+
+- **AB. Offsets de campo de las tablas de config** (TBL_X/Y) — needs: a decompiler
+
+## Stop control
+
+--- end
+=== s8a-ib-7c-plain-word-first-token-is-not-an-id
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: CHANGED RESEARCH-STATE.md known_gaps: 0 -> 3
+sync-state: CHANGED RESEARCH-STATE.md investigable_open: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md blocked_open: 0 -> 1
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=0 known_gaps=3 investigable_open=1 requires_execution_open=0 blocked_open=1 deferred_open=0 undocumented_findings=-
+--- stderr
+sync-state: WARN: RESEARCH-STATE.md: 1 in-place blocked row(s) (Status blocked / blocked-on-*) are open but not in blocked_open (section-derived) — NOT counted as closed in gaps_closed; move them to ## Blocked gaps (METHODOLOGY §21.1) so blocked_open and the known_gaps identity (verify-state CHECK H) agree.
+WARN: Coverage prose denominator is stale (coverage metric /?, backlog has 3 known gaps) — update Coverage metric to 0/3
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# T — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 3
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 1
+deferred_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | live gap | web | pending |
+| low | done gap | web | ✅ covered |
+| low | Builders de config — x | web | blocked (requires-tool) |
+
+## Blocked gaps
+
+- Builders de otra cosa — needs: tool
+
+## Stop control
+
+--- end
+=== s8a-ib-8-keep-path-kg-10-gaps-closed-1
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: CHANGED RESEARCH-STATE.md gaps_closed: 0 -> 1
+sync-state: CHANGED RESEARCH-STATE.md investigable_open: 0 -> 1
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=1 known_gaps=10 investigable_open=1 requires_execution_open=0 blocked_open=0 deferred_open=0 undocumented_findings=-
+--- stderr
+WARN: malformed backlog row (6 cells, expected 4 — a cell may contain a pipe): | high | a | b | c | d | e |
+sync-state: WARN: RESEARCH-STATE.md: 1 backlog row(s) are NOT counted (undeclared tier / malformed row / table without a Priority header) — known_gaps and gaps_closed are LOWER bounds, verify against the prose.
+sync-state: WARN: RESEARCH-STATE.md: keeping the declared known_gaps=10 (derived 3 is below it); gaps_closed = max(declared, derived).
+sync-state: WARN: RESEARCH-STATE.md: declared known_gaps=10 exceeds what the parser can count (derived 3 + 1 uncounted) — NOT rewritten; it may include gaps tracked outside the backlog table (prose, other headings) — verify by hand.
+sync-state: WARN: RESEARCH-STATE.md: 1 in-place blocked row(s) (Status blocked / blocked-on-*) are open but not in blocked_open (section-derived) — NOT counted as closed in gaps_closed; move them to ## Blocked gaps (METHODOLOGY §21.1) so blocked_open and the known_gaps identity (verify-state CHECK H) agree.
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# T — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 1
+known_gaps: 10
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+deferred_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | live gap | web | pending |
+| low | done gap | web | ✅ covered |
+| medium | blk-first | web | blocked (requires-hardware) |
+| high | a | b | c | d | e |
+
+## Stop control
+
+--- end
 === seed-after-blockquote
 run 1: <ROOT>/corpus --sync-state
 rc: 0
