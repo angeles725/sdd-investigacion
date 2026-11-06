@@ -4,6 +4,7 @@ package maint
 
 import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/maint/cishard"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/maint/gate"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/maint/prpipeline"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/maint/sizecheck"
@@ -20,5 +21,6 @@ var Commands = []cli.Command{
 	{Name: "pr-pipeline", Group: "maint", Summary: "restack, push, review, gate and merge one PR (kit-pr-pipeline)", Run: prpipeline.New(RddStart, RddDrive)},
 	{Name: "size-check", Group: "maint", Summary: "measure the authored lines of a PR range against the review budget (kit-size-check)", Run: sizecheck.Run, PlainExit3: true},
 	{Name: "writer-check", Group: "maint", Summary: "check a writer's diff for required suites, bound teeth logs and name-based kills (kit-writer-check)", Run: writercheck.Run},
+	{Name: "ci-shard", Group: "maint", Summary: "plan the Go CI shards and write their join manifests (plan, manifest)", Run: cishard.Run},
 	{Name: "rdd-drive", Group: "maint", Summary: "follow the provider-issued review transitions to acknowledgement", Run: RddDrive},
 }
