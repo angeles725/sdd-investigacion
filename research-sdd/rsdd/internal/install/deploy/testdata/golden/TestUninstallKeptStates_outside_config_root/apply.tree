@@ -1,0 +1,13 @@
+home:
+D 0755 .claude
+D 0755 .claude/research-sdd
+D 0755 .claude/skills
+D 0755 elsewhere-agents
+F 0600 .claude/research-sdd/.installed-agent-research-sdd-readability-state 30 0f73790d215653fd
+F 0600 .claude/research-sdd/.installed-agent-research-sdd-risk-state 30 0f73790d215653fd
+F 0600 .claude/research-sdd/.installed-bundle-state 221 4793cf210c8c0768
+F 0644 elsewhere-agents/research-sdd-readability.md 80 7b285d55e2365751
+F 0644 elsewhere-agents/research-sdd-risk.md 66 2191ada60400c4e4
+L .claude/agents -> <ROOT>/home/elsewhere-agents
+tmp:
+cwd:

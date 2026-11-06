@@ -1,0 +1,6 @@
+home:
+D 0555 .claude
+F 0644 .claude/CLAUDE.md 7 49cf24c707d61fd3
+tmp:
+F 0600 tmp.<RAND> 334 76fdbe29669aadcb
+cwd:

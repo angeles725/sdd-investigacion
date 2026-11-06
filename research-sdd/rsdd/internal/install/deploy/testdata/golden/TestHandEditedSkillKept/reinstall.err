@@ -1,0 +1,2 @@
+research-sdd-install: WARNING <ROOT>/home/.claude/skills/research-sdd/SKILL.md exists with diverged content — local content kept (use --force-skill to overwrite, or delete to reinstall)
+research-sdd-install: [claude] a deployed file differs from this run's source (kept hand-edit) — recorded with the source digest; --verify will report it as drift

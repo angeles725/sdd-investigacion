@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+set -u
+is_probe=0; is_head=0; has_L=0
+for arg in "$@"; do
+  case "$arg" in *http_code*) is_probe=1 ;; esac
+  [ "$arg" = "-I" ] && is_head=1
+  [ "$arg" = "-L" ] && has_L=1
+done
+out=""; url=""; prev=""
+for arg in "$@"; do
+  [ "$prev" = "-o" ] && out="$arg"
+  case "$arg" in http://*|https://*|file://*) url="$arg" ;; esac
+  prev="$arg"
+done
+
+# route <url> <table> — prints "<code> <location-or-empty>" for <url> from <table> (a
+# "<url> <code> <location-or-dash>" newline-separated string), defaulting to "200 " (no
+# redirect) when unmatched.
+route(){
+  local u="$1" table="$2" code="200" loc=""
+  while IFS=' ' read -r r_url r_code r_loc; do
+    [ -z "${r_url:-}" ] && continue
+    if [ "$r_url" = "$u" ]; then
+      code="$r_code"; [ "${r_loc:-}" = "-" ] && loc="" || loc="${r_loc:-}"
+      break
+    fi
+  done <<<"$table"
+  printf '%s %s' "$code" "$loc"
+}
+# head_routes_has <url> — true if $STUB_HEAD_ROUTES names <url> as its own row.
+head_routes_has(){ <<<"${STUB_HEAD_ROUTES:-}" grep -qF "$1 "; }
+
+if [ "$is_probe" -eq 1 ]; then
+  if [ -n "${STUB_PROBE_FAIL_URL:-}" ] && [ "$url" = "$STUB_PROBE_FAIL_URL" ]; then
+    echo "curl: (stub) simulated probe network failure" >&2
+    # Defaults to a NON-connect-class exit code (round-5 N1'): exit 6 is now unambiguously
+    # "connect-stage failure" (SENTINEL-CONNECT-SKIP), which would skip the GET-fallback probe
+    # entirely and starve any plain-suite (non-teeth) assertion that expects the GET-fallback
+    # path to actually run. $STUB_PROBE_FAIL_RC lets a test opt back into a connect-class code
+    # (6/7/28) when THAT is specifically what it wants to exercise.
+    exit "${STUB_PROBE_FAIL_RC:-22}"
+  fi
+  if [ "$is_head" -eq 0 ] && [ -n "${STUB_GET_FALLBACK_FAIL_URL:-}" ] && [ "$url" = "$STUB_GET_FALLBACK_FAIL_URL" ]; then
+    echo "curl: (stub) simulated GET-fallback probe failure" >&2
+    exit 6
+  fi
+  [ -n "${STUB_PROBE_COUNT_FILE:-}" ] && echo "$url" >> "$STUB_PROBE_COUNT_FILE"
+  if [ "$is_head" -eq 1 ]; then
+    if [ -n "${STUB_HEAD_CONNECT_FAIL_URL:-}" ] && [ "$url" = "$STUB_HEAD_CONNECT_FAIL_URL" ]; then
+      echo "curl: (stub) simulated connect-stage failure" >&2
+      exit "${STUB_HEAD_CONNECT_FAIL_RC:-7}"
+    fi
+    if [ -n "${STUB_HEAD_BLACKHOLE_URL:-}" ] && [ "$url" = "$STUB_HEAD_BLACKHOLE_URL" ]; then
+      # curl exit 28 ("Operation timed out") with %{time_connect}=0 — the connect phase itself
+      # never completed (round-5 N2'/N3': ambiguous rc, disambiguated by time_connect).
+      # $STUB_HEAD_BLACKHOLE_TIME_CONNECT overrides the reported value (#1285 item 5: the bare
+      # `0` and EMPTY spellings); `-` not `:-` so an explicitly EMPTY override stays empty.
+      printf '000 %s ' "${STUB_HEAD_BLACKHOLE_TIME_CONNECT-0.000000}"
+      exit 28
+    fi
+    if [ -n "${STUB_HEAD_HANG_URL:-}" ] && [ "$url" = "$STUB_HEAD_HANG_URL" ]; then
+      # curl exit 28 with a NONZERO %{time_connect} — connected fine, then the RESPONSE hung
+      # past --max-time. The host IS reachable; the GET-fallback retry is worth attempting.
+      printf '000 %s ' "${STUB_HEAD_HANG_TIME_CONNECT:-1.234000}"
+      exit 28
+    fi
+    if [ -n "${STUB_HEAD_FAIL_URL:-}" ] && [ "$url" = "$STUB_HEAD_FAIL_URL" ]; then
+      printf '405 0.010000 '
+      exit 0
+    fi
+    if head_routes_has "$url"; then
+      r="$(route "$url" "${STUB_HEAD_ROUTES:-}")"
+    else
+      r="$(route "$url" "${STUB_ROUTES:-}")"
+    fi
+    printf '%s 0.020000 %s' "${r%% *}" "${r#* }"
+    exit 0
+  fi
+  route "$url" "${STUB_ROUTES:-}"
+  exit 0
+fi
+
+# DOWNLOAD call.
+if [ "${STUB_DOWNLOAD_FAIL:-0}" = "1" ]; then
+  echo "curl: (stub) simulated download transfer failure" >&2
+  exit 7
+fi
+if [ "${STUB_DOWNLOAD_PARTIAL:-0}" = "1" ]; then
+  # Mid-transfer failure (#1285): curl has already written PART of the body to -o when it dies.
+  [ -n "$out" ] && printf 'PARTIAL-BODY' > "$out"
+  echo "curl: (stub) simulated mid-transfer failure" >&2
+  exit 18
+fi
+if [ "${STUB_DOWNLOAD_HANG:-0}" = "1" ]; then
+  # Interruptible hang (#1285 item 2): partial bytes on disk, then block until signalled.
+  [ -n "$out" ] && printf 'PARTIAL-BODY' > "$out"
+  [ -n "${STUB_HANG_MARKER:-}" ] && : > "$STUB_HANG_MARKER"
+  sleep "${STUB_HANG_SECS:-30}" & _sp=$!; [ -n "${STUB_HANG_PIDFILE:-}" ] && echo "$_sp" > "$STUB_HANG_PIDFILE"; wait $_sp
+  # Reached only when NOT signalled (#1313): the download "completes" with NEW bytes and says so.
+  [ -n "${STUB_HANG_DONE_MARKER:-}" ] && : > "$STUB_HANG_DONE_MARKER"
+  [ -n "$out" ] && printf 'NEW-BYTES-AFTER-HANG\n' > "$out"
+  exit 0
+fi
+if [ "${STUB_DOWNLOAD_EMPTY:-0}" = "1" ]; then
+  [ -n "$out" ] && : > "$out"
+  exit 0
+fi
+target="$url"
+if [ "$has_L" -eq 1 ]; then
+  # Follow the FULL chain (any 3xx with a Location — permanent OR temporary) to the final
+  # target, mirroring real curl -L, which fetches content and is not the permanent-only
+  # resolver (that is resolve_permanent_redirect's job, done separately, BEFORE this call).
+  hops=0
+  while [ "$hops" -lt 20 ]; do
+    r="$(route "$target" "${STUB_ROUTES:-}")"; rcode="${r%% *}"; rloc="${r#* }"
+    case "$rcode" in 3??) [ -n "$rloc" ] || break ;; *) break ;; esac
+    target="$rloc"; hops=$((hops + 1))
+  done
+else
+  # No -L: a single hop only. If $target itself is STILL a redirect per STUB_ROUTES, the "body"
+  # is a distinct REDIRECT-page stub — never the real final content (mirrors real curl's
+  # non-follow behavior: `-f` does not fail on 3xx, so it happily "succeeds" with the wrong body).
+  r="$(route "$target" "${STUB_ROUTES:-}")"; rcode="${r%% *}"
+  case "$rcode" in
+    3??) [ -n "$out" ] && printf 'stub REDIRECT body (no -L) for %s\n' "$target" >"$out"; exit 0 ;;
+  esac
+fi
+[ -n "$out" ] && printf '%s\n' "${STUB_BODY:-stub body for $target}" >"$out"
+exit 0
