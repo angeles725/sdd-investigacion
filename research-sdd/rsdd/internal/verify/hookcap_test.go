@@ -90,7 +90,8 @@ func TestSkillDriftCouldNotRunIsCapped(t *testing.T) {
 	if w := hookenv.Width(ctx); w > hookenv.FailureCap {
 		t.Errorf("width %d > cap %d", w, hookenv.FailureCap)
 	}
-	if !strings.HasPrefix(ctx, hdrCannot+"\n") || !strings.Contains(ctx, "`"+skillDriftRerun+"`") || !strings.Contains(ctx, "line(s) dropped") {
+	if !strings.HasPrefix(ctx, hdrCannot+"\n") || !strings.Contains(ctx, "`"+skillDriftRerun+"`") || !strings.Contains(ctx, "line(s) dropped") ||
+		!strings.HasSuffix(ctx, "\nverify kit status=behind by 3") {
 		t.Errorf("context:\n%s", ctx)
 	}
 }

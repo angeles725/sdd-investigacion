@@ -33,7 +33,6 @@ import (
 const (
 	hdrRegistryOK      = "Research-SDD registry check (TARGETS.md vs reality):"
 	hdrRegistryCouldNo = "Research-SDD registry check could not run (exit %d — check TARGETS.md and lib/ helper):"
-	registryRerun      = "rsdd verify registry" // the command whose own output a capped failure context points at (#2631)
 
 	compactMaxWarn = 6
 	compactWarnMax = 100

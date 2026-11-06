@@ -57,8 +57,12 @@ func parse(t *testing.T, out, got string) capped {
 		t.Fatalf("the note says %d dropped; %d of %d lines are not shown", c.dropped, len(in)-shown, len(in))
 	}
 	clipped := 0
-	for i, l := range c.tail { // the tail is contiguous and ends at the last line, which alone may be clipped
-		want := in[len(in)-len(c.tail)+i]
+	end := len(in) // the tail is contiguous and ends at the last non-blank line, which alone may be clipped
+	for end > 1 && strings.TrimSpace(in[end-1]) == "" {
+		end--
+	}
+	for i, l := range c.tail {
+		want := in[end-len(c.tail)+i]
 		if l != want {
 			if i != len(c.tail)-1 || !strings.HasPrefix(l, "…") || !strings.HasSuffix(want, strings.TrimPrefix(l, "…")) {
 				t.Fatalf("tail line %d is %q, want %q or its clipped end", i, l, want)
@@ -173,7 +177,8 @@ func TestFailureContextKeepsTheReasonAtEitherEnd(t *testing.T) {
 	// A first line too wide to keep whole is clipped from its end, and the last line still shows.
 	out := strings.Repeat("a", 900) + "\nerror: real cause"
 	c := parse(t, out, FailureContext(hdr, out, rerun))
-	if !strings.HasSuffix(c.head, "…") || Width(c.head) > roomFor(2, 0)/2 || c.tail[0] != "error: real cause" {
+	// it gives up exactly what the last line needs, and nothing more
+	if want := roomFor(2, 0) - len("error: real cause") - 1; !strings.HasSuffix(c.head, "…") || Width(c.head) != want || c.tail[0] != "error: real cause" {
 		t.Errorf("%+v", c)
 	}
 }
@@ -256,7 +261,11 @@ func TestFailureContextProperties(t *testing.T) {
 		}
 		c := parse(t, out, got)
 		// The last non-blank line always shows: in the tail, or as the head when no other line precedes it.
-		if lastLine := ls[n-1]; strings.TrimSpace(lastLine) != "" && len(c.tail) == 0 &&
+		lastNonBlank := n - 1
+		for lastNonBlank > 0 && strings.TrimSpace(ls[lastNonBlank]) == "" {
+			lastNonBlank--
+		}
+		if lastLine := ls[lastNonBlank]; strings.TrimSpace(lastLine) != "" && len(c.tail) == 0 &&
 			c.head != lastLine && !strings.HasPrefix(lastLine, strings.TrimSuffix(c.head, "…")) {
 			t.Fatalf("case %d: the last line was dropped: %+v", i, c)
 		}
@@ -272,5 +281,29 @@ func TestFailureContextRoomBoundary(t *testing.T) {
 		if hasNote := strings.Contains(got, "line(s) dropped"); hasNote != (room == 2) || Width(got) > FailureCap {
 			t.Errorf("room %d: note %v, width %d:\n%s", room, hasNote, Width(got), got)
 		}
+	}
+}
+
+// The first line gives up only what the last line needs: room the tail leaves unused is not wasted on clipping it.
+func TestFailureContextHeadKeepsTheRoomTheTailDoesNotNeed(t *testing.T) {
+	first, last := line("reason", 400), "exit 1"
+	out := first + "\n" + line("middle", 600) + "\n" + last // too wide to pass whole
+	c := parse(t, out, FailureContext(hdr, out, rerun))
+	if c.head != first || len(c.tail) != 1 || c.tail[0] != last || c.dropped != 1 {
+		t.Fatalf("%+v", c)
+	}
+	// A last line wider than half the room still leaves the first line half.
+	out = first + "\n" + strings.Repeat("z", 900)
+	if c := parse(t, out, FailureContext(hdr, out, rerun)); Width(c.head) != roomFor(2, 0)/2 {
+		t.Fatalf("head %d units, want half the room %d", Width(c.head), roomFor(2, 0)/2)
+	}
+}
+
+// Blank lines after the cause do not take the place the last line is guaranteed.
+func TestFailureContextTrailingBlankLinesDoNotHideTheCause(t *testing.T) {
+	out := "start\n" + strings.Repeat("b", 900) + " error: real cause\n\n  \n"
+	c := parse(t, out, FailureContext(hdr, out, rerun))
+	if len(c.tail) != 1 || !strings.HasSuffix(c.tail[0], " error: real cause") || c.dropped != 2 {
+		t.Fatalf("%+v", c)
 	}
 }
