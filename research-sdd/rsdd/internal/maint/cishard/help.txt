@@ -1,0 +1,3 @@
+usage: rsdd maint ci-shard plan --shard I/N [--durations FILE]
+
+plan      reads the package list on stdin (one import path per line) and prints this shard's packages.
