@@ -162,8 +162,12 @@ func TestSignalAfterTheInstallPointIsIgnoredSoRowAndBytesAgree(t *testing.T) {
 		t.Fatalf("rc=%d err=%q", got.rc, got.err)
 	}
 	md, _ := os.ReadFile(w.path("sources/SOURCES.md"))
+	installed, _ := os.ReadFile(w.path("sources/datasheets/a.pdf"))
 	if !srcregistry.HasRow(md, "datasheets/a.pdf", "") {
-		t.Error("the bytes landed without their row")
+		t.Fatal("the bytes landed without their row")
+	}
+	if !srcregistry.HasRow(md, "datasheets/a.pdf", srcregistry.SHA256Hex(installed)) {
+		t.Errorf("the row's sha256 is not the installed bytes' sha256 %s:\n%s", srcregistry.SHA256Hex(installed), md)
 	}
 }
 
