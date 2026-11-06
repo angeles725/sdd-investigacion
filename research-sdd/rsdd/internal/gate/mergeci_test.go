@@ -53,12 +53,41 @@ func TestCIVerdict(t *testing.T) {
 		out[pos] = bad
 		return out
 	}
-	t.Run("green passes, skipped and neutral count as green", func(t *testing.T) {
+	t.Run("green passes, skipped and neutral count as green only outside the required list", func(t *testing.T) {
 		if v := verdictOf(t, both, green...); v != "ok" {
 			t.Fatal(v)
 		}
-		if v := verdictOf(t, both, "shellcheck:completed:success", "toolbelt-tests:completed:skipped", "pr-validation:completed:neutral"); v != "ok" {
+		if v := verdictOf(t, both, "shellcheck:completed:success", "toolbelt-tests:completed:success", "pr-validation:completed:neutral", "toolbelt-extras:completed:skipped"); v != "ok" {
 			t.Fatal(v)
+		}
+		if v := verdictOf(t, "", "toolbelt-tests:completed:skipped", "pr-validation:completed:neutral"); v != "ok" {
+			t.Fatal(v)
+		}
+	})
+	t.Run("a required check must conclude success (ci_skipped)", func(t *testing.T) {
+		cases := []struct {
+			name, req string
+			specs     []string
+			want      string
+		}{
+			{"required skipped", both, []string{"shellcheck:completed:success", "toolbelt-tests:completed:skipped", "pr-validation:completed:neutral"}, "ci_skipped (toolbelt-tests)"},
+			{"required neutral", both, []string{"shellcheck:completed:neutral", "toolbelt-tests:completed:success"}, "ci_skipped (shellcheck)"},
+			{"single required skipped", "shellcheck", []string{"shellcheck:completed:skipped"}, "ci_skipped (shellcheck)"},
+			{"two sorted and joined", both, []string{"toolbelt-tests:completed:skipped", "shellcheck:completed:neutral"}, "ci_skipped (shellcheck,toolbelt-tests)"},
+			{"same name twice is unique", "a", []string{"a:completed:skipped:1:10", "a:completed:neutral:2:11"}, "ci_skipped (a)"},
+			{"one app skipped, one success", "a", []string{"a:completed:skipped:1:10", "a:completed:success:2:11"}, "ci_skipped (a)"},
+			{"non-required skipped beside required skipped", "a", []string{"a:completed:skipped", "b:completed:skipped"}, "ci_skipped (a)"},
+			{"failed outranks skipped", both, []string{"shellcheck:completed:skipped", "toolbelt-tests:completed:failure"}, "ci_failed (toolbelt-tests)"},
+			{"required failed, other required skipped", both, []string{"shellcheck:completed:failure", "toolbelt-tests:completed:skipped"}, "ci_failed (shellcheck)"},
+			{"non-required failed outranks skipped", "a", []string{"a:completed:skipped", "z:completed:failure"}, "ci_failed (z)"},
+			{"pending outranks skipped", both, []string{"shellcheck:completed:skipped", "toolbelt-tests:in_progress:"}, "ci_pending (toolbelt-tests)"},
+			{"skipped outranks missing", "a,b", []string{"a:completed:skipped"}, "ci_skipped (a)"},
+			{"skipped outranks missing, other order", "a,b", []string{"b:completed:neutral"}, "ci_skipped (b)"},
+		}
+		for _, c := range cases {
+			if v := verdictOf(t, c.req, c.specs...); v != c.want {
+				t.Errorf("%s: got %q want %q", c.name, v, c.want)
+			}
 		}
 	})
 	states := []struct{ st, want string }{
@@ -89,6 +118,9 @@ func TestCIVerdict(t *testing.T) {
 	})
 	t.Run("failed and pending names are sorted and unique", func(t *testing.T) {
 		if v := verdictOf(t, "", "z:completed:failure", "a:completed:failure", "m:completed:failure:2"); v != "ci_failed (a,m,z)" {
+			t.Fatal(v)
+		}
+		if v := verdictOf(t, "", "a:completed:failure:1:10", "a:completed:failure:2:11"); v != "ci_failed (a)" {
 			t.Fatal(v)
 		}
 		if v := verdictOf(t, "", "b:queued:", "a:queued:", "b:queued::7"); v != "ci_pending (a,b)" {

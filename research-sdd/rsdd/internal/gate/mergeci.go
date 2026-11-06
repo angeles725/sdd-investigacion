@@ -9,7 +9,8 @@ import (
 )
 
 // The CI gate of merge-gate.sh (kit issues #1426, #1864): the check runs of the exact head sha, the latest run
-// per (check name, app id), and the verdict. Refusals, in precedence order: ci_failed, ci_pending, ci_missing.
+// per (check name, app id), and the verdict. Refusals, in precedence order: ci_failed, ci_pending, ci_skipped (a declared
+// divergence, see mergeciverdict.go), ci_missing.
 
 // ciRun is one check run reduced to what the verdict reads, the jq `map({name, status, conclusion, app_id, id})`.
 type ciRun struct {
@@ -152,33 +153,6 @@ func ciSeen(latest []ciRun, name string) bool {
 		}
 	}
 	return false
-}
-
-// ciVerdict is the jq verdict: "ok" or "ci_failed (a,b)" / "ci_pending (...)" / "ci_missing (...)".
-func ciVerdict(latest []ciRun, req []string) string {
-	var failed, pending []string
-	for _, r := range latest {
-		if r.status == "completed" {
-			c, isStr := jqString(r.conclusion)
-			if !isStr || (c != "success" && c != "skipped" && c != "neutral") {
-				failed = append(failed, r.name)
-			}
-		} else {
-			pending = append(pending, r.name)
-		}
-	}
-	switch {
-	case len(failed) > 0:
-		return "ci_failed (" + strings.Join(uniqueSorted(failed), ",") + ")"
-	case len(pending) > 0:
-		return "ci_pending (" + strings.Join(uniqueSorted(pending), ",") + ")"
-	case len(latest) == 0:
-		return "ci_pending (no check runs reported)"
-	}
-	if missing := ciAbsent(latest, req); len(missing) > 0 {
-		return "ci_missing (" + strings.Join(missing, ",") + ")"
-	}
-	return "ok"
 }
 
 // uniqueSorted is jq's `unique`: sorted by codepoint, duplicates removed.
