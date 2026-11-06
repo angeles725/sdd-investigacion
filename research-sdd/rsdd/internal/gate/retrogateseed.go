@@ -30,7 +30,7 @@ func (g *retroGate) bashRun(merge bool, script string, args ...string) (out []by
 	}
 	var buf bytes.Buffer
 	cmd := exec.CommandContext(context.Background(), bash, append([]string{script}, args...)...)
-	cmd.Env = g.env()
+	cmd.Env = g.s.Environment()
 	cmd.Stdout = &buf
 	if merge {
 		cmd.Stderr = &buf
@@ -155,7 +155,7 @@ func (g *retroGate) runIssueSeeding() {
 		g.seedNote("skipped:gh-absent")
 		return
 	}
-	if res, err := proc.Run(proc.Spec{Argv: []string{"gh", "auth", "status"}, Env: g.env(), Timeout: ghProbeTimeout, MaxBytes: 1 << 20, Now: g.s.Clock}); err != nil || res.Reason != "" || res.ReturnCode != 0 {
+	if res, err := proc.Run(proc.Spec{Argv: []string{"gh", "auth", "status"}, Env: g.s.Environment(), Timeout: ghProbeTimeout, MaxBytes: 1 << 20, Now: g.s.Clock}); err != nil || res.Reason != "" || res.ReturnCode != 0 {
 		g.errf("retro-gate: WARN: gh not authenticated — issue-seeding skipped (run gh auth login, then %s <retro> --apply manually)\n", seeder)
 		g.seedNote("skipped:gh-not-authenticated")
 		return

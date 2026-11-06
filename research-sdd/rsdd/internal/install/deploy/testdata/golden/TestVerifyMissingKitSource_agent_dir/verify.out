@@ -1,0 +1,2 @@
+verify harness=claude status=degraded reason=the kit has no readable agent definitions to compare against (<ROOT>/kit/agents/claude)
+verify kit status=degraded reason=kit dir is not a git checkout (<ROOT>/kit); cannot tell whether it is behind its upstream

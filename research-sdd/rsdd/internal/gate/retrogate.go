@@ -88,15 +88,8 @@ func runRetro(args []string, s cli.Stdio, hooks retroHooks) int {
 
 func (g *retroGate) errf(format string, a ...any) { fmt.Fprintf(g.s.Err, format, a...) }
 
-func (g *retroGate) env() []string {
-	if g.s.Environ != nil {
-		return g.s.Environ()
-	}
-	return nil
-}
-
 func (g *retroGate) runner() git.Runner {
-	return git.Runner{Env: g.env(), MaxBytes: rgBigOutput, Now: g.s.Clock}
+	return git.Runner{Env: g.s.Environment(), MaxBytes: rgBigOutput, Now: g.s.Clock}
 }
 
 // gitLines is `git -C TARGET args 2>/dev/null` read line by line: the stdout whatever the status was (a failing
@@ -322,7 +315,7 @@ func (g *retroGate) body() int {
 
 // jqHasArgjson is `jq -n --argjson x 1 '$x'`: the capability the --json envelope needs.
 func (g *retroGate) jqHasArgjson() bool {
-	res, err := proc.Run(proc.Spec{Argv: []string{"jq", "-n", "--argjson", "x", "1", "$x"}, Env: g.env(), Timeout: 30 * time.Second, MaxBytes: 1 << 20, Now: g.s.Clock})
+	res, err := proc.Run(proc.Spec{Argv: []string{"jq", "-n", "--argjson", "x", "1", "$x"}, Env: g.s.Environment(), Timeout: 30 * time.Second, MaxBytes: 1 << 20, Now: g.s.Clock})
 	return err == nil && res.Reason == "" && res.ReturnCode == 0
 }
 

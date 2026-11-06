@@ -82,7 +82,7 @@ func TestRegistryCountersExact(t *testing.T) {
 		}, nil, summaryLine(2, 0, 0, 0, 0, 0, 1), nil, []string{noCountDrift, noRetroDrift}, nil},
 		{"kit-not-registered", func(k *vrKit) {
 			k.blocks("alpha", 1)
-			k.write("kit/TARGETS.md", "| 1 | alpha | `"+k.home+"/alpha` | (1 md) | x | en |\n")
+			k.write("home/kit/TARGETS.md", "| 1 | alpha | `$RESEARCH_HOME/alpha` | (1 md) | x | en |\n")
 		}, nil, summaryLine(1, 0, 0, 0, 0, 0, 1), nil, []string{noCountDrift, noRetroDrift}, nil},
 		{"catalog-unparseable", func(k *vrKit) {
 			k.blocks("alpha", 5)
@@ -111,7 +111,7 @@ func TestRegistryCountersExact(t *testing.T) {
 		{"oversized-row", func(k *vrKit) {
 			k.blocks("alpha", 1)
 			k.targets(vrTable("| 1 | alpha | `@H@/alpha` | (1 md) | " + strings.Repeat("x", 30) + " | en |"))
-		}, map[string]string{"RSDD_ROW_MAXLEN": "25"}, summaryLine(2, 0, 0, 0, 0, 2, 0), nil, []string{noCountDrift, noRetroDrift}, nil},
+		}, map[string]string{"RSDD_ROW_MAXLEN": "25"}, summaryLine(2, 0, 0, 0, 0, 1, 0), nil, []string{noCountDrift, noRetroDrift}, nil},
 		{"retro-drift-only", func(k *vrKit) {
 			k.blocks("alpha", 1)
 			k.put("alpha/retros/r1.md", "# r\n")
@@ -167,6 +167,29 @@ func TestRegistryZeroUnclassifiableAndSmallCorpusAreQuiet(t *testing.T) {
 		r := k.run(map[string]string{"RSDD_REGISTRY_TOL": "-1"})
 		want(t, r.stdout, "INFO  alpha — 0 block(s) on disk but no retros/*.md reachable under the target (§18 feedback not wired).\n")
 		wantNot(t, r.stdout, "(unclassifiable) on disk")
+	})
+}
+
+// kit issue #2630: the sandbox lives under TMPDIR, so no fixture row may carry a TMPDIR-derived path. With a TMPDIR of
+// 150+ characters the empty corpus still reads as consistent: no oversized-row finding from the kit's own row.
+// Not parallel: t.Setenv.
+func TestRegistryQuietUnderALongTMPDIR(t *testing.T) {
+	long := filepath.Join(t.TempDir(), strings.Repeat("d", 150))
+	if err := os.MkdirAll(long, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", long)
+	// A subtest: t.TempDir keeps the root it made before Setenv, a new test makes its own under the long TMPDIR.
+	t.Run("empty-corpus", func(t *testing.T) {
+		k := newVRKit(t)
+		if !strings.HasPrefix(k.root, long) {
+			t.Fatalf("the sandbox %q is not under the long TMPDIR %q", k.root, long)
+		}
+		k.put("alpha/RESEARCH-STATE.md", "s\n")
+		k.targets(vrTable(vrRow("1", "alpha", "alpha", "(0 md)")))
+		r := k.run(nil)
+		wantNot(t, r.stdout, "master cell is", "unclassifiable")
+		want(t, r.stdout, " · 0 oversized row(s) · ", "Registry consistent with reality")
 	})
 }
 
@@ -240,7 +263,7 @@ func TestRegistrySessionBudgetAggregateWithoutChars(t *testing.T) {
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
 	k.put("alpha/.claude/settings.json", "{}\n")
-	k.write("kit/toolbelt/verify-session-budget.sh", "#!/bin/sh\n")
+	k.write("home/kit/toolbelt/verify-session-budget.sh", "#!/bin/sh\n")
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")))
 	// " worst-source=" at offset 0 of the text after "aggregate: " is still a worst source
 	withHooks(t, fakeHooks{budgetOK: true, budget: "OVER BUDGET\naggregate:  worst-source=startup\nstate: ok\n"})

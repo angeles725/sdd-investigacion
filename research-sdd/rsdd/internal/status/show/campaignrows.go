@@ -8,7 +8,10 @@ import (
 // _campaign_row_counts of research-sdd-status.sh: the queue's table rows counted by State.
 
 // campaignCounts is "pending active done bound-stopped rejected row_count".
-type campaignCounts struct{ pending, active, done, boundStopped, rejected, rows int }
+type campaignCounts struct {
+	pending, active, done, boundStopped, rejected int
+	anyRow                                        bool // a data row was seen, whatever its State
+}
 
 // trimSpaces is `${v#"${v%%[! ]*}"}` and its trailing twin: only the space character is trimmed.
 func trimSpaces(s string) string { return strings.Trim(s, " ") }
@@ -34,7 +37,7 @@ func (c *ctx) campaignRowCounts(wlabel, section string) campaignCounts {
 		if kind == "Kind" || isAllDashes(kind) || name == "" { // header row, separator row, empty line
 			continue
 		}
-		n.rows++
+		n.anyRow = true
 		switch kind {
 		case "focus", "tier", "sub-topic":
 		default:
@@ -55,7 +58,7 @@ func (c *ctx) campaignRowCounts(wlabel, section string) campaignCounts {
 			fmt.Fprintf(c.s.Err, "WARN: campaign queue%s: unrecognised State '%s' in row %s\n", wlabel, state, name)
 		}
 	}
-	if n.rows == 0 {
+	if !n.anyRow {
 		fmt.Fprintf(c.s.Err, "WARN: campaign queue table present but empty%s\n", wlabel)
 	}
 	return n
