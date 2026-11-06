@@ -1,7 +1,10 @@
 package consumers
 
 import (
+	"cmp"
 	"fmt"
+	"path"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -55,14 +58,9 @@ func underRoots(f string) bool {
 	return false
 }
 
-// extOf is the extension of the base name with its dot, or "".
-func extOf(f string) string {
-	b := baseName(f)
-	if i := strings.LastIndexByte(b, '.'); i >= 0 {
-		return b[i:]
-	}
-	return ""
-}
+// extOf is the extension of the base name with its dot, or "": the suffix from the last dot, as path.Ext reads
+// it, so a file whose whole name is ".sh" has the extension ".sh".
+func extOf(f string) string { return path.Ext(f) }
 
 func firstExclusion(f string) int {
 	for i, e := range exclusions {
@@ -79,11 +77,8 @@ func (sc scriptSet) extSummary() string {
 	for e := range sc.byExt {
 		exts = append(exts, e)
 	}
-	sort.Slice(exts, func(i, j int) bool {
-		if sc.byExt[exts[i]] != sc.byExt[exts[j]] {
-			return sc.byExt[exts[i]] > sc.byExt[exts[j]]
-		}
-		return exts[i] < exts[j]
+	slices.SortFunc(exts, func(a, b string) int {
+		return cmp.Or(cmp.Compare(sc.byExt[b], sc.byExt[a]), cmp.Compare(a, b))
 	})
 	parts := make([]string, len(exts))
 	for i, e := range exts {

@@ -35,10 +35,11 @@ func TestScriptExtensionsAndRoots(t *testing.T) {
 		"research-sdd/toolbelt/g.ts": "x", "research-sdd/toolbelt/H.java": "x", "research-sdd/toolbelt/i.java": "x",
 		"research-sdd/toolbelt/j.txt": "x", "research-sdd/toolbelt/K.SH": "x", "research-sdd/toolbelt/l.bash": "x",
 		"research-sdd/toolbelt/noext": "x", "research-sdd/rsdd/m.sh": "x", "research-sdd/other/n.sh": "x", "o.sh": "x",
+		"research-sdd/toolbelt/.ts": "x", // a name that is only an extension has that extension
 	})
 	f.commit()
 	got := f.run()
-	if l := line(got.out, "scripts: "); l != "scripts: 9 (java 2, sh 2, cjs 1, js 1, mjs 1, py 1, ts 1)" {
+	if l := line(got.out, "scripts: "); l != "scripts: 10 (java 2, sh 2, ts 2, cjs 1, js 1, mjs 1, py 1)" {
 		t.Fatalf("%q", l)
 	}
 }
