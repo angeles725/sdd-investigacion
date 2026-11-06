@@ -23,18 +23,12 @@ func ResolveKitScript(rel string, getenv Getenv) (path string, warns []string, e
 	if strings.HasPrefix(rel, "/") || strings.Contains("/"+rel+"/", "/../") {
 		return "", nil, &msgError{"script path '" + rel + "' must be kit-relative without '..'", ErrKitUnresolved}
 	}
-	if k := getenv("RESEARCH_SDD_KIT"); k != "" && !IsDirOS(k+"/toolbelt") {
-		warns = append(warns, "kit-run: DEGRADED: RESEARCH_SDD_KIT="+k+" invalid (no toolbelt/ directory); trying the launcher files and the default checkout")
+	kit, warns, err := ResolveKitRoot(getenv)
+	if errors.Is(err, ErrKitNoToolbelt) { // the hook port has one text for "no kit": a bare directory is none
+		err = &msgError{kitNotFoundText, ErrKitUnresolved}
 	}
-	kit := ""
-	for _, c := range kitCandidates(getenv) {
-		if IsDirOS(c + "/toolbelt") {
-			kit = c
-			break
-		}
-	}
-	if kit == "" {
-		return "", warns, &msgError{"research-sdd kit not found (set RESEARCH_SDD_KIT)", ErrKitUnresolved}
+	if err != nil {
+		return "", warns, err
 	}
 	if !isRegularOS(kit + "/" + rel) {
 		return "", warns, &msgError{kit + "/" + rel + " is missing", ErrKitUnresolved}
