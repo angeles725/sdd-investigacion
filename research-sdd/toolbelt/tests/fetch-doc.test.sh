@@ -1,104 +1,49 @@
 #!/usr/bin/env bash
-# fetch-doc.test.sh — RED-FIRST harness for fetch-doc.sh's reg() SOURCES.md registrar.
+# fetch-doc.test.sh — harness for fetch-doc.sh (downloads and registers external sources under TARGET/sources).
 #
-# The load-bearing behaviour (retro delta): reg() must insert a new source row at the END OF THE (first)
-# MARKDOWN TABLE, not blindly at EOF. A real SOURCES.md (the bootstrap template's own shape) carries trailing
-# prose sections (## Structure / ## Notes) AFTER the table; a blind `>> "$md"` appends new rows BELOW those
-# sections, splitting the document into two disconnected table fragments. The discriminating case feeds a
-# SOURCES.md whose table is followed by a `## Structure` section and asserts the new row lands ABOVE it
-# (inside the table). --prove-teeth reverts reg() to an EOF append and asserts the row then lands BELOW the
-# prose, proving the placement assertion is genuinely load-bearing and not theater.
-#
-# reg() is unit-tested by SOURCING fetch-doc.sh (its main dispatch is guarded), so no network fetch runs.
+# fetch-doc.sh is a compatibility shim over `rsdd sources fetch-doc` (Go). The black-box cases below run through it with
+# the stub curl/wget/pandoc on a private PATH (no network): redirect registration, the part-file and overwrite policy,
+# --replace archiving, cancellation by signal, the test seam, PDF/web integration and the snapshot names. The engine is
+# pinned in Go (research-sdd/rsdd/internal/sources/...: a differential against the frozen script, a golden replay, unit
+# tests, package teeth; internal/core/srcregistry for the SOURCES.md table). --prove-teeth mutates the SHIM (arguments,
+# command and group name, exit code, the library guard); the old controls that edited the retired script body, and the
+# cases that sourced its functions (reg, resolve_permanent_redirect, fetch_and_register, web_slug), are typed SKIPs
+# naming the Go tests that replace them.
 #
 # Usage: fetch-doc.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness error (SUT missing).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../fetch-doc.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-pass=0; fail=0
+SUT_IS_SHIM=0; grep -q "rsdd_exec" "$SUT" && SUT_IS_SHIM=1
+MUT=""
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
+pass=0; fail=0; skips=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+skip(){ printf '  SKIP  %s\n' "$1"; skips=$((skips+1)); }
+# --- mutation-control helpers (kit issues #943, #1299): lib/mutant.sh builds every mutant as a COPY (it refuses an empty,
+# byte-identical, syntax-broken or live-tree one) and mutant_tooth asserts the exact verdict of the original and the mutant.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_sed mutant_tooth || exit 2
+MUT="$(mktemp -d)"
+tooth(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+# The cases that sourced the script's functions moved to Go:
+#   1-5 (reg(): create, end-of-table insert, contiguity, no trailing prose, backslash cell)
+#         -> internal/core/srcregistry TestInsertRow*, TestParseRows*, TestFormatRowAndSafeCell and the differential
+#            cases doc-registry-with-trailing-prose, doc-backslash-url
+#   11-14, 16, 17, 19, 23-28, 30-35, 39, 40 (resolve_permanent_redirect called directly)
+#         -> internal/sources/redirect (TestFollowsOnlyPermanentRedirects, TestRefusesNonHTTPSchemeWithNotice,
+#            TestHopCapBoundsAChainAndALoop, TestHeadRefusedFallsBackToGet, TestConnectClassFailuresSkipTheGetRetry, ...)
+#   44b (fetch_and_register called directly) -> internal/sources/download tests
+#   71f-71i (web_slug sourced, no sha256 tool) -> internal/sources/slug tests, TestIntendedDivergences
 
-# slug_of <url> — the snapshot stem the SUT writes: asks the SUT's own web_slug (sourced), never a copied rule (#1904).
-# shellcheck source=../fetch-doc.sh
-slug_of(){ ( set +e; source "$SUT" >/dev/null 2>&1; web_slug "$1" ); }
-# runreg <script> <sdir> <file> <kind> <origin> <sha> — call reg() from <script> in an isolated subshell
-# (source defines the function; the guarded main never runs; set +e keeps a reg failure from killing us).
-# shellcheck source=../fetch-doc.sh
-runreg(){ local s="$1"; shift; ( set +e; source "$s" >/dev/null 2>&1; reg "$@" ); }
 # lineno <file> <fixed-string> — 1-based line number of the first line CONTAINING the string, or 0.
 lineno(){ awk -v s="$2" 'index($0,s){print NR; exit}' "$1"; }
 
 echo "== fetch-doc.test.sh (SUT: $(basename "$SUT")) =="
 
-# 1 — reg() CREATES SOURCES.md with the header when absent, and the new row is the last table line.
-d="$TMP/create/sources"; mkdir -p "$d"
-runreg "$SUT" "$d" "$d/datasheets/a.pdf" "datasheet" "https://x/a.pdf" "deadbeef"
-if [ -f "$d/SOURCES.md" ] \
-   && grep -q '^| File | Type |' "$d/SOURCES.md" \
-   && grep -q '| datasheets/a.pdf | datasheet | https://x/a.pdf |' "$d/SOURCES.md"; then
-  ok "reg() creates SOURCES.md with header + registers the row"
-else no "create: SOURCES.md not built as expected :: $(head -6 "$d/SOURCES.md" 2>/dev/null | tr '\n' '/')"; fi
-
-# 2 — CORE (retro delta): a SOURCES.md whose table is followed by a '## Structure' prose section — the new
-#     row must land ABOVE '## Structure' (end of table), NOT appended at EOF below it. RED before the fix.
-d="$TMP/trailing/sources"; mkdir -p "$d"
-cat > "$d/SOURCES.md" <<'EOF'
-# Preserved external sources
-
-| File | Type | Origin (URL) | Date (UTC) | sha256 | Blocks that cite it |
-|---|---|---|---|---|---|
-| datasheets/example.pdf | datasheet | https://... | 2026-06-28T00:00:00Z | abc123 | [Block K] |
-
-## Structure
-
-```
-sources/
-  datasheets/
-```
-EOF
-runreg "$SUT" "$d" "$d/manuals/new.pdf" "manuals" "https://y/new.pdf" "cafef00d"
-row_line="$(lineno "$d/SOURCES.md" 'manuals/new.pdf')"
-struct_line="$(lineno "$d/SOURCES.md" '## Structure')"
-if [ "$row_line" -gt 0 ] && [ "$struct_line" -gt 0 ] && [ "$row_line" -lt "$struct_line" ]; then
-  ok "new row inserted at END OF TABLE, above '## Structure' (row L$row_line < struct L$struct_line)"
-else no "trailing-prose: row L$row_line vs struct L$struct_line (want row < struct — appended below prose?)"; fi
-
-# 3 — the inserted row is CONTIGUOUS with the existing table (immediately after the last prior table row),
-#     so the two rows form ONE table, not two fragments.
-prev_line="$(lineno "$d/SOURCES.md" 'datasheets/example.pdf')"
-if [ "$row_line" = "$((prev_line + 1))" ]; then
-  ok "new row is contiguous with the existing table (L$row_line == L$prev_line + 1) — one table, no fragment"
-else no "contiguity: new row L$row_line, prior row L$prev_line (want L$((prev_line+1)))"; fi
-
-# 4 — NO trailing prose (table is the whole body): reg() still appends at the end (backward-compatible).
-d="$TMP/notrail/sources"; mkdir -p "$d"
-cat > "$d/SOURCES.md" <<'EOF'
-# Preserved external sources
-
-| File | Type | Origin (URL) | Date (UTC) | sha256 | Blocks that cite it |
-|---|---|---|---|---|---|
-| datasheets/first.pdf | datasheet | https://... | 2026-06-28T00:00:00Z | abc | [Block 1] |
-EOF
-runreg "$SUT" "$d" "$d/manuals/second.pdf" "manuals" "https://z/second.pdf" "b0b0"
-last="$(tail -1 "$d/SOURCES.md")"
-if grep -q 'manuals/second.pdf' <<<"$last"; then
-  ok "no trailing prose → row appended at end of table (last line), backward-compatible"
-else no "no-trail: last line is '$last' (want the new row)"; fi
-
-# 5 — CORE (retro delta / FIX): a source VALUE containing a BACKSLASH must be written BYTE-IDENTICALLY.
-#     `awk -v newrow="$row"` subjects the value to awk's C-style escape processing (\t → TAB, \b → backspace),
-#     so a basename/URL with a backslash is MANGLED in the SOURCES.md cell — diverging from the literal value
-#     verify-sources.sh later cross-checks. Passing via the environment (ENVIRON["newrow"], no -v) preserves
-#     it verbatim. RED before the fix: the written cell differs from the input origin.
-d="$TMP/backslash/sources"; mkdir -p "$d"
-bsurl='https://ex/a\test\back.pdf'   # literal backslash-t and backslash-b — the exact escape trap
-runreg "$SUT" "$d" "$d/datasheets/x.pdf" "datasheet" "$bsurl" "feed"
-if grep -qF "$bsurl" "$d/SOURCES.md"; then
-  ok "backslash-bearing source value written byte-identically (no awk -v escape corruption)"
-else no "backslash corrupted: row=$(grep -F 'datasheets/x.pdf' "$d/SOURCES.md" | head -1)"; fi
 
 # ─── redirect-resolution tests (Tests 11-31+): PR #1155 round-2/round-3 design ────────
 # Register the URL reached through PERMANENT redirects (301/308) only — the retro D4 scenario
@@ -320,77 +265,8 @@ runchain(){ local mode="$1" dir="$2" url="$3"; shift 3
   PATH="$stubbin:$PATH" bash "$SUT" ${RC_REPLACE:+--replace} "$mode" "$url" "$dir" "$@" >/dev/null 2>"$TMP/runchain.err"
 }
 # origin_of <sources-md> <needle> — the Origin (URL) cell of the row whose File cell matches <needle>.
+
 origin_of(){ awk -F' \\| ' -v n="$2" '$0 ~ n {gsub(/^\| */,"",$1); print $3; exit}' "$1" 2>/dev/null; }
-# runresolve <script> <url> — call resolve_permanent_redirect() from <script> DIRECTLY (source,
-# guarded main never runs — same technique as runreg()), with the stub curl on PATH and the
-# current $STUB_* controls exported. Tests the pure resolution logic in isolation from the
-# download/wget-fallback layer, which would otherwise MASK a broken guard (an internal empty-URL
-# bug gets silently recovered by the wget fallback at the pipeline level — see case 17 below) and
-# so cannot prove the guard itself is load-bearing. Wrapped in `timeout` (round-3 RS3): a genuine
-# redirect LOOP or a broken hop-bound must not hang the test suite — the timeout, not a passing
-# assertion, is what catches those mutants (see runresolve_bounded below for the ones that need
-# the actual exit code).
-# shellcheck source=../fetch-doc.sh
-runresolve(){ local s="$1" url="$2"
-  ( set +e; PATH="$stubbin:$PATH"; export PATH
-    timeout 8 bash -c 'set -e; source "$1" >/dev/null 2>&1; resolve_permanent_redirect "$2"' _ "$s" "$url" 2>/dev/null )
-}
-# runresolve_err <script> <url> <errfile> — like runresolve, but PRESERVES resolve's own stderr
-# into <errfile> (truncated first) instead of discarding it, for tests asserting NOTICE content.
-runresolve_err(){ local s="$1" url="$2" errfile="$3" _out
-  : > "$errfile"
-  _out="$( ( set +e; PATH="$stubbin:$PATH"; export PATH
-    timeout 8 bash -c 'set -e; source "$1" >/dev/null 2>&1; resolve_permanent_redirect "$2"' _ "$s" "$url" ) 2>"$errfile" )"
-  printf '%s' "$_out"
-}
-# runresolve_bounded <script> <url> <out-var> <rc-var> — like runresolve_err, but ALSO captures
-# the exit code into <rc-var> (round-3 RS3: a `while true` or dropped-increment mutant makes the
-# resolve genuinely never return on a redirect LOOP fixture — `timeout`'s kill, exit 124, is the
-# signal that the hop bound stopped protecting us; the real SUT must return 0 well inside the cap).
-runresolve_bounded(){ local s="$1" url="$2" _outvar="$3" _rcvar="$4" _out _rc errfile="$TMP/bounded.err"
-  : > "$errfile"
-  _out="$( ( set +e; PATH="$stubbin:$PATH"; export PATH
-    timeout 8 bash -c 'set -e; source "$1" >/dev/null 2>&1; resolve_permanent_redirect "$2"' _ "$s" "$url" ) 2>"$errfile" )"
-  _rc=$?
-  printf -v "$_outvar" '%s' "$_out"
-  printf -v "$_rcvar" '%s' "$_rc"
-}
-
-# 11 — a chain of TWO permanent redirects (301, 301) resolves fully; the FINAL permanently-
-#      resolved URL is returned, not the typed URL and not any intermediate hop.
-STUB_ROUTES=$'http://s11.example/a 301 http://s11.example/b\nhttp://s11.example/b 301 http://s11.example/c'
-export STUB_ROUTES
-got11="$(runresolve "$SUT" "http://s11.example/a")"
-if [ "$got11" = "http://s11.example/c" ]; then
-  ok "resolve: permanent-redirect chain (301→301) resolves to the final URL"
-else no "R11: expected http://s11.example/c, got '$got11'"; fi
-
-# 12 — CORE (design decision): permanent redirect (301) THEN a temporary one (302, to a
-#      short-lived signed URL) — resolves to the LAST PERMANENT URL, never the signed target and
-#      never the originally typed one (a genuine permanent redirect DID happen first).
-STUB_ROUTES=$'http://s12.example/a 301 http://s12.example/permanent\nhttp://s12.example/permanent 302 http://cdn.example/signed?sig=deadbeef&exp=60'
-export STUB_ROUTES
-got12="$(runresolve "$SUT" "http://s12.example/a")"
-if [ "$got12" = "http://s12.example/permanent" ]; then
-  ok "resolve: permanent-then-temporary chain stops at the last PERMANENT url, not the signed target"
-else no "R12: expected http://s12.example/permanent, got '$got12'"; fi
-
-# 13 — CORE (design decision, R4): the FIRST hop is already a temporary redirect (302) straight to
-#      a signed URL — resolves to the ORIGINALLY TYPED url, unchanged (never the signed target).
-STUB_ROUTES='http://s13.example/a 302 http://cdn.example/signed?sig=cafef00d'
-export STUB_ROUTES
-got13="$(runresolve "$SUT" "http://s13.example/a")"
-if [ "$got13" = "http://s13.example/a" ]; then
-  ok "resolve: immediate temporary redirect resolves to the ORIGINAL typed URL, not the signed target"
-else no "R13: expected http://s13.example/a, got '$got13'"; fi
-
-# 14 — baseline regression: no redirect at all (plain 200) — resolves to the typed URL unchanged.
-STUB_ROUTES=""
-export STUB_ROUTES
-got14="$(runresolve "$SUT" "http://s14.example/plain")"
-if [ "$got14" = "http://s14.example/plain" ]; then
-  ok "resolve: no redirect (200) resolves to the typed URL unchanged"
-else no "R14: expected http://s14.example/plain, got '$got14'"; fi
 
 # 15 — R1: full pipeline, WEB mode — applies the SAME permanent-redirect-only resolution as doc
 #      mode and registers the RESOLVED url in SOURCES.md (wiring check: web mode must actually
@@ -399,38 +275,12 @@ d15="$TMP/rr-15/target"; mkdir -p "$d15"
 STUB_ROUTES='http://s15.example/a 301 http://s15.example/moved'
 export STUB_ROUTES
 runchain web "$d15" "http://s15.example/a"
-slug15="$(slug_of "http://s15.example/a")"
+slug15="s15.example_a"
 got15="$(origin_of "$d15/sources/SOURCES.md" "$slug15")"
 if [ "$got15" = "http://s15.example/moved" ]; then
   ok "web: R1 — same permanent-redirect resolution applies in web mode (wiring)"
 else no "R15: expected http://s15.example/moved, got '$got15' (err: $(cat "$TMP/runchain.err"))"; fi
 
-# 16 — S1a: the PROBE request itself fails outright (simulated network error, BOTH the HEAD
-#      probe and its GET fallback) — must not crash; resolves to the ORIGINAL typed URL (the
-#      last known-good URL before the failed hop) and names it in a stderr notice (round-3 RS5).
-STUB_ROUTES=""; STUB_PROBE_FAIL_URL="http://s16.example/a"
-export STUB_ROUTES STUB_PROBE_FAIL_URL
-got16="$(runresolve_err "$SUT" "http://s16.example/a" "$TMP/r16.err")"
-unset STUB_PROBE_FAIL_URL
-if [ "$got16" = "http://s16.example/a" ] && grep -qi 'redirect probe failed' "$TMP/r16.err"; then
-  ok "resolve: S1a — a failed redirect PROBE falls back to the typed URL, no crash, with a notice"
-else no "R16: expected http://s16.example/a + probe-fail notice, got '$got16' err='$(cat "$TMP/r16.err")'"; fi
-
-# 17 — S1b (§7 silent-zero) — CORE: a 301 response with NO Location header (malformed) must not
-#      advance to an empty URL. Tested at the FUNCTION level, not the pipeline: the pipeline's own
-#      wget-fallback safety net (S2) would silently recover an internal empty-URL bug by falling
-#      back to $URL anyway, masking whether THIS guard specifically is load-bearing.
-#      N1 (plain-suite pin): the LOC-GUARD itself is SILENT on this case (no stderr notice at
-#      all) — the SCHEME-GUARD right below it would ALSO refuse an empty Location (it does not
-#      match http://*|https://*), but WITH ITS OWN "refused non-http(s)" notice. Asserting that
-#      notice is ABSENT here pins which guard actually fired, distinctly from --prove-teeth's
-#      mutant-only distinction (round-3 N1, closed properly in round 4).
-STUB_ROUTES='http://s17.example/a 301 -'
-export STUB_ROUTES
-got17="$(runresolve_err "$SUT" "http://s17.example/a" "$TMP/r17.err")"
-if [ "$got17" = "http://s17.example/a" ] && [ -n "$got17" ] && ! grep -qi 'refused non-http' "$TMP/r17.err"; then
-  ok "resolve: S1b — a 301 with no Location does not resolve to an empty URL (loc-guard is silent here, not the scheme guard)"
-else no "R17: expected non-empty 'http://s17.example/a' + no scheme-refusal notice, got '$got17' err='$(cat "$TMP/r17.err")'"; fi
 
 # 18 — S2 (doc): the actual DOWNLOAD fails after a permanent redirect resolved — wget fallback
 #      registers the TYPED url (never the resolved-but-undownloadable one) and announces the
@@ -451,22 +301,12 @@ STUB_ROUTES='http://s18b.example/a 301 http://s18b.example/resolved'; STUB_DOWNL
 export STUB_ROUTES STUB_DOWNLOAD_FAIL
 runchain web "$d18b" "http://s18b.example/a"
 unset STUB_DOWNLOAD_FAIL
-slug18b="$(slug_of "http://s18b.example/a")"
+slug18b="s18b.example_a"
 got18b="$(origin_of "$d18b/sources/SOURCES.md" "$slug18b")"
 if [ "$got18b" = "http://s18b.example/a" ] && grep -qi 'wget fallback' "$TMP/runchain.err"; then
   ok "web: S2 — wget fallback registers the typed URL and announces the reversion on stderr"
 else no "R18b: expected typed URL + stderr notice, got origin='$got18b' err='$(cat "$TMP/runchain.err")'"; fi
 
-# 19 — bounded hop loop: a chain of exactly 3 permanent redirects resolves fully under the
-#      default cap (max_hops=10) — the positive baseline the hop-bound teeth mutant diffs
-#      against (a mutant lowering the cap below 3 must stop short of the final hop).
-STUB_ROUTES=$'http://s19.example/a 301 http://s19.example/h1\nhttp://s19.example/h1 301 http://s19.example/h2\nhttp://s19.example/h2 301 http://s19.example/h3'
-export STUB_ROUTES
-got19="$(runresolve "$SUT" "http://s19.example/a")"
-if [ "$got19" = "http://s19.example/h3" ]; then
-  ok "resolve: a 3-hop permanent chain resolves fully under the default (10) hop cap"
-else no "R19: expected http://s19.example/h3, got '$got19'"; fi
-unset STUB_ROUTES
 
 # 20 — S3 structural check: a total download failure's curl diagnostic must reach stderr (not be
 #      redirected to /dev/null) — a silent "empty body" with no reason is a debugging regression.
@@ -516,74 +356,6 @@ if grep -qF 'fetch-doc: registered http://s21.example/moved (permanent redirect 
   ok "doc: notice fires exactly once, after a successful download, naming both URLs"
 else no "R22: notice missing or duplicated :: $(cat "$TMP/runchain.err")"; fi
 
-# 23 — RS4: 308 (permanent, like 301) resolves the SAME way a 301 chain does — the
-#      SENTINEL-PERMANENT-ONLY case pattern must include BOTH, not just 301.
-STUB_ROUTES='http://s23.example/a 308 http://s23.example/moved'
-export STUB_ROUTES
-got23="$(runresolve "$SUT" "http://s23.example/a")"
-if [ "$got23" = "http://s23.example/moved" ]; then
-  ok "resolve: 308 (permanent) redirect resolves the same as 301"
-else no "R23: expected http://s23.example/moved, got '$got23'"; fi
-
-# 24 — RS4: 303 (temporary, like 302) stops resolution — registers the typed URL, never the
-#      redirect target.
-STUB_ROUTES='http://s24.example/a 303 http://cdn.example/signed-303'
-export STUB_ROUTES
-got24="$(runresolve "$SUT" "http://s24.example/a")"
-if [ "$got24" = "http://s24.example/a" ]; then
-  ok "resolve: 303 (temporary) redirect stops resolution, like 302"
-else no "R24: expected http://s24.example/a, got '$got24'"; fi
-
-# 25 — RS4: 307 (temporary, like 302) stops resolution too.
-STUB_ROUTES='http://s25.example/a 307 http://cdn.example/signed-307'
-export STUB_ROUTES
-got25="$(runresolve "$SUT" "http://s25.example/a")"
-if [ "$got25" = "http://s25.example/a" ]; then
-  ok "resolve: 307 (temporary) redirect stops resolution, like 302"
-else no "R25: expected http://s25.example/a, got '$got25'"; fi
-
-# 26 — CORE (round-3 security hardening): a permanent-redirect response whose Location has a
-#      NON-http(s) scheme (file:, javascript:, data:, ...) is REFUSED outright — never followed,
-#      regardless of the 301/308 code. Only http/https Location targets ever advance the chain.
-STUB_ROUTES='http://s26.example/a 301 file:///etc/passwd'
-export STUB_ROUTES
-got26="$(runresolve_err "$SUT" "http://s26.example/a" "$TMP/r26.err")"
-if [ "$got26" = "http://s26.example/a" ] && grep -qi 'refused non-http' "$TMP/r26.err"; then
-  ok "resolve: security — a non-http(s) redirect scheme is refused, keeping the last good URL"
-else no "R26: expected http://s26.example/a + refusal notice, got '$got26' err='$(cat "$TMP/r26.err")'"; fi
-
-# 26b — the same guard AFTER at least one legitimate permanent hop: resolves to the LAST
-#       PERMANENT (already-resolved) URL, not the typed one and not the refused target — proving
-#       "last good" is not always merely "the original".
-STUB_ROUTES=$'http://s26b.example/a 301 http://s26b.example/mid\nhttp://s26b.example/mid 301 javascript:alert(1)'
-export STUB_ROUTES
-got26b="$(runresolve_err "$SUT" "http://s26b.example/a" "$TMP/r26b.err")"
-if [ "$got26b" = "http://s26b.example/mid" ] && grep -qi 'refused non-http' "$TMP/r26b.err"; then
-  ok "resolve: security — scheme refusal after a real hop keeps the last PERMANENT url, not the typed one"
-else no "R26b: expected http://s26b.example/mid + refusal notice, got '$got26b' err='$(cat "$TMP/r26b.err")'"; fi
-
-# 27 — RS1: a server that answers HEAD with 405 (Method Not Allowed) is NOT treated as a dead
-#      end — the probe retries with a GET (capped to a 0-byte range) and still resolves correctly.
-STUB_ROUTES='http://s27.example/a 301 http://s27.example/moved'; STUB_HEAD_FAIL_URL='http://s27.example/a'
-export STUB_ROUTES STUB_HEAD_FAIL_URL
-got27="$(runresolve "$SUT" "http://s27.example/a")"
-unset STUB_HEAD_FAIL_URL
-if [ "$got27" = "http://s27.example/moved" ]; then
-  ok "resolve: RS1 — a HEAD-405 response falls back to a GET probe and still resolves correctly"
-else no "R27: expected http://s27.example/moved, got '$got27'"; fi
-
-# 28 — CORE (round-3 RS3): a genuine redirect LOOP (A permanently redirects to B, B permanently
-#      redirects back to A) must TERMINATE — the hop cap is the ONLY thing that stops it, since
-#      no other break condition (temporary redirect, bad scheme, missing Location, probe failure)
-#      is ever reached. Must complete well inside the `timeout` wrapper, return a non-empty URL,
-#      and name the hop cap on stderr.
-STUB_ROUTES=$'http://loop.example/a 301 http://loop.example/b\nhttp://loop.example/b 301 http://loop.example/a'
-export STUB_ROUTES
-runresolve_bounded "$SUT" "http://loop.example/a" got28 rc28
-# shellcheck disable=SC2154  # got28/rc28 are assigned indirectly via printf -v inside runresolve_bounded
-if [ "$rc28" = "0" ] && [ -n "$got28" ] && grep -qi 'hop cap' "$TMP/bounded.err"; then
-  ok "resolve: RS3 — a genuine redirect loop terminates via the hop cap, not by hanging"
-else no "R28: expected rc=0 + non-empty + hop-cap notice, got rc=$rc28 out='$got28' err='$(cat "$TMP/bounded.err")'"; fi
 
 # 29 — CORE (round-3 RS2): '-L' on the download is load-bearing. A 301 (permanent) THEN a 302
 #      (temporary, to the real content) — SOURCES.md registers the PERMANENT stop, but the
@@ -597,78 +369,6 @@ if grep -qF 'stub body for http://s29.example/final-content' "$d29/sources/datas
   ok "doc: RS2 — -L follows the temporary hop to fetch the FINAL content, not the redirect page"
 else no "R29: downloaded body is not the final content :: $(cat "$d29/sources/datasheets/r29.html" 2>/dev/null || echo MISSING)"; fi
 
-# 30 — nit (round-1 N2 / round-3): a literal '|' in a Location header must be percent-encoded
-#      (%7C) BEFORE it becomes part of the resolved/registered URL — a raw '|' would shift the
-#      SOURCES.md row's column count.
-STUB_ROUTES='http://s30.example/a 301 http://s30.example/a|b'
-export STUB_ROUTES
-got30="$(runresolve "$SUT" "http://s30.example/a")"
-if [ "$got30" = "http://s30.example/a%7Cb" ]; then
-  ok "resolve: nit — a literal | in the Location is percent-encoded (%7C) before resolving"
-else no "R30: expected http://s30.example/a%7Cb, got '$got30'"; fi
-
-# 31 — RS5: a probe failure AT HOP >= 2 (after at least one successful permanent hop) keeps the
-#      LAST PERMANENT url, never reverting to the originally typed one — matches the updated
-#      METHODOLOGY §5 wording exactly (round-3 doctrine fix).
-STUB_ROUTES='http://s31.example/a 301 http://s31.example/mid'; STUB_PROBE_FAIL_URL='http://s31.example/mid'
-export STUB_ROUTES STUB_PROBE_FAIL_URL
-got31="$(runresolve_err "$SUT" "http://s31.example/a" "$TMP/r31.err")"
-unset STUB_PROBE_FAIL_URL
-if [ "$got31" = "http://s31.example/mid" ] && grep -qi 'redirect probe failed' "$TMP/r31.err"; then
-  ok "resolve: RS5 — a probe failure after a real hop keeps the last PERMANENT url + notice"
-else no "R31: expected http://s31.example/mid + probe-fail notice, got '$got31' err='$(cat "$TMP/r31.err")'"; fi
-unset STUB_ROUTES
-
-# 32 — N2: HEAD answers 403 (not a redirect, not 2xx) — falls back to GET, which correctly
-#      reports the real 301 redirect target (some CDN/S3 fronts answer HEAD differently than GET).
-STUB_HEAD_ROUTES='http://s32.example/a 403 -'
-STUB_ROUTES='http://s32.example/a 301 http://s32.example/moved'
-export STUB_HEAD_ROUTES STUB_ROUTES
-got32="$(runresolve "$SUT" "http://s32.example/a")"
-unset STUB_HEAD_ROUTES
-if [ "$got32" = "http://s32.example/moved" ]; then
-  ok "resolve: N2 — HEAD-403 falls back to GET, which reports the real redirect"
-else no "R32: expected http://s32.example/moved, got '$got32'"; fi
-
-# 33 — N2: same divergence with HEAD-404.
-STUB_HEAD_ROUTES='http://s33.example/a 404 -'
-STUB_ROUTES='http://s33.example/a 301 http://s33.example/moved'
-export STUB_HEAD_ROUTES STUB_ROUTES
-got33="$(runresolve "$SUT" "http://s33.example/a")"
-unset STUB_HEAD_ROUTES
-if [ "$got33" = "http://s33.example/moved" ]; then
-  ok "resolve: N2 — HEAD-404 falls back to GET, which reports the real redirect"
-else no "R33: expected http://s33.example/moved, got '$got33'"; fi
-
-# 34 — CORE (round-4 N3): a CONNECT-stage HEAD failure (curl exit 7 — could not connect) is NOT
-#      retried via GET — costs exactly ONE probe attempt for this hop, not two, since retrying an
-#      unreachable host would just double the wait for nothing.
-STUB_ROUTES=""; STUB_HEAD_CONNECT_FAIL_URL='http://s34.example/a'
-_pcf34="$TMP/probe-count-34.txt"; : > "$_pcf34"
-STUB_PROBE_COUNT_FILE="$_pcf34"
-export STUB_ROUTES STUB_HEAD_CONNECT_FAIL_URL STUB_PROBE_COUNT_FILE
-got34="$(runresolve "$SUT" "http://s34.example/a")"
-unset STUB_HEAD_CONNECT_FAIL_URL STUB_PROBE_COUNT_FILE
-n34="$(grep -c '^http://s34\.example/a$' "$_pcf34")"
-if [ "$got34" = "http://s34.example/a" ] && [ "$n34" = "1" ]; then
-  ok "resolve: N3 — a connect-stage HEAD failure skips the GET-fallback retry (1 probe attempt)"
-else no "R34: expected typed URL + 1 probe attempt, got '$got34' attempts=$n34"; fi
-
-# 35 — N3 contrast: an ordinary fallback-triggering HEAD answer (405, NOT a connect failure) DOES
-#      retry via GET — 2 probe attempts FOR THIS SPECIFIC HOP (HEAD + GET-fallback), confirming
-#      34's "1" is a real distinction and not an artifact of the counting mechanism. Counted per-
-#      URL rather than as a chain total, since the chain legitimately probes the NEXT hop too
-#      once this one resolves (a separate, expected attempt against a different URL).
-STUB_ROUTES='http://s35.example/a 301 http://s35.example/moved'; STUB_HEAD_FAIL_URL='http://s35.example/a'
-_pcf35="$TMP/probe-count-35.txt"; : > "$_pcf35"
-STUB_PROBE_COUNT_FILE="$_pcf35"
-export STUB_ROUTES STUB_HEAD_FAIL_URL STUB_PROBE_COUNT_FILE
-got35="$(runresolve "$SUT" "http://s35.example/a")"
-unset STUB_HEAD_FAIL_URL STUB_PROBE_COUNT_FILE
-n35="$(grep -c '^http://s35\.example/a$' "$_pcf35")"
-if [ "$got35" = "http://s35.example/moved" ] && [ "$n35" = "2" ]; then
-  ok "resolve: N3 contrast — a 405 HEAD DOES retry via GET (2 probe attempts)"
-else no "R35: expected resolved URL + 2 probe attempts, got '$got35' attempts=$n35"; fi
 
 # 36 — CORE (round-4 N4): a successful permanent-redirect resolve followed by an EMPTY download
 #      body must NOT print the "registered X (permanent redirect from Y)" notice — the empty-
@@ -723,61 +423,17 @@ printf '#!/usr/bin/env bash\nr="$(%s "$@")" || exit $?\nprintf "%%s\\n" "$r" >> 
 MKTEMP_LOG="$TMP/mklog37b.txt" PATH="$mklog37b:$PATH" TMPDIR="$d37b_tmpdir" runchain web "$d37b" "http://s37b.example/a" || _rc37b=$?
 _made37b="$(awk -v p="$d37b_tmpdir/" 'index($0,p)==1{n++} END{print n+0}' "$TMP/mklog37b.txt")"
 unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-slug37b="$(slug_of "http://s37b.example/a")"
+slug37b="s37b.example_a"
 _row37b=false
 [ -f "$d37b/sources/SOURCES.md" ] && grep -q "$slug37b" "$d37b/sources/SOURCES.md" && _row37b=true
 _leaked37b="$(find "$d37b_tmpdir" -type f 2>/dev/null | wc -l | tr -d ' ')"
-if [ "$_rc37b" -ne 0 ] && ! $_row37b && [ "$_made37b" -ge 1 ] && [ "$_leaked37b" = "0" ] \
+if [ "$_rc37b" -ne 0 ] && ! $_row37b && [ "$_leaked37b" = "0" ] \
    && grep -qi 'wget fallback ALSO failed' "$TMP/runchain.err" \
    && ! grep -qi 'registered requested URL' "$TMP/runchain.err"; then
   ok "web: RDD/R1 — wget ALSO failing registers nothing and leaks NO temp HTML file"
 else no "R37b: rc=$_rc37b row=$_row37b made-in-tmpdir=$_made37b leaked=$_leaked37b err='$(cat "$TMP/runchain.err")'"; fi
 unset STUB_ROUTES
 
-# 39 — CORE (round-5 N2'/N3'): curl exit 28 with %{time_connect}=0 (the connect phase never
-#      completed — a "blackhole"/unreachable host) is STILL treated as connect-class: no
-#      GET-fallback retry, exactly like exit 6/7.
-STUB_ROUTES=""; STUB_HEAD_BLACKHOLE_URL='http://s39.example/a'
-_pcf39="$TMP/probe-count-39.txt"; : > "$_pcf39"
-STUB_PROBE_COUNT_FILE="$_pcf39"
-export STUB_ROUTES STUB_HEAD_BLACKHOLE_URL STUB_PROBE_COUNT_FILE
-got39="$(runresolve "$SUT" "http://s39.example/a")"
-unset STUB_HEAD_BLACKHOLE_URL STUB_PROBE_COUNT_FILE
-n39="$(grep -c '^http://s39\.example/a$' "$_pcf39")"
-if [ "$got39" = "http://s39.example/a" ] && [ "$n39" = "1" ]; then
-  ok "resolve: N2'/N3' — exit 28 with time_connect=0 (blackhole) still skips the GET-fallback retry"
-else no "R39: expected typed URL + 1 probe attempt, got '$got39' attempts=$n39"; fi
-
-# 40 — CORE (round-5 N2'/N3'): curl exit 28 with a NONZERO %{time_connect} (connected, then the
-#      RESPONSE hung past --max-time) is NOT treated as connect-class — the host IS reachable,
-#      so the GET-fallback retry IS attempted, and correctly resolves the real redirect.
-STUB_ROUTES='http://s40.example/a 301 http://s40.example/moved'; STUB_HEAD_HANG_URL='http://s40.example/a'
-_pcf40="$TMP/probe-count-40.txt"; : > "$_pcf40"
-STUB_PROBE_COUNT_FILE="$_pcf40"
-export STUB_ROUTES STUB_HEAD_HANG_URL STUB_PROBE_COUNT_FILE
-got40="$(runresolve "$SUT" "http://s40.example/a")"
-unset STUB_HEAD_HANG_URL STUB_PROBE_COUNT_FILE
-n40="$(grep -c '^http://s40\.example/a$' "$_pcf40")"
-if [ "$got40" = "http://s40.example/moved" ] && [ "$n40" = "2" ]; then
-  ok "resolve: N2'/N3' — exit 28 with a nonzero time_connect (hung, not blackhole) DOES retry via GET"
-else no "R40: expected http://s40.example/moved + 2 probe attempts, got '$got40' attempts=$n40"; fi
-unset STUB_ROUTES
-
-# 40b/40c — #1285 item 5: the OTHER spellings of "the connect phase never completed" — a bare `0`
-#      and an EMPTY time_connect — must also skip the GET-fallback retry (exactly 1 probe attempt).
-for _tc in "0" ""; do
-  _lbl="${_tc:-empty}"
-  STUB_ROUTES=""; STUB_HEAD_BLACKHOLE_URL="http://s40-$_lbl.example/a"; STUB_HEAD_BLACKHOLE_TIME_CONNECT="$_tc"
-  _pcf40x="$TMP/probe-count-40-$_lbl.txt"; : > "$_pcf40x"; STUB_PROBE_COUNT_FILE="$_pcf40x"
-  export STUB_ROUTES STUB_HEAD_BLACKHOLE_URL STUB_HEAD_BLACKHOLE_TIME_CONNECT STUB_PROBE_COUNT_FILE
-  got40x="$(runresolve "$SUT" "http://s40-$_lbl.example/a")"
-  unset STUB_HEAD_BLACKHOLE_URL STUB_HEAD_BLACKHOLE_TIME_CONNECT STUB_PROBE_COUNT_FILE
-  n40x="$(grep -c "^http://s40-$_lbl\.example/a\$" "$_pcf40x")"
-  if [ "$got40x" = "http://s40-$_lbl.example/a" ] && [ "$n40x" = "1" ]; then
-    ok "resolve: #1285 — exit 28 with time_connect='${_tc}' ($_lbl) skips the GET-fallback retry"
-  else no "R40x[$_lbl]: expected typed URL + 1 probe attempt, got '$got40x' attempts=$n40x"; fi
-done
-unset STUB_ROUTES
 
 # ─── #1285 item 1: a failed re-fetch must leave an already-registered file byte-identical ───
 # mkexisting <dir> <name> — seed sources/datasheets/<name> with known evidence; echo its path.
@@ -856,32 +512,10 @@ if [ "$_rc43y" -eq 0 ] && [ "$(origin_of "$d43y/sources/SOURCES.md" 'r43y\.pdf')
   ok "doc: #1285 — wget-only path skips redirect resolution and registers the requested URL (effective URL unknown)"
 else no "R43y: rc=$_rc43y origin='$(origin_of "$d43y/sources/SOURCES.md" 'r43y\.pdf')' err='$(cat "$TMP/err43y.txt")'"; fi
 
-# 44w — #1285 review: web mode writes the snapshot ATOMICALLY. A pandoc that dies mid-write and a cp
-#      that dies mid-write must leave an EXISTING snapshot byte-identical, with no part-file debris.
-wfail="$TMP/webfail-bin"; mkdir -p "$wfail"
-cat > "$wfail/pandoc" <<'STUBEOF'
-#!/usr/bin/env bash
-out=""; prev=""; for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
-[ -n "$out" ] && printf 'PARTIAL-PANDOC' > "$out"
-exit 1
-STUBEOF
-cat > "$wfail/cp" <<'STUBEOF'
-#!/usr/bin/env bash
-for a in "$@"; do last="$a"; done
-printf 'PARTIAL-CP' > "$last"
-exit 1
-STUBEOF
-chmod +x "$wfail/pandoc" "$wfail/cp"
-d44w="$TMP/rr-44w/target"; mkdir -p "$d44w/sources/web-snapshots"
-slug44w="$(slug_of "http://s44w.example/a")"
-f44w="$d44w/sources/web-snapshots/$slug44w.md"; printf 'REGISTERED-EVIDENCE\n' > "$f44w"
-STUB_ROUTES=""; export STUB_ROUTES
-_rc44w=0; PATH="$wfail:$stubbin:$PATH" bash "$SUT" --replace web "http://s44w.example/a" "$d44w" >/dev/null 2>"$TMP/err44w.txt" || _rc44w=$?
-_debris44w="$(find "$d44w/sources/web-snapshots" -type f ! -name "$slug44w.md" | wc -l | tr -d ' ')"
-if [ "$_rc44w" -ne 0 ] && [ "$(sum_of "$f44w")" = "$EVID_SUM" ] && [ "$_debris44w" = "0" ]; then
-  ok "web: #1285 — a failing pandoc+cp leaves an existing snapshot byte-identical, no part-file debris"
-else no "R44w: rc=$_rc44w sum=$(sum_of "$f44w") debris=$_debris44w"; fi
-unset STUB_ROUTES
+skip "R44w: a pandoc plus cp that die mid-write: cp is no longer a dependency (the fallback copy is in process); a failed conversion over a registered snapshot is fetchdoc TestFailedWebConversionLeavesTheRegisteredSnapshotIntact"
+skip "R48b: the English pdftoppm failure message lives in the Go source, exercised by the differential OCR scenarios (pdftoppm-fail)"
+skip "R60: a TERM during install+register is deferred (slow sha256sum stub): the hash is computed in process now; the window is fetchdoc TestSignalAfterTheInstallPointIsIgnoredSoRowAndBytesAgree"
+skip "R66: TERM during mktemp leaks no temp file: the Go command runs no mktemp; TMPDIR stays clean after a cancel in fetchdoc TestSignalMidConversionKillsPandocAndInstallsNothing"
 
 # 44 — positive control: a SUCCESSFUL re-fetch replaces the file with the new bytes (the part-file
 #      move actually happens) and leaves no part file behind.
@@ -893,18 +527,7 @@ if [ "$_rc44" -eq 0 ] && grep -qF 'stub body for http://s44.example/a' "$f44" &&
   ok "doc: #1285 — a successful re-fetch replaces the file and leaves no part file"
 else no "R44: rc=$_rc44 body='$(cat "$f44" 2>/dev/null)' debris=$_debris44"; fi
 unset STUB_ROUTES
-
-# 44b — fetch_and_register called DIRECTLY (no main dispatch, so no EXIT trap): when curl and wget
-#      both fail it must clean up its OWN part file (in-function cleanup, independent of the trap).
-d44b="$TMP/rr-44b"; mkdir -p "$d44b"
-STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-# shellcheck source=../fetch-doc.sh
-( set +e; PATH="$stubbin:$PATH"; export PATH; source "$SUT" >/dev/null 2>&1
-  fetch_and_register "http://s44b.example/a" "$d44b/out.html" >/dev/null 2>&1 )
-unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL STUB_ROUTES
-if [ -z "$(find "$d44b" -type f)" ]; then
-  ok "fetch_and_register: curl+wget failure leaves no part file even without the main-dispatch trap"
-else no "R44b: debris: $(find "$d44b" -type f | tr '\n' ' ')"; fi
+skip "R44b: fetch_and_register called directly cleans its own part file: internal/sources/download TestWgetFailureModesNameTheirCause, TestCurlFailureFallsBackToWgetOnTheTypedURL"
 
 # ─── #1285 item 2: trap cleanup ───
 # 45 — SIGTERM mid-download (doc): the partial bytes are removed and the registered file survives.
@@ -967,12 +590,11 @@ if [ "$_rc47w" -eq 3 ] && grep -qi 'DEGRADED' "$TMP/err47w.txt"; then
 else no "R47w: rc=$_rc47w err='$(cat "$TMP/err47w.txt")'"; fi
 
 # ─── #1285 item 6: kit CLAUDE.md §9 — artifacts are English ───
-if ! grep -q 'falló' "$SUT"; then
-  ok "language: no Spanish 'falló' message left in fetch-doc.sh (§9)"
-else no "R48: fetch-doc.sh still contains the Spanish pdftoppm message"; fi
-if grep -q 'pdftoppm failed' "$SUT"; then
-  ok "language: the pdftoppm failure message is English"
-else no "R48b: English pdftoppm failure message not found"; fi
+# the messages live in the Go engine now (the shim holds none): scan its sources, and require the scan to find files
+_go_src="$HERE/../../rsdd/internal/sources"
+if [ -d "$_go_src" ] && [ -n "$(find "$_go_src" -name '*.go' | head -1)" ] && ! grep -rq 'falló' "$_go_src"; then
+  ok "language: no Spanish 'falló' message left in the Go engine of fetch-doc (§9)"
+else no "R48: the Go engine sources are missing or still contain the Spanish pdftoppm message ($_go_src)"; fi
 
 # ─── doc-mode PDF integration tests (run the SUT as a process; no network) ─────────────
 # Guards: curl for file:// fetching (wget cannot fetch file:// URLs), file(1) for PDF
@@ -1080,868 +702,8 @@ if [ "$_rc71e1" -eq 0 ] && [ "$_rc71e2" -eq 0 ] && [ "$n71e" = "2" ] && [ "$rows
 else no "R71e: rc=$_rc71e1/$_rc71e2 files=$n71e rows=$rows71e :: $(cat "$TMP/runchain.err")"; fi
 unset STUB_ROUTES
 # 71f — boundary: a slug of exactly 80 chars is unchanged (no -<hex>); exactly 81 is hashed and the name is 80 chars
-x80="$(printf 'a%.0s' $(seq 1 80))"
-s80="$(slug_of "http://$x80")"; s81="$(slug_of "http://${x80}a")"
-if [ "$s80" = "$x80" ] && [ "${#s81}" -eq 80 ] && [[ "$s81" =~ -[0-9a-f]{12}$ ]] && [ "$s81" != "${x80:0:80}" ]; then
-  ok "web: #1904 — 80-char slug unchanged, 81-char slug hashed to an 80-char name"
-else no "R71f: s80='$s80' s81='$s81' (${#s81})"; fi
-# 71g — the scheme is dropped from the slug but hashed: http vs https long URLs get different names
-if [ "$(slug_of "http://$x80/z")" != "$(slug_of "https://$x80/z")" ]; then ok "web: #1904 — scheme is part of the hash (http/https long URLs differ)"
-else no "R71g: http and https long URLs share a name"; fi
-# 71h — no sha256 tool (sha256sum AND shasum hidden): typed DEGRADED, exit 3, nothing written, BEFORE any write
-nosha="$TMP/nosha-bin"; mkdir -p "$nosha"
-for _t in bash mkdir basename sed cut date awk mktemp mv rm file grep cat dirname tr; do
-  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$nosha/$_t"
-done
-ln -sf "$stubbin/curl" "$nosha/curl"
-for _m in "web http://s71h.example/a" "doc http://s71h.example/a.pdf"; do
-  d71h="$TMP/r71h-${_m%% *}/target"; mkdir -p "$d71h"
-  _rc71h=0; PATH="$nosha" "$nosha/bash" "$SUT" ${_m%% *} "${_m#* }" "$d71h" >/dev/null 2>"$TMP/err71h.txt" || _rc71h=$?
-  if [ "$_rc71h" -eq 3 ] && grep -q 'DEGRADED: no sha256 tool' "$TMP/err71h.txt" \
-     && [ -z "$(find "$d71h" -type f)" ]; then ok "${_m%% *}: #1904 — no sha256 tool → typed DEGRADED, exit 3, nothing written"
-  else no "R71h(${_m%% *}): rc=$_rc71h err='$(cat "$TMP/err71h.txt")' files=$(find "$d71h" -type f | wc -l)"; fi
-done
-# 71i — shasum alone is enough (sha256sum hidden, shasum present): long-URL name still derived
-if command -v shasum >/dev/null 2>&1; then
-  ln -sf "$(command -v shasum)" "$nosha/shasum"; _p="$(command -v perl)" && ln -sf "$_p" "$nosha/perl"
-  _s71i="$(PATH="$nosha" bash -c 'source "$1" >/dev/null 2>&1; web_slug "$2"' _ "$SUT" "http://$x80/long-tail-xyz")"
-  if [[ "$_s71i" =~ -[0-9a-f]{12}$ ]]; then ok "web: #1904 — shasum -a 256 fallback derives the same kind of name"
-  else no "R71i: shasum fallback produced '$_s71i'"; fi
-  rm -f "$nosha/shasum" "$nosha/perl"
-else printf '  SKIP  R71i: shasum not available\n'; fi
-
-# NEGATIVE CONTROL — revert reg() to a blind EOF append; the trailing-prose fixture must then place the row
-# BELOW '## Structure', proving case 2's placement assertion has teeth.
-if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: force the awk insert to the EOF-append branch (last=0); expect the row BELOW '## Structure' --"
-  mutant="$TMP/fetch-doc.MUTANT.sh"
-  # Neuter the end-of-table insert: pin the tracked last-table-row index to 0 so the END block always takes
-  # the `last==0` fallback (append newrow at EOF) — the old buggy behaviour.
-  sed 's/intable=1; last=NR/intable=1; last=0/' "$SUT" > "$mutant"
-  if ! grep -q 'intable=1; last=0' "$mutant"; then
-    no "teeth: could not build mutant (reg() awk-insert line not found — did the SUT change?)"
-  else
-    d="$TMP/teeth/sources"; mkdir -p "$d"
-    cat > "$d/SOURCES.md" <<'EOF'
-# Preserved external sources
-
-| File | Type | Origin (URL) | Date (UTC) | sha256 | Blocks that cite it |
-|---|---|---|---|---|---|
-| datasheets/example.pdf | datasheet | https://... | 2026-06-28T00:00:00Z | abc123 | [Block K] |
-
-## Structure
-
-```
-sources/
-```
-EOF
-    runreg "$mutant" "$d" "$d/manuals/new.pdf" "manuals" "https://y/new.pdf" "cafef00d"
-    r="$(lineno "$d/SOURCES.md" 'manuals/new.pdf')"; s="$(lineno "$d/SOURCES.md" '## Structure')"
-    if [ "$r" -gt "$s" ]; then
-      ok "teeth: EOF-append mutant lands the row BELOW '## Structure' (L$r > L$s) → case 2 has teeth"
-    else no "teeth: mutant row L$r vs struct L$s (want row > struct) — case 2 does NOT depend on the insert (THEATER)"; fi
-  fi
-
-  echo "-- teeth: revert ENVIRON→ awk -v; expect the backslash cell to be escape-corrupted (not byte-identical) --"
-  vmutant="$TMP/fetch-doc.VMUTANT.sh"
-  sed 's/newrow="$row" awk/awk -v newrow="$row"/; s/ENVIRON\["newrow"\]/newrow/g' "$SUT" > "$vmutant"
-  if ! grep -q 'awk -v newrow="$row"' "$vmutant"; then
-    no "teeth: could not build the -v mutant (ENVIRON insert line not found — did the SUT change?)"
-  else
-    d="$TMP/teeth-bs/sources"; mkdir -p "$d"
-    bsurl='https://ex/a\test\back.pdf'
-    runreg "$vmutant" "$d" "$d/datasheets/x.pdf" "datasheet" "$bsurl" "feed"
-    if ! grep -qF "$bsurl" "$d/SOURCES.md"; then
-      ok "teeth: awk -v mutant escape-corrupts the backslash cell → case 5 has teeth"
-    else no "teeth: -v mutant preserved the backslash — case 5 does NOT depend on ENVIRON (THEATER)"; fi
-  fi
-
-  # ── teeth for resolve_permanent_redirect() / fetch_and_register() (Tests 11-31) — every mutant
-  # below is anchored on a SENTINEL comment (N4: a stable token, not a line number or exact-code
-  # match), so a future reformat that keeps the sentinel keeps the mutant working, and a real
-  # semantic edit that drops the sentinel fails loudly (the grep-guard) instead of silently
-  # mutating the wrong thing. Nontrivial replacement text (embedded quotes, %s specifiers) is
-  # written via a sed SCRIPT FILE (mkmut) rather than an inline sed one-liner, to avoid fragile
-  # nested-quote escaping — round-3 fix for the round-2 "mislabelled SENTINEL-S3" nit, whose
-  # anchor was actually the literal code text, not a sentinel at all.
-
-  # mkmut <name> <sed-script-stdin> — writes a sed script to $TMP/<name>.sed and applies it to
-  # $SUT, producing $TMP/<name>.sh. Echoes the mutant path on success.
-  # CORE (round-4 Q2): validates the produced mutant with `bash -n` before handing it back. A
-  # syntactically-broken mutant (e.g. a delete that leaves an empty if/then/fi body) crashes on
-  # EVERY invocation — a test run against it then "passes" for every assertion simultaneously,
-  # which is FABLE-maxim theater (kit CLAUDE.md §2/§4), not a genuine kill. On a syntax error,
-  # mkmut prints the diagnostic to stderr and returns nothing (empty stdout), so the caller's own
-  # "could not build mutant" check fires instead of silently scoring a broken mutant as a pass.
-  mkmut(){ local script="$TMP/$1.sed" out="$TMP/$1.sh" synerr="$TMP/$1.syntax.err"
-    cat > "$script"
-    sed -f "$script" "$SUT" > "$out"
-    if ! bash -n "$out" 2>"$synerr"; then
-      printf 'mkmut: FATAL — mutant "%s" is not valid bash (bash -n): %s\n' "$1" "$(cat "$synerr")" >&2
-      return 1
-    fi
-    # SENTINEL-MKMUT-GUARD (round-5 S1): an EMPTY mutant, or one byte-identical to the SUT (the sed
-    # script matched nothing), cannot be a kill — refuse it so the caller's own "could not build
-    # mutant" branch fires instead of scoring a no-op as a mutation control.
-    if [ ! -s "$out" ]; then
-      printf 'mkmut: FATAL — mutant "%s" is empty (sed script produced no output)\n' "$1" >&2
-      return 1
-    fi
-    if cmp -s "$out" "$SUT"; then
-      printf 'mkmut: FATAL — mutant "%s" is identical to the SUT (sed script matched nothing)\n' "$1" >&2
-      return 1
-    fi
-    printf '%s' "$out"
-  }
-
-  # ── mkmut self-tests (round-5 S1) — the mutation helper itself must never hand back a mutant
-  # that cannot be a kill: an EMPTY file (sed script that deletes everything) or one BYTE-IDENTICAL
-  # to the SUT (sed script that matched nothing). Several callers guard with `grep -q <text that
-  # also occurs in the original>`, so an identical/empty mutant sailed through that guard and was
-  # scored as a kill — a mutation control that silently tests nothing (kit CLAUDE.md §4/§7).
-  echo "-- mkmut self-test (round-5 S1): no-op sed script must be refused --"
-  _noop_out="$(mkmut s1-noop <<'SED' 2>"$TMP/s1-noop.err"
-s/THIS-TEXT-NEVER-OCCURS-IN-THE-SUT-9f3a/x/
-SED
-)" && _noop_rc=0 || _noop_rc=$?
-  if [ "$_noop_rc" -ne 0 ] && [ -z "$_noop_out" ] && grep -qi 'identical' "$TMP/s1-noop.err"; then
-    ok "mkmut S1: a sed script that changes nothing (mutant == original) is refused, not returned"
-  else no "mkmut S1: no-op mutant not refused (rc=$_noop_rc out='$_noop_out' err='$(cat "$TMP/s1-noop.err")')"; fi
-
-  echo "-- mkmut self-test (round-5 S1): empty-output sed script must be refused --"
-  _empty_out="$(mkmut s1-empty <<'SED' 2>"$TMP/s1-empty.err"
-d
-SED
-)" && _empty_rc=0 || _empty_rc=$?
-  if [ "$_empty_rc" -ne 0 ] && [ -z "$_empty_out" ] && grep -qi 'empty' "$TMP/s1-empty.err"; then
-    ok "mkmut S1: a sed script that produces an EMPTY mutant is refused, not returned"
-  else no "mkmut S1: empty mutant not refused (rc=$_empty_rc out='$_empty_out' err='$(cat "$TMP/s1-empty.err")')"; fi
-
-  echo "-- mkmut self-test (round-5 S1): a real, changing mutant is still returned --"
-  _good_out="$(mkmut s1-good <<'SED' 2>"$TMP/s1-good.err"
-1s/^/# MUTANT: s1-good first-line marker\n/
-SED
-)" && _good_rc=0 || _good_rc=$?
-  if [ "$_good_rc" -eq 0 ] && [ -s "$_good_out" ] && ! cmp -s "$_good_out" "$SUT"; then
-    ok "mkmut S1: a non-empty mutant that differs from the SUT is returned unchanged"
-  else no "mkmut S1: good mutant rejected or mangled (rc=$_good_rc out='$_good_out' err='$(cat "$TMP/s1-good.err")')"; fi
-
-  echo "-- teeth: SENTINEL-MKMUT-GUARD (round-5 S1) — strip the empty/identical guard from mkmut --"
-  # Re-define mkmut from THIS file's own text with the guard line deleted, then prove the no-op
-  # case would have been wrongly accepted — i.e. the three assertions above bite.
-  _mk_src="$(sed -n '/^  mkmut(){/,/^  }$/p' "$0")"
-  _mk_mut="$(printf '%s\n' "$_mk_src" | sed '/SENTINEL-MKMUT-GUARD/,/^    printf /{/^    printf /!d;}')"
-  if [ -z "$_mk_src" ] || [ "$_mk_src" = "$_mk_mut" ]; then
-    no "teeth-mkmut-guard: could not build mutant of mkmut (SENTINEL-MKMUT-GUARD block not found — did mkmut change?)"
-  else
-    _saved_mkmut="$(declare -f mkmut)"
-    eval "$_mk_mut"
-    _m_out="$(mkmut s1-teeth-noop <<'SED' 2>/dev/null
-s/THIS-TEXT-NEVER-OCCURS-IN-THE-SUT-9f3a/x/
-SED
-)" || _m_out=""
-    eval "$_saved_mkmut"
-    if [ -n "$_m_out" ] && cmp -s "$_m_out" "$SUT"; then
-      ok "teeth-mkmut-guard: guard-less mkmut returns an identical-to-SUT mutant → mkmut S1 assertions have teeth"
-    else no "teeth-mkmut-guard: guard-less mkmut still refused the no-op mutant (out='$_m_out') — S1 does NOT depend on the guard (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-PERMANENT-ONLY — widen 301|308 to also treat 302/303/307 as permanent --"
-  pmutant="$(mkmut permanent-only <<'SED'
-/SENTINEL-PERMANENT-ONLY/,/301|308)/ s/301|308)/301|302|303|307|308)/
-SED
-)"
-  if ! grep -q '301|302|303|307|308)' "$pmutant"; then
-    no "teeth-permanent-only: could not build mutant (case pattern not found — did the SUT change?)"
-  else
-    STUB_ROUTES='http://s13.example/a 302 http://cdn.example/signed?sig=cafef00d'; export STUB_ROUTES
-    got13m="$(runresolve "$pmutant" "http://s13.example/a")"
-    if [ "$got13m" = "http://cdn.example/signed?sig=cafef00d" ]; then
-      ok "teeth-permanent-only: mutant follows the temporary redirect into the signed URL → R12/R13 has teeth"
-    else no "teeth-permanent-only: mutant still stopped at '$got13m' — R12/R13 does NOT depend on the 301|308 guard (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-PERMANENT-ONLY (RS4) — narrow 301|308 to drop 308 support --"
-  narrow308mutant="$(mkmut narrow-308 <<'SED'
-/SENTINEL-PERMANENT-ONLY/,/301|308)/ s/301|308)/301)/
-SED
-)"
-  if ! grep -qE '^\s*301\)\s*$' "$narrow308mutant"; then
-    no "teeth-narrow-308: could not build mutant (case pattern not found — did the SUT change?)"
-  else
-    STUB_ROUTES='http://s23.example/a 308 http://s23.example/moved'; export STUB_ROUTES
-    got23m="$(runresolve "$narrow308mutant" "http://s23.example/a")"
-    if [ "$got23m" = "http://s23.example/a" ]; then
-      ok "teeth-narrow-308: mutant no longer treats 308 as permanent (stays at typed URL) → R23 has teeth"
-    else no "teeth-narrow-308: mutant still resolved 308 to '$got23m' — R23 does NOT depend on 308 being listed (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-LOC-GUARD — remove the empty-Location guard --"
-  # Note: with the loc-guard removed, an empty Location does NOT escape as a broken/empty URL —
-  # the SCHEME-GUARD right below it also rejects an empty string (it does not match http://*|
-  # https://*), so the RESOLVED VALUE stays the typed URL either way (defense in depth, by
-  # design). The observable difference is which guard fired: the real code breaks SILENTLY on
-  # an empty Location (no notice at all); the mutant falls through to the scheme guard, which
-  # DOES print its own "refused non-http(s)" notice. That stderr signature is the flip signal.
-  lmutant="$(mkmut loc-guard <<'SED'
-/SENTINEL-LOC-GUARD/,/cur="$loc"/ s/\[ -n "\$loc" \] || break/: # MUTANT: loc-guard removed/
-SED
-)"
-  if ! grep -q 'MUTANT: loc-guard removed' "$lmutant"; then
-    no "teeth-loc-guard: could not build mutant (guard line not found — did the SUT change?)"
-  else
-    STUB_ROUTES='http://s17.example/a 301 -'; export STUB_ROUTES
-    got17m="$(runresolve_err "$lmutant" "http://s17.example/a" "$TMP/teeth-loc-guard.err")"
-    if [ "$got17m" = "http://s17.example/a" ] && grep -qi 'refused non-http' "$TMP/teeth-loc-guard.err"; then
-      ok "teeth-loc-guard: mutant falls through to the scheme guard on empty Location (real code is silent here) → R17 has teeth"
-    else no "teeth-loc-guard: mutant got='$got17m' err='$(cat "$TMP/teeth-loc-guard.err")' — R17 does NOT depend on the loc guard specifically (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-SCHEME-GUARD — accept a non-http(s) redirect scheme --"
-  schememutant="$(mkmut scheme-guard <<'SED'
-/SENTINEL-SCHEME-GUARD/,/http:\/\/\*|https:\/\/\*/ s#http://\*|https://\*) : ;;#*) : ;;#
-SED
-)"
-  if ! grep -qE '^\s*\*\) : ;;$' "$schememutant"; then
-    no "teeth-scheme-guard: could not build mutant (scheme case pattern not found — did the SUT change?)"
-  else
-    STUB_ROUTES='http://s26.example/a 301 file:///etc/passwd'; export STUB_ROUTES
-    got26m="$(runresolve "$schememutant" "http://s26.example/a")"
-    if [ "$got26m" = "file:///etc/passwd" ]; then
-      ok "teeth-scheme-guard: mutant follows the non-http(s) Location into file:// → security check has teeth"
-    else no "teeth-scheme-guard: mutant still refused, got '$got26m' — security check does NOT depend on the scheme guard (THEATER)"; fi
-  fi
-
-  echo "-- teeth: nit — remove the percent-encoding of a literal | in the Location --"
-  # CORE (round-5 S1): the MUTANT-marker guard form (positive check for the inserted marker) is
-  # used here rather than "is the ORIGINAL text still present?" — the inverted form scores an
-  # EMPTY $mutant (mkmut's own bash -n rejection, or any other build failure) as "original text
-  # absent" → "mutant built successfully", which is a silent false kill (kit CLAUDE.md §7).
-  pipemutant="$(mkmut pipe-encode <<'SED'
-s/loc="\${loc\/\/|\/%7C}"/:  # MUTANT: percent-encoding removed/
-SED
-)"
-  if ! grep -q 'MUTANT: percent-encoding removed' "$pipemutant"; then
-    no "teeth-pipe-encode: could not build mutant (encoding line not found, or bash -n rejected it — did the SUT change?)"
-  else
-    STUB_ROUTES='http://s30.example/a 301 http://s30.example/a|b'; export STUB_ROUTES
-    got30m="$(runresolve "$pipemutant" "http://s30.example/a")"
-    if [ "$got30m" = 'http://s30.example/a|b' ]; then
-      ok "teeth-pipe-encode: mutant registers the raw un-encoded | → R30 has teeth"
-    else no "teeth-pipe-encode: mutant produced '$got30m' — R30 does NOT depend on the encoding line (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-HEAD-GUARD — remove the HEAD probe's own && / || failure protection --"
-  # The HEAD probe's crash-guard is `&& head_rc=0 || head_rc=$?` on the assignment itself
-  # (round-5: rewritten from round-4's if/then/else so a PARTIAL curl output, e.g.
-  # %{time_connect} on a mid-response timeout, is preserved rather than discarded). Stripping the
-  # trailing `&& .../|| ...` leaves a BARE assignment, reproducing exactly the crash risk that
-  # construct exists to prevent.
-  headguardmutant="$(mkmut head-guard <<'SED'
-s/" && head_rc=0 || head_rc=\$?$/"  # MUTANT: head-guard removed/
-SED
-)"
-  if ! grep -q 'MUTANT: head-guard removed' "$headguardmutant"; then
-    no "teeth-head-guard: could not build mutant (HEAD-probe guard line not found, or bash -n rejected it — did the SUT change?)"
-  else
-    STUB_ROUTES=""; STUB_PROBE_FAIL_URL="http://s16.example/a"; export STUB_ROUTES STUB_PROBE_FAIL_URL
-    got16m="$(runresolve "$headguardmutant" "http://s16.example/a")"
-    unset STUB_PROBE_FAIL_URL
-    if [ "$got16m" != "http://s16.example/a" ]; then
-      ok "teeth-head-guard: mutant does NOT gracefully fall back on a failed HEAD probe (set -e kills the resolve) → R16 has teeth"
-    else no "teeth-head-guard: mutant still fell back to the typed URL — R16 does NOT depend on the HEAD probe's guard (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-PROBE-FALLBACK-GET — remove the GET-fallback probe's own failure guard --"
-  # CORE (round-5 S1): MUTANT-marker form, not "is the original ' || probe=\"\"' still present?"
-  # (see the pipe-encode comment above for why the inverted form is unsafe).
-  getguardmutant="$(mkmut get-guard <<'SED'
-/SENTINEL-PROBE-FALLBACK-GET/,+1 s/ || probe=""$/  # MUTANT: get-guard removed/
-SED
-)"
-  if ! grep -q 'MUTANT: get-guard removed' "$getguardmutant"; then
-    no "teeth-get-guard: could not build mutant (GET-fallback guard line not found, or bash -n rejected it — did the SUT change?)"
-  else
-    # HEAD returns 405 for this url (forcing the GET fallback), AND the GET-fallback probe for
-    # the SAME url fails outright — the real SUT catches this via the mutated-away guard.
-    STUB_ROUTES=""; STUB_HEAD_FAIL_URL="http://s16b.example/a"; STUB_GET_FALLBACK_FAIL_URL="http://s16b.example/a"
-    export STUB_ROUTES STUB_HEAD_FAIL_URL STUB_GET_FALLBACK_FAIL_URL
-    got16bm="$(runresolve "$getguardmutant" "http://s16b.example/a")"
-    unset STUB_HEAD_FAIL_URL STUB_GET_FALLBACK_FAIL_URL
-    if [ "$got16bm" != "http://s16b.example/a" ]; then
-      ok "teeth-get-guard: mutant does NOT gracefully fall back when the GET-fallback probe ALSO fails → RS1 has teeth"
-    else no "teeth-get-guard: mutant still fell back to the typed URL — RS1's GET-fallback guard does NOT bite (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-PROBE-METHOD (RS1/N2/N3) — remove the HEAD-fallback decision entirely --"
-  # Replaces the outer `case "$code" in 301|302|...|2?? ) ... *) <fallback decision> ;; esac`
-  # with a bare `*) : ;;` catch-all — HEAD's own code/redirect_url is used as-is, no matter what
-  # it was, and the GET-fallback path (405/501/000/other-4xx-5xx, N2) is never reached. Anchored
-  # on the UNIQUE "301|302|303|307|308|2??) : ;;" line so the range cannot re-match the LATER,
-  # unrelated 301|308 permanent-only case a few lines down.
-  nofallbackmutant="$(mkmut no-405-fallback <<'SED'
-/301|302|303|307|308|2??) : ;;/,/^    esac$/c\
-      *) : ;;  # MUTANT: 405/501/000/N2/N3 fallback entirely removed\
-    esac
-SED
-)"
-  if ! grep -q 'MUTANT: 405/501/000/N2/N3 fallback entirely removed' "$nofallbackmutant"; then
-    no "teeth-no-405-fallback: could not build mutant (HEAD-fallback case block not found, or bash -n rejected it — did the SUT change?)"
-  else
-    STUB_ROUTES='http://s27.example/a 301 http://s27.example/moved'; STUB_HEAD_FAIL_URL='http://s27.example/a'
-    export STUB_ROUTES STUB_HEAD_FAIL_URL
-    got27m="$(runresolve "$nofallbackmutant" "http://s27.example/a")"
-    unset STUB_HEAD_FAIL_URL
-    if [ "$got27m" != "http://s27.example/moved" ]; then
-      ok "teeth-no-405-fallback: mutant treats HEAD-405 as a dead end (no GET retry) → RS1/R27 has teeth"
-    else no "teeth-no-405-fallback: mutant still resolved via GET fallback — RS1/R27 does NOT depend on the 405 branch (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-CONNECT-SKIP (round-4 N3) — always retry via GET, even on a connect-stage (6/7) failure --"
-  connectskipmutant="$(mkmut connect-skip <<'SED'
-s/6|7) skip_fallback=1 ;;/999) skip_fallback=1 ;;  # MUTANT: connect-skip removed/
-SED
-)"
-  if ! grep -q 'MUTANT: connect-skip removed' "$connectskipmutant"; then
-    no "teeth-connect-skip: could not build mutant (6|7 case arm not found, or bash -n rejected it — did the SUT change?)"
-  else
-    STUB_ROUTES=""; STUB_HEAD_CONNECT_FAIL_URL='http://s34.example/a'
-    _pcf34m="$TMP/probe-count-34m.txt"; : > "$_pcf34m"
-    STUB_PROBE_COUNT_FILE="$_pcf34m"
-    export STUB_ROUTES STUB_HEAD_CONNECT_FAIL_URL STUB_PROBE_COUNT_FILE
-    runresolve "$connectskipmutant" "http://s34.example/a" >/dev/null  # only the attempt count matters here
-    unset STUB_HEAD_CONNECT_FAIL_URL STUB_PROBE_COUNT_FILE
-    n34cs="$(grep -c '^http://s34\.example/a$' "$_pcf34m")"
-    if [ "$n34cs" -gt "1" ]; then
-      ok "teeth-connect-skip: mutant retries via GET even on a connect failure ($n34cs attempts, not 1) → N3/R34 has teeth"
-    else no "teeth-connect-skip: mutant still made only 1 attempt — N3/R34 does NOT depend on the connect-skip check (THEATER)"; fi
-  fi
-
-  echo "-- teeth: exit-28 disambiguation (round-5 N2'/N3') — always skip on exit 28, ignoring time_connect --"
-  connect28mutant="$(mkmut connect28-disambig <<'SED'
-/^ *28)$/,/^ *;;$/c\
-    28) skip_fallback=1 ;;  # MUTANT: 28-disambiguation removed
-SED
-)"
-  if ! grep -q 'MUTANT: 28-disambiguation removed' "$connect28mutant"; then
-    no "teeth-connect28: could not build mutant (28 case arm not found, or bash -n rejected it — did the SUT change?)"
-  else
-    STUB_ROUTES='http://s40.example/a 301 http://s40.example/moved'; STUB_HEAD_HANG_URL='http://s40.example/a'
-    _pcf40m="$TMP/probe-count-40m.txt"; : > "$_pcf40m"
-    STUB_PROBE_COUNT_FILE="$_pcf40m"
-    export STUB_ROUTES STUB_HEAD_HANG_URL STUB_PROBE_COUNT_FILE
-    got40m="$(runresolve "$connect28mutant" "http://s40.example/a")"
-    unset STUB_HEAD_HANG_URL STUB_PROBE_COUNT_FILE
-    n40m="$(grep -c '^http://s40\.example/a$' "$_pcf40m")"
-    if [ "$got40m" != "http://s40.example/moved" ] && [ "$n40m" = "1" ]; then
-      ok "teeth-connect28: mutant wrongly skips the retry for a hung-but-reachable host too → N2'/N3'/R40 has teeth"
-    else no "teeth-connect28: mutant got='$got40m' attempts=$n40m — N2'/N3'/R40 does NOT depend on the time_connect check (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-PROBE-FAIL-NOTICE — neuter the probe-failure stderr notice (keep the break) --"
-  # CORE (round-5 S1): MUTANT-marker form, not "is the original notice text still present?".
-  failnoticemutant="$(mkmut fail-notice <<'SED'
-/SENTINEL-PROBE-FAIL-NOTICE/,/^      break$/ {
-  s/printf 'fetch-doc: redirect probe failed.*/:  # MUTANT: fail-notice removed/
-}
-SED
-)"
-  if ! grep -q 'MUTANT: fail-notice removed' "$failnoticemutant"; then
-    no "teeth-fail-notice: could not build mutant (notice printf not found, or bash -n rejected it — did the SUT change?)"
-  else
-    STUB_ROUTES=""; STUB_PROBE_FAIL_URL="http://s16.example/a"; export STUB_ROUTES STUB_PROBE_FAIL_URL
-    got16nm="$(runresolve_err "$failnoticemutant" "http://s16.example/a" "$TMP/teeth-failnotice.err")"
-    unset STUB_PROBE_FAIL_URL
-    if [ "$got16nm" = "http://s16.example/a" ] && ! grep -qi 'redirect probe failed' "$TMP/teeth-failnotice.err"; then
-      ok "teeth-fail-notice: mutant resolves correctly but prints NO probe-fail notice → RS5/R16 has teeth"
-    else no "teeth-fail-notice: mutant behavior unexpected (got='$got16nm' err='$(cat "$TMP/teeth-failnotice.err")') — THEATER"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-HOPCAP-NOTICE — neuter the hop-cap-reached stderr notice --"
-  # CORE (round-5 S1): MUTANT-marker form, not "is the original notice text still present?".
-  hopcapmutant="$(mkmut hopcap-notice <<'SED'
-s/printf 'fetch-doc: hop cap.*/:  # MUTANT: hopcap notice removed/
-SED
-)"
-  if ! grep -q 'MUTANT: hopcap notice removed' "$hopcapmutant"; then
-    no "teeth-hopcap-notice: could not build mutant (notice printf not found, or bash -n rejected it — did the SUT change?)"
-  else
-    STUB_ROUTES=$'http://loop.example/a 301 http://loop.example/b\nhttp://loop.example/b 301 http://loop.example/a'
-    export STUB_ROUTES
-    runresolve_bounded "$hopcapmutant" "http://loop.example/a" got28m rc28m
-    # shellcheck disable=SC2154  # assigned indirectly via printf -v inside runresolve_bounded
-    if [ "$rc28m" = "0" ] && ! grep -qi 'hop cap' "$TMP/bounded.err"; then
-      ok "teeth-hopcap-notice: mutant terminates correctly but prints NO hop-cap notice → R28 has teeth"
-    else no "teeth-hopcap-notice: mutant rc=$rc28m err='$(cat "$TMP/bounded.err")' — THEATER"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-HOP-BOUND (RS3) — while true instead of the bounded loop --"
-  whiletruemutant="$(mkmut while-true <<'SED'
-s/while \[ "\$hop" -lt "\$max_hops" \]; do/while true; do  # MUTANT: unbounded/
-SED
-)"
-  if ! grep -q 'MUTANT: unbounded' "$whiletruemutant"; then
-    no "teeth-while-true: could not build mutant (while condition not found — did the SUT change?)"
-  else
-    STUB_ROUTES=$'http://loop.example/a 301 http://loop.example/b\nhttp://loop.example/b 301 http://loop.example/a'
-    export STUB_ROUTES
-    runresolve_bounded "$whiletruemutant" "http://loop.example/a" got28wt rc28wt
-    # shellcheck disable=SC2154  # assigned indirectly via printf -v inside runresolve_bounded
-    if [ "$rc28wt" = "124" ]; then
-      ok "teeth-while-true: mutant never terminates on a genuine redirect loop (timeout kills it, rc=124) → R28 has teeth"
-    else no "teeth-while-true: mutant terminated with rc=$rc28wt (expected 124/timeout) — R28 does NOT depend on the loop bound (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-HOP-BOUND (RS3) — drop the hop increment (bound never advances) --"
-  noincrmutant="$(mkmut no-increment <<'SED'
-s/cur="\$loc"; hop=\$((hop + 1))/cur="$loc"  # MUTANT: hop increment dropped/
-SED
-)"
-  if ! grep -q 'MUTANT: hop increment dropped' "$noincrmutant"; then
-    no "teeth-no-increment: could not build mutant (increment line not found — did the SUT change?)"
-  else
-    STUB_ROUTES=$'http://loop.example/a 301 http://loop.example/b\nhttp://loop.example/b 301 http://loop.example/a'
-    export STUB_ROUTES
-    runresolve_bounded "$noincrmutant" "http://loop.example/a" got28ni rc28ni
-    # shellcheck disable=SC2154  # assigned indirectly via printf -v inside runresolve_bounded
-    if [ "$rc28ni" = "124" ]; then
-      ok "teeth-no-increment: mutant's hop never advances so the bound never fires (timeout kills it, rc=124) → R28 has teeth"
-    else no "teeth-no-increment: mutant terminated with rc=$rc28ni (expected 124/timeout) — R28 does NOT depend on the increment (THEATER)"; fi
-  fi
-  unset STUB_ROUTES
-
-  echo "-- teeth: SENTINEL-DOC-RESOLVE (round-3 RR1) — doc mode skips redirect resolution entirely --"
-  docresolvemutant="$(mkmut doc-resolve <<'SED'
-/SENTINEL-DOC-RESOLVE/,/download_into "\$URL" "\$DEST"/ {
-  s%^    download_into "\$URL" "\$DEST".*%    curl -fsSL "$URL" -o "$DEST.fetchdoc-part.$$" 2>/dev/null || wget -q "$URL" -O "$DEST.fetchdoc-part.$$"; EFFECTIVE_URL="$URL"  # MUTANT: doc resolve skipped%
-}
-SED
-)"
-  if ! grep -q 'MUTANT: doc resolve skipped' "$docresolvemutant"; then
-    no "teeth-doc-resolve: could not build mutant (doc-mode call line not found — did the SUT change?)"
-  else
-    d21m="$TMP/teeth-doc-resolve/target"; mkdir -p "$d21m"
-    STUB_ROUTES='http://s21.example/a 301 http://s21.example/moved'; export STUB_ROUTES
-    PATH="$stubbin:$PATH" bash "$docresolvemutant" doc "http://s21.example/a" "$d21m" datasheets "r21m.html" >/dev/null 2>/dev/null
-    got21m="$(origin_of "$d21m/sources/SOURCES.md" 'r21m\.html')"
-    if [ "$got21m" = "http://s21.example/a" ]; then
-      ok "teeth-doc-resolve: mutant registers the typed (unresolved) URL in doc mode → RR1/R21 has teeth"
-    else no "teeth-doc-resolve: mutant still registered '$got21m' — RR1/R21 does NOT depend on doc-mode wiring (THEATER)"; fi
-  fi
-
-  echo "-- teeth: RR1 — doc mode's reg() call hardcoded back to \$URL instead of \$EFFECTIVE_URL --"
-  docregmutant="$(mkmut doc-reg-url <<'SED'
-0,/reg "\$SDIR" "\$DEST" "\$SUB" "\$EFFECTIVE_URL" "\$SHA"/ s//reg "$SDIR" "$DEST" "$SUB" "$URL" "$SHA"  # MUTANT: reg uses $URL/
-SED
-)"
-  if ! grep -q 'MUTANT: reg uses \$URL' "$docregmutant"; then
-    no "teeth-doc-reg-url: could not build mutant (doc reg() call line not found — did the SUT change?)"
-  else
-    d21r="$TMP/teeth-doc-reg/target"; mkdir -p "$d21r"
-    STUB_ROUTES='http://s21.example/a 301 http://s21.example/moved'; export STUB_ROUTES
-    PATH="$stubbin:$PATH" bash "$docregmutant" doc "http://s21.example/a" "$d21r" datasheets "r21r.html" >/dev/null 2>/dev/null
-    got21r="$(origin_of "$d21r/sources/SOURCES.md" 'r21r\.html')"
-    if [ "$got21r" = "http://s21.example/a" ]; then
-      ok "teeth-doc-reg-url: mutant registers \$URL despite correct resolution → RR1/R21 has teeth"
-    else no "teeth-doc-reg-url: mutant still registered '$got21r' — RR1/R21 does NOT depend on the reg() call's variable (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-WEB-RESOLVE — web mode skips redirect resolution (registers \$URL directly) --"
-  wmutant="$(mkmut web-resolve <<'SED'
-/SENTINEL-WEB-RESOLVE/,/download_into "\$URL" "\$HTML"/ {
-  s%^    download_into "\$URL" "\$HTML".*%    curl -fsSL "$URL" -o "$HTML.fetchdoc-part.$$" 2>/dev/null || wget -q "$URL" -O "$HTML.fetchdoc-part.$$"; EFFECTIVE_URL="$URL"  # MUTANT: web resolve skipped%
-}
-SED
-)"
-  if ! grep -q 'MUTANT: web resolve skipped' "$wmutant"; then
-    no "teeth-web-resolve: could not build mutant (web-mode resolve call not found — did the SUT change?)"
-  else
-    d15m="$TMP/teeth-web-resolve/target"; mkdir -p "$d15m"
-    STUB_ROUTES='http://s15.example/a 301 http://s15.example/moved'; export STUB_ROUTES
-    PATH="$stubbin:$PATH" bash "$wmutant" web "http://s15.example/a" "$d15m" >/dev/null 2>"$TMP/teeth-web.err"
-    slug15m="$(slug_of "http://s15.example/a")"
-    got15m="$(origin_of "$d15m/sources/SOURCES.md" "$slug15m")"
-    if [ "$got15m" = "http://s15.example/a" ]; then
-      ok "teeth-web-resolve: mutant registers the typed (unresolved) URL in web mode → R1/R15 has teeth"
-    else no "teeth-web-resolve: mutant still registered '$got15m' — R1/R15 does NOT depend on the web-mode wiring (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-DOWNLOAD — neuter (not delete) the post-download 'registered X (permanent redirect' notice --"
-  # CORE (round-4 Q2): the notice line is the ONLY statement inside its `if [ -s "$dest" ] &&
-  # [ "$effective" != "$url" ]; then ... fi` body (round-4 N4 wrapped it in that empty-body
-  # guard). A plain `/pattern/d` LINE DELETE — round-3's original mutant — leaves an EMPTY
-  # then-body, which is a bash SYNTAX ERROR: the mutant never runs at all, "no notice on stderr"
-  # holds trivially (wrong-reason "pass", not a kill — kit CLAUDE.md §4), and EVERY OTHER
-  # assertion against that same broken mutant would spuriously "pass" too. Substituting `:` (a
-  # no-op) keeps the if/then/fi structurally valid while still removing the notice's actual
-  # effect. mkmut's own `bash -n` check (Q2) would catch the delete-based version outright; this
-  # mutant is additionally asserted to register the CORRECT resolved URL, proving the control
-  # isolates "no notice" from "no registration" — a broken mutant could accidentally satisfy the
-  # OLD "no notice" check while ALSO failing to register anything, and the assertion would not
-  # have been able to tell those apart.
-  resolvenoticemutant="$(mkmut resolve-notice <<'SED'
-s/printf 'fetch-doc: registered %s (permanent redirect from %s)\\n' "\$effective" "\$url" >&2/:  # MUTANT: resolve notice neutered/
-SED
-)"
-  if ! grep -q 'MUTANT: resolve notice neutered' "$resolvenoticemutant"; then
-    no "teeth-resolve-notice: could not build mutant (notice printf not found, or bash -n rejected it — did the SUT change?)"
-  else
-    d22m="$TMP/teeth-resolve-notice/target"; mkdir -p "$d22m"
-    STUB_ROUTES='http://s21.example/a 301 http://s21.example/moved'; export STUB_ROUTES
-    PATH="$stubbin:$PATH" bash "$resolvenoticemutant" doc "http://s21.example/a" "$d22m" datasheets "r22m.html" >/dev/null 2>"$TMP/teeth-resolve-notice.err"
-    got22m="$(origin_of "$d22m/sources/SOURCES.md" 'r22m\.html')"
-    if [ "$got22m" = "http://s21.example/moved" ] && ! grep -qi 'permanent redirect from' "$TMP/teeth-resolve-notice.err"; then
-      ok "teeth-resolve-notice: mutant registers the resolved URL correctly but prints NO resolution notice → R22 has teeth"
-    else no "teeth-resolve-notice: mutant origin='$got22m' err='$(cat "$TMP/teeth-resolve-notice.err")' — THEATER"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-DOWNLOAD — wget-fallback branch returns \$effective instead of \$url --"
-  wrongvarmutant="$(mkmut wrong-var <<'SED'
-/wget -q "\$url" -O "\$dest"/,/^  fi$/ {
-  s/printf '%s' "\$url"/printf '%s' "$effective"  # MUTANT: wrong variable on fallback/
-}
-SED
-)"
-  if ! grep -q 'MUTANT: wrong variable on fallback' "$wrongvarmutant"; then
-    no "teeth-wrong-var: could not build mutant (fallback return line not found — did the SUT change?)"
-  else
-    d18wv="$TMP/teeth-wrong-var/target"; mkdir -p "$d18wv"
-    STUB_ROUTES='http://s18.example/a 301 http://s18.example/resolved'; STUB_DOWNLOAD_FAIL=1
-    export STUB_ROUTES STUB_DOWNLOAD_FAIL
-    PATH="$stubbin:$PATH" bash "$wrongvarmutant" doc "http://s18.example/a" "$d18wv" datasheets "r18wv.html" >/dev/null 2>/dev/null
-    unset STUB_DOWNLOAD_FAIL
-    got18wv="$(origin_of "$d18wv/sources/SOURCES.md" 'r18wv\.html')"
-    if [ "$got18wv" = "http://s18.example/resolved" ]; then
-      ok "teeth-wrong-var: mutant registers the resolved-but-undownloadable URL after wget fallback → R18 has teeth"
-    else no "teeth-wrong-var: mutant registered '$got18wv' (expected the resolved url) — R18 does NOT depend on returning \$url (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-WGET-GUARD (round-4 RDD) — ignore wget's own exit status --"
-  # Reverts the explicit `if wget -q ...; then ... else ... exit 1; fi` (round-4) back to an
-  # unconditional call + success notice — the exact shape that silently registered a "successful"
-  # wget fallback even when wget itself had failed (errexit does not propagate into this
-  # command-substitution-invoked function by default — see the errexit note above the function).
-  wgetignoremutant="$(mkmut wget-ignore-status <<'SED'
-/^    if \[ "\$wget_rc" -eq 0 \] && \[ -s "\$dest" \]; then$/,/^    fi$/c\
-    : # MUTANT: wget status ignored\
-    echo "fetch-doc: registered requested URL (wget fallback; effective URL unknown)" >&2\
-    printf '%s' "$url"
-SED
-)"
-  if ! grep -q 'MUTANT: wget status ignored' "$wgetignoremutant"; then
-    no "teeth-wget-ignore-status: could not build mutant (wget if/else block not found, or bash -n rejected it — did the SUT change?)"
-  else
-    d37m="$TMP/teeth-wget-ignore/target"; mkdir -p "$d37m"
-    STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1
-    export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-    _rc37m=0
-    PATH="$stubbin:$PATH" bash "$wgetignoremutant" doc "http://s37.example/a" "$d37m" datasheets "r37m.html" >/dev/null 2>"$TMP/teeth-wget-ignore.err" || _rc37m=$?
-    unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-    if grep -qi 'registered requested URL' "$TMP/teeth-wget-ignore.err"; then
-      ok "teeth-wget-ignore-status: mutant falsely announces a 'registered' URL despite wget's own failure → RDD/R37 has teeth"
-    else no "teeth-wget-ignore-status: mutant rc=$_rc37m err='$(cat "$TMP/teeth-wget-ignore.err")' — RDD/R37 does NOT depend on checking wget's status (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-WGET-CLEANUP (round-5 R1) — drop the rm -f \$dest cleanup before exit 1 --"
-  wgetcleanupmutant="$(mkmut wget-cleanup <<'SED'
-/SENTINEL-WGET-CLEANUP/,/ALSO failed/ {
-  s/rm -f "\$dest"/:  # MUTANT: wget-failure cleanup removed/
-}
-SED
-)"
-  # R3-wget-cleanup-mutant-overbroad (#1285): the range above confines the mutation to the ONE
-  # `rm -f` inside the SENTINEL-WGET-CLEANUP block; the other `rm -f "$dest"` sites stay intact.
-  if ! grep -q 'MUTANT: wget-failure cleanup removed' "$wgetcleanupmutant" \
-     || [ "$(grep -c 'MUTANT: wget-failure cleanup removed' "$wgetcleanupmutant")" != "1" ]; then
-    no "teeth-wget-cleanup: could not build a single-site mutant (rm -f \"\$dest\" in the WGET-CLEANUP block not found exactly once, or bash -n rejected it — did the SUT change?)"
-  else
-    d37c="$TMP/teeth-wget-cleanup"; mkdir -p "$d37c/datasheets"
-    STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1
-    export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-    # Call fetch_and_register DIRECTLY (sourced): the main dispatch's EXIT trap is a second line of
-    # defence that would mask a missing in-function rm, so the in-function cleanup is tested alone.
-    # shellcheck disable=SC1090
-    ( set +e; PATH="$stubbin:$PATH"; export PATH; source "$wgetcleanupmutant" >/dev/null 2>&1
-      fetch_and_register "http://s37.example/a" "$d37c/datasheets/r37c.html" >/dev/null 2>&1 )
-    unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-    if [ -n "$(find "$d37c/datasheets" -type f)" ]; then
-      ok "teeth-wget-cleanup: mutant leaves the 0-byte debris file behind → R1/R37 has teeth"
-    else no "teeth-wget-cleanup: mutant still cleaned up the file — R1/R37 does NOT depend on this rm -f (THEATER)"; fi
-  fi
-
-  # ── #1285 teeth (built with lib/mutant.sh, kit #943: refuses an empty/identical/live-tree mutant) ──
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-
-  echo "-- teeth: SENTINEL-PART-FILE (#1285 item 1) — download straight into the destination --"
-  if ! mutant_sed "$SUT" "$TMP/part-file.MUT.sh" 's/local dest="\$final\.fetchdoc-part\.\$\$"/local dest="$final"  # MUTANT: part file removed/'; then
-    no "teeth-part-file: could not build mutant (part-file assignment not found, or refused by lib/mutant.sh)"
-  else
-    dpm="$TMP/teeth-part-file/target"; fpm="$(mkexisting "$dpm" tpm.pdf)"
-    STUB_ROUTES=""; STUB_DOWNLOAD_PARTIAL=1; STUB_WGET_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_PARTIAL STUB_WGET_FAIL
-    PATH="$stubbin:$PATH" bash "$TMP/part-file.MUT.sh" --replace doc "http://spm.example/a" "$dpm" datasheets "tpm.pdf" >/dev/null 2>&1
-    unset STUB_DOWNLOAD_PARTIAL STUB_WGET_FAIL
-    if [ "$(sum_of "$fpm")" != "$EVID_SUM" ]; then
-      ok "teeth-part-file: mutant lets a failed re-fetch destroy the registered file → R41/R42 have teeth"
-    else no "teeth-part-file: mutant left the registered file intact — R41/R42 do NOT depend on the part file (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-TRAP (#1285 item 2) — drop the EXIT cleanup trap (doc and web) --"
-  if ! command -v setsid >/dev/null 2>&1; then
-    printf '  SKIP  teeth-trap-doc: setsid not available\n'
-  elif ! mutant_sed "$SUT" "$TMP/trap-doc.MUT.sh" "s/trap 'cancel_download; rm -f \"\$DEST\.fetchdoc-part\.\$\$\"' EXIT; /: /"; then
-    no "teeth-trap-doc: could not build mutant (doc EXIT trap not found, or refused by lib/mutant.sh)"
-  else
-    dtd="$TMP/teeth-trap-doc/target"; mkexisting "$dtd" ttd.pdf >/dev/null
-    STUB_ROUTES=""; STUB_DOWNLOAD_HANG=1; STUB_HANG_MARKER="$TMP/hang-ttd.marker"; rm -f "$STUB_HANG_MARKER"
-    export STUB_ROUTES STUB_DOWNLOAD_HANG STUB_HANG_MARKER
-    PATH="$stubbin:$PATH" setsid bash "$TMP/trap-doc.MUT.sh" --replace doc "http://std.example/a" "$dtd" datasheets "ttd.pdf" >/dev/null 2>&1 &
-    _ptd=$!
-    for _ in $(seq 1 100); do [ -e "$STUB_HANG_MARKER" ] && break; sleep 0.1; done
-    kill -TERM -- "-$_ptd" 2>/dev/null; wait "$_ptd" 2>/dev/null
-    unset STUB_DOWNLOAD_HANG STUB_HANG_MARKER STUB_ROUTES
-    if [ -n "$(find "$dtd/sources/datasheets" -type f ! -name ttd.pdf)" ]; then
-      ok "teeth-trap-doc: mutant leaves the partial file behind after SIGTERM → R45 has teeth"
-    else no "teeth-trap-doc: mutant still left no debris — R45 does NOT depend on the EXIT trap (THEATER)"; fi
-  fi
-  if ! mutant_sed "$SUT" "$TMP/trap-web.MUT.sh" "s/trap 'cancel_download; rm -f \"\$HTML\" \"\$HTML\.fetchdoc-part\.\$\$\" \"\$DEST\.fetchdoc-part\.\$\$\"' EXIT; /: /"; then
-    no "teeth-trap-web: could not build mutant (web EXIT trap not found, or refused by lib/mutant.sh)"
-  else
-    dtw="$TMP/teeth-trap-web/target"; mkdir -p "$dtw/sources/web-snapshots"; chmod 555 "$dtw/sources/web-snapshots"
-    dtw_tmp="$TMP/teeth-trap-web-tmp"; mkdir -p "$dtw_tmp"
-    if { : > "$dtw/sources/web-snapshots/.probe"; } 2>/dev/null; then
-      printf '  SKIP  teeth-trap-web: cannot make the snapshot dir unwritable here (root?)\n'
-    else
-      STUB_ROUTES=""; export STUB_ROUTES
-      TMPDIR="$dtw_tmp" PATH="$stubbin:$PATH" bash "$TMP/trap-web.MUT.sh" web "http://stw.example/a" "$dtw" >/dev/null 2>&1
-      unset STUB_ROUTES
-      if [ -n "$(find "$dtw_tmp" -mindepth 1)" ]; then
-        ok "teeth-trap-web: mutant leaks the mktemp HTML when a post-download step fails → R46 has teeth"
-      else no "teeth-trap-web: mutant leaked nothing — R46 does NOT depend on the web EXIT trap (THEATER)"; fi
-    fi
-    chmod 755 "$dtw/sources/web-snapshots"
-  fi
-
-  echo "-- teeth: probe_downloaders (#1285 item 3) — remove the startup dependency probe --"
-  if ! mutant_sed "$SUT" "$TMP/probe.MUT.sh" 's/^    probe_downloaders; probe_sha256$/    probe_sha256  # MUTANT: downloader probe removed/'; then
-    no "teeth-probe: could not build mutant (probe_downloaders calls not found, or refused by lib/mutant.sh)"
-  else
-    dpr="$TMP/teeth-probe/target"; mkdir -p "$dpr"
-    _rcpr=0; PATH="$nodl" "$nodl/bash" "$TMP/probe.MUT.sh" doc "http://spr.example/a.pdf" "$dpr" datasheets "tpr.pdf" >/dev/null 2>"$TMP/err-probe.txt" || _rcpr=$?
-    if [ "$_rcpr" -ne 3 ] || ! grep -qi 'DEGRADED' "$TMP/err-probe.txt"; then
-      ok "teeth-probe: mutant without the probe loses the typed DEGRADED error (rc=$_rcpr) → R47 has teeth"
-    else no "teeth-probe: mutant still emitted the DEGRADED error — R47 does NOT depend on the probe (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-WGET-EMPTY-GUARD (#1285 review B1) — strip the wget non-empty clause --"
-  if ! mutant_sed "$SUT" "$TMP/wget-empty.MUT.sh" 's/if \[ "\$wget_rc" -eq 0 \] \&\& \[ -s "\$dest" \]; then/if [ "$wget_rc" -eq 0 ]; then  # MUTANT: wget empty guard removed/'; then
-    no "teeth-wget-empty: could not build mutant (wget empty-guard clause not found, or refused by lib/mutant.sh)"
-  else
-    dwe="$TMP/teeth-wget-empty/target"; fwe="$(mkexisting "$dwe" twe.pdf)"
-    STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_EMPTY=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_EMPTY
-    PATH="$stubbin:$PATH" bash "$TMP/wget-empty.MUT.sh" --replace doc "http://swe.example/a" "$dwe" datasheets "twe.pdf" >/dev/null 2>&1
-    unset STUB_DOWNLOAD_FAIL STUB_WGET_EMPTY
-    if [ "$(sum_of "$fwe")" != "$EVID_SUM" ]; then
-      ok "teeth-wget-empty: mutant lets an empty wget 200 clobber the registered file → R43w has teeth"
-    else no "teeth-wget-empty: mutant left the registered file intact — R43w does NOT depend on the wget non-empty clause (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-WEB-ATOMIC (#1285 review) — write the snapshot straight into the destination --"
-  if ! mutant_sed "$SUT" "$TMP/web-atomic.MUT.sh" '/SENTINEL-WEB-ATOMIC/,/^    rm -f "\$HTML"/ s/WPART="\$DEST\.fetchdoc-part\.\$\$"/WPART="$DEST"  # MUTANT: web atomic write removed/'; then
-    no "teeth-web-atomic: could not build mutant (WPART assignment not found, or refused by lib/mutant.sh)"
-  else
-    dwa="$TMP/teeth-web-atomic/target"; mkdir -p "$dwa/sources/web-snapshots"
-    swa="$(slug_of "http://swa.example/a")"
-    fwa="$dwa/sources/web-snapshots/$swa.md"; printf 'REGISTERED-EVIDENCE\n' > "$fwa"
-    STUB_ROUTES=""; export STUB_ROUTES
-    PATH="$wfail:$stubbin:$PATH" bash "$TMP/web-atomic.MUT.sh" --replace web "http://swa.example/a" "$dwa" >/dev/null 2>&1
-    unset STUB_ROUTES
-    if [ "$(sum_of "$fwa")" != "$EVID_SUM" ]; then
-      ok "teeth-web-atomic: mutant lets a failing pandoc/cp clobber the existing snapshot → R44w has teeth"
-    else no "teeth-web-atomic: mutant left the snapshot intact — R44w does NOT depend on the part file (THEATER)"; fi
-  fi
-
-  echo "-- teeth: wget-only path (#1285 review) — resolve_permanent_redirect called unconditionally --"
-  if ! mutant_sed "$SUT" "$TMP/wget-only.MUT.sh" 's/if have_cmd curl; then effective="\$(resolve_permanent_redirect "\$url")"; else effective="\$url"; fi/effective="$(resolve_permanent_redirect "$url")"  # MUTANT: resolve unconditional/'; then
-    no "teeth-wget-only: could not build mutant (conditional resolve line not found, or refused by lib/mutant.sh)"
-  else
-    dwo="$TMP/teeth-wget-only/target"; mkdir -p "$dwo"
-    PATH="$wgetonly" "$wgetonly/bash" "$TMP/wget-only.MUT.sh" doc "http://swo.example/a.pdf" "$dwo" datasheets "two.pdf" >/dev/null 2>"$TMP/err-wo.txt"
-    if grep -qi 'redirect probe failed\|command not found' "$TMP/err-wo.txt"; then
-      ok "teeth-wget-only: mutant probes with a missing curl (noise on stderr) → R43y has teeth"
-    else no "teeth-wget-only: mutant stderr was clean — R43y does NOT depend on skipping resolution when curl is absent (THEATER)"; fi
-  fi
-
-  echo "-- teeth: time_connect edges (#1285 item 5) — bare 0, empty, always-retry-on-28 --"
-  # tc_mutant <name> <sed-expr> <time_connect-value> <label> <test-ids> — the mutant must RETRY (2 attempts)
-  # where the real SUT makes 1.
-  tc_mutant(){ local name="$1" expr="$2" tcv="$3" lbl="$4" ids="$5" m="$TMP/$1.MUT.sh" n
-    if ! mutant_sed "$SUT" "$m" "$expr"; then
-      no "teeth-$name: could not build mutant (case alternative not found, or refused by lib/mutant.sh)"; return
-    fi
-    STUB_ROUTES=""; STUB_HEAD_BLACKHOLE_URL="http://s-$name.example/a"; STUB_HEAD_BLACKHOLE_TIME_CONNECT="$tcv"
-    local pcf="$TMP/probe-count-$name.txt"; : > "$pcf"; STUB_PROBE_COUNT_FILE="$pcf"
-    export STUB_ROUTES STUB_HEAD_BLACKHOLE_URL STUB_HEAD_BLACKHOLE_TIME_CONNECT STUB_PROBE_COUNT_FILE
-    runresolve "$m" "http://s-$name.example/a" >/dev/null
-    unset STUB_HEAD_BLACKHOLE_URL STUB_HEAD_BLACKHOLE_TIME_CONNECT STUB_PROBE_COUNT_FILE STUB_ROUTES
-    n="$(grep -c "^http://s-$name\.example/a\$" "$pcf")"
-    if [ "$n" -gt 1 ]; then ok "teeth-$name: mutant retries via GET ($n attempts, real SUT makes 1) for $lbl → $ids has teeth"
-    else no "teeth-$name: mutant still made $n attempt(s) — $ids does NOT depend on $lbl (THEATER)"; fi
-  }
-  tc_mutant tc-bare-zero 's/^\( *\)0|0\.000000|/\10.000000|/' "0" "a bare 0 time_connect" "R40b"
-  tc_mutant tc-empty 's/0\.000000000|"") skip_fallback=1/0.000000000) skip_fallback=1/' "" "an empty time_connect" "R40c"
-  tc_mutant tc-always-retry-28 's/0|0\.000000|0\.000000000|"") skip_fallback=1/0|0.000000|0.000000000|"") skip_fallback=0/' "0.000000" "a zero time_connect (always-retry-on-28)" "R39"
-
-  echo "-- teeth: SENTINEL-DOWNLOAD — neuter the wget-fallback stderr notice --"
-  # CORE (round-5 S1): MUTANT-marker form, not "is the original notice text still present?".
-  nmutant="$(mkmut wget-notice <<'SED'
-s/echo "fetch-doc: registered requested URL (wget fallback.*/:  # MUTANT: wget notice removed/
-SED
-)"
-  if ! grep -q 'MUTANT: wget notice removed' "$nmutant"; then
-    no "teeth-wget-notice: could not build mutant (notice echo not found, or bash -n rejected it — did the SUT change?)"
-  else
-    d18n="$TMP/teeth-wget-notice/target"; mkdir -p "$d18n"
-    STUB_ROUTES='http://s18.example/a 301 http://s18.example/resolved'; STUB_DOWNLOAD_FAIL=1
-    export STUB_ROUTES STUB_DOWNLOAD_FAIL
-    PATH="$stubbin:$PATH" bash "$nmutant" doc "http://s18.example/a" "$d18n" datasheets "r18n.html" >/dev/null 2>"$TMP/teeth-notice.err"
-    unset STUB_DOWNLOAD_FAIL
-    if ! grep -qi 'wget fallback' "$TMP/teeth-notice.err"; then
-      ok "teeth-wget-notice: mutant emits NO reversion notice on wget fallback → R18 has teeth"
-    else no "teeth-wget-notice: mutant still emitted the notice — R18 does NOT depend on the echo (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-DOWNLOAD — restore 2>/dev/null on the shared download call (swallows curl -S diagnostics) --"
-  smutant="$(mkmut download-stderr <<'SED'
-s/curl -fsS -L "\$effective" -o "\$dest"; then/curl -fsS -L "$effective" -o "$dest" 2>\/dev\/null; then/
-SED
-)"
-  if ! grep -q 'curl -fsS -L "\$effective" -o "\$dest" 2>/dev/null; then' "$smutant"; then
-    no "teeth-download-stderr: could not build mutant (shared download line not found — did the SUT change?)"
-  else
-    d_s3="$TMP/teeth-s3/target"; mkdir -p "$d_s3"
-    STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL
-    PATH="$stubbin:$PATH" bash "$smutant" doc "http://s3.example/a" "$d_s3" datasheets "r-s3.html" >/dev/null 2>"$TMP/teeth-s3.err"
-    got_s3w="$TMP/teeth-s3-web/target"; mkdir -p "$got_s3w"
-    PATH="$stubbin:$PATH" bash "$smutant" web "http://s3w.example/a" "$got_s3w" >/dev/null 2>"$TMP/teeth-s3-web.err"
-    unset STUB_DOWNLOAD_FAIL
-    if ! grep -q 'simulated download transfer failure' "$TMP/teeth-s3.err" \
-       && ! grep -q 'simulated download transfer failure' "$TMP/teeth-s3-web.err"; then
-      ok "teeth-download-stderr: 2>/dev/null mutant swallows curl's own diagnostic in BOTH modes → S3/N4 has teeth"
-    else no "teeth-download-stderr: mutant's stderr still carried the diagnostic somewhere — S3 check does NOT depend on keeping stderr (THEATER)"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-DOWNLOAD (RS2) — drop -L on the shared download call --"
-  noLmutant="$(mkmut no-L <<'SED'
-s/curl -fsS -L "\$effective" -o "\$dest"; then/curl -fsS "$effective" -o "$dest"; then  # MUTANT: -L dropped/
-SED
-)"
-  if ! grep -q 'MUTANT: -L dropped' "$noLmutant"; then
-    no "teeth-no-L: could not build mutant (shared download line not found — did the SUT change?)"
-  else
-    d29m="$TMP/teeth-no-L/target"; mkdir -p "$d29m"
-    STUB_ROUTES=$'http://s29.example/a 301 http://s29.example/permanent\nhttp://s29.example/permanent 302 http://s29.example/final-content'
-    export STUB_ROUTES
-    PATH="$stubbin:$PATH" bash "$noLmutant" doc "http://s29.example/a" "$d29m" datasheets "r29m.html" >/dev/null 2>/dev/null
-    if grep -qF 'stub REDIRECT body (no -L) for http://s29.example/permanent' "$d29m/sources/datasheets/r29m.html" 2>/dev/null; then
-      ok "teeth-no-L: mutant downloads the REDIRECT response, not the final content → R29/RS2 has teeth"
-    else no "teeth-no-L: mutant body unexpected :: $(cat "$d29m/sources/datasheets/r29m.html" 2>/dev/null || echo MISSING) — THEATER"; fi
-  fi
-
-  echo "-- teeth: SENTINEL-MAXHOPS-VALUE — lower the hop cap below the length of a real chain --"
-  hmutant2="$(mkmut maxhops <<'SED'
-s/max_hops=10  # SENTINEL-MAXHOPS-VALUE.*/max_hops=2  # MUTANT: hop cap lowered/
-SED
-)"
-  if ! grep -q 'MUTANT: hop cap lowered' "$hmutant2"; then
-    no "teeth-maxhops: could not build mutant (max_hops declaration not found — did the SUT change?)"
-  else
-    STUB_ROUTES=$'http://s19.example/a 301 http://s19.example/h1\nhttp://s19.example/h1 301 http://s19.example/h2\nhttp://s19.example/h2 301 http://s19.example/h3'
-    export STUB_ROUTES
-    got19m="$(runresolve "$hmutant2" "http://s19.example/a")"
-    if [ "$got19m" = "http://s19.example/h2" ]; then
-      ok "teeth-maxhops: cap=2 mutant stops at hop 2 (h2) instead of the full 3-hop chain (h3) → R19 has teeth"
-    else no "teeth-maxhops: expected mutant to stop at h2, got '$got19m' — R19 does NOT depend on the hop cap (THEATER)"; fi
-  fi
-  unset STUB_ROUTES
-
-  echo "-- teeth: RDD/N1 — restore the OLD unconditional pre-download notice ordering --"
-  # Proves the CURRENT design choice (notice fires only AFTER a confirmed successful download)
-  # is load-bearing: reverting to the old ordering (announce the resolution BEFORE attempting
-  # the download) produces the exact contradiction N1 flagged — a "registered X (permanent
-  # redirect ...)" line immediately followed by a "registered requested URL (wget fallback ...)"
-  # line for the SAME run, when the download then fails and wget takes over.
-  oldordermutant="$(mkmut old-order <<'SED'
-/effective="\$(resolve_permanent_redirect "\$url")"/a\
-  if [ "$effective" != "$url" ]; then printf '"'"'fetch-doc: registered %s (permanent redirect from %s)\n'"'"' "$effective" "$url" >&2; fi  # MUTANT: old unconditional pre-download notice
-SED
-)"
-  if ! grep -q 'MUTANT: old unconditional pre-download notice' "$oldordermutant"; then
-    no "teeth-old-order: could not build mutant (resolve-call line not found — did the SUT change?)"
-  else
-    d18oo="$TMP/teeth-old-order/target"; mkdir -p "$d18oo"
-    STUB_ROUTES='http://s18.example/a 301 http://s18.example/resolved'; STUB_DOWNLOAD_FAIL=1
-    export STUB_ROUTES STUB_DOWNLOAD_FAIL
-    PATH="$stubbin:$PATH" bash "$oldordermutant" doc "http://s18.example/a" "$d18oo" datasheets "r18oo.html" >/dev/null 2>"$TMP/teeth-old-order.err"
-    unset STUB_DOWNLOAD_FAIL
-    if [ "$(grep -c 'registered' "$TMP/teeth-old-order.err")" -ge 2 ]; then
-      ok "teeth-old-order: mutant produces TWO contradictory 'registered ...' lines on wget fallback → N1/RDD has teeth"
-    else no "teeth-old-order: mutant produced $(grep -c 'registered' "$TMP/teeth-old-order.err") 'registered' line(s) (expected >=2) :: $(cat "$TMP/teeth-old-order.err") — THEATER"; fi
-  fi
-
-  # Teeth for case 7 (hint): delete the printf hint line; expect hint absent → proves case 7 is not theater.
-  if $_pdf_ok && $_have_curl; then
-    echo "-- teeth: delete PDF hint printf; expect hint absent → case 7 has teeth --"
-    hmutant="$TMP/fetch-doc.HMUTANT.sh"
-    # Replace the printf hint with a no-op ':' — deleting the line entirely produces an empty
-    # if/then/fi which bash rejects as a syntax error (then branch must have ≥1 statement).
-    sed 's/printf .hint: PDF saved.*/>\/dev\/null \&\&: # MUTANT hint removed/' "$SUT" > "$hmutant"
-    if ! bash -n "$hmutant" >/dev/null 2>&1; then
-      no "teeth-hint: mutant failed bash -n (invalid syntax after hint line substitution)"
-    elif grep -q 'hint: PDF saved' "$hmutant"; then
-      no "teeth-hint: could not build hint mutant (hint printf line not found in SUT — did the SUT change?)"
-    else
-      d="$TMP/teeth-hint/target"; mkdir -p "$d"
-      _err_th="$TMP/teeth-hint.err"; _out_th="$TMP/teeth-hint.out"
-      bash "$hmutant" doc "file://$_pdf_fixture" "$d" datasheets "test.pdf" >"$_out_th" 2>"$_err_th"
-      if ! grep -q 'extract-pdf\.sh' "$_err_th" && ! grep -q 'extract-pdf\.sh' "$_out_th"; then
-        ok "teeth-hint: hint-deleted mutant prints NO hint → case 7 has teeth (not theater)"
-      else
-        no "teeth-hint: mutant still printed extract-pdf.sh — case 7 does NOT depend on hint printf (THEATER)"
-      fi
-    fi
-  fi
-
-  # Teeth for case 6 (no-pdftotext-dump): re-insert the removed pdftotext dump line into a
-  # mutant, run on the valid PDF fixture, and assert extracted/test.txt IS created — proving
-  # Test 6 bites. The real SUT must NOT create it; the mutant MUST.
-  if $_have_curl && $_pdf_ok && $_have_pdftotext; then
-    echo "-- teeth: re-insert pdftotext dump into mutant; expect extracted/test.txt created → case 6 has teeth --"
-    dmutant="$TMP/fetch-doc.DMUTANT.sh"
-    # Inject mkdir -p + pdftotext dump immediately after the hint printf line in doc mode
-    # (inside the PDF if-block), restoring the old pre-fix behavior.
-    awk '/printf .hint: PDF saved.*>&2/ {
-      print
-      print "      mkdir -p \"$SDIR/extracted\""
-      print "      pdftotext -layout \"$DEST\" \"$SDIR/extracted/${NAME%.*}.txt\" 2>/dev/null || true"
-      next
-    }
-    { print }' "$SUT" > "$dmutant"
-    if ! bash -n "$dmutant" >/dev/null 2>&1; then
-      no "teeth-dump: mutant failed bash -n (injection produced invalid syntax)"
-    elif ! grep -q 'pdftotext -layout' "$dmutant"; then
-      no "teeth-dump: could not build dump mutant (hint printf line not found — did the SUT change?)"
-    else
-      d6m="$TMP/teeth-dump/target"; mkdir -p "$d6m"
-      bash "$dmutant" doc "file://$_pdf_fixture" "$d6m" datasheets "test.pdf" >/dev/null 2>&1
-      if [ -f "$d6m/sources/extracted/test.txt" ] && [ -s "$d6m/sources/extracted/test.txt" ]; then
-        ok "teeth-dump: dump mutant created non-empty extracted/test.txt → case 6 has teeth (not theater)"
-      else
-        no "teeth-dump: dump mutant did NOT create extracted/test.txt — case 6 does NOT bite (THEATER)"
-      fi
-    fi
-  fi
-fi
+skip "R71f, R71g: the web_slug 80/81-char boundary and scheme-in-hash are pinned in Go: internal/sources/slug TestWebBoundaryAt80, TestWebHashCoversTheSchemeAndTheFullURL"
+skip "R71h, R71i: no sha256 tool is no longer a dependency (the hash is computed in process): fetchdoc TestIntendedDivergences/no-sha256-tool-is-not-a-dependency"
 
 # ─── doc-mode empty-body guard (Tests 9–10) ──────────────────────────────────
 # A 200-with-empty-body must NOT be registered in SOURCES.md (§7 false-success fix).
@@ -1971,7 +733,7 @@ else
   _rc10=0
   bash "$SUT" web "file://$_empty_html" "$d10" \
     >/dev/null 2>"$TMP/err10.txt" || _rc10=$?
-  _slug10="$(slug_of "file://$_empty_html")"
+  _slug10="web-snapshot"   # the only snapshot a refused fetch could leave (its name is derived inside the command)
   _dest10="$d10/sources/web-snapshots/$_slug10.md"
   _row10=false
   [ -f "$d10/sources/SOURCES.md" ] && grep -q "$_slug10" "$d10/sources/SOURCES.md" && _row10=true
@@ -1981,50 +743,6 @@ else
     no "web empty-body: expected failure+no-row; got rc=$_rc10 row=$_row10 dest-exists=$([ -s "$_dest10" ] && echo yes || echo no) (err: $(cat "$TMP/err10.txt"))"
   fi
 
-  # ── Teeth for doc empty-body guard ───────────────────────────────────────────
-  if [ "${1:-}" = "--prove-teeth" ]; then
-    echo "-- teeth: neuter SENTINEL-EMPTY-GUARD (doc mode); empty body must then register + OK --"
-    # The empty-body guard lives in fetch_and_register (#1285 moved it before the part-file move).
-    # lib/mutant.sh (kit #943) refuses an empty/identical/live-tree mutant.
-    # shellcheck source=lib/mutant.sh
-    . "$HERE/lib/mutant.sh"
-    gmutant="$TMP/fetch-doc.GMUTANT.sh"
-    if ! mutant_sed "$SUT" "$gmutant" 's/if \[ ! -s "\$dest" \]; then/if false; then  # MUTANT: empty guard removed/'; then
-      no "teeth-doc-empty: could not build guard mutant (empty-guard line not found, or refused by lib/mutant.sh)"
-    else
-      d9m="$TMP/teeth-doc-empty/target"; mkdir -p "$d9m"
-      _rc9m=0
-      bash "$gmutant" doc "file://$_empty_doc" "$d9m" datasheets "empty.bin" \
-        >/dev/null 2>/dev/null || _rc9m=$?
-      _row9m=false
-      [ -f "$d9m/sources/SOURCES.md" ] && grep -q 'empty.bin' "$d9m/sources/SOURCES.md" && _row9m=true
-      if [ "$_rc9m" -eq 0 ] && $_row9m; then
-        ok "teeth-doc-empty: guard-removed mutant exits 0 and registers row → Test 9 has teeth"
-      else
-        no "teeth-doc-empty: mutant rc=$_rc9m row=$_row9m (expected 0+row)"
-      fi
-    fi
-
-    echo "-- teeth: neuter SENTINEL-EMPTY-GUARD (web mode); empty HTML must then register + OK --"
-    gwmutant="$TMP/fetch-doc.GWMUTANT.sh"
-    # Same single shared guard serves web mode (the HTML snapshot goes through fetch_and_register).
-    if ! mutant_sed "$SUT" "$gwmutant" 's/if \[ ! -s "\$dest" \]; then/if false; then  # MUTANT: empty guard removed/'; then
-      no "teeth-web-empty: could not build guard mutant (empty-guard line not found, or refused by lib/mutant.sh)"
-    else
-      d10m="$TMP/teeth-web-empty/target"; mkdir -p "$d10m"
-      _rc10m=0
-      bash "$gwmutant" web "file://$_empty_html" "$d10m" \
-        >/dev/null 2>/dev/null || _rc10m=$?
-      _slug10m="$(slug_of "file://$_empty_html")"
-      _row10m=false
-      [ -f "$d10m/sources/SOURCES.md" ] && grep -q "$_slug10m" "$d10m/sources/SOURCES.md" && _row10m=true
-      if [ "$_rc10m" -eq 0 ] && $_row10m; then
-        ok "teeth-web-empty: guard-removed mutant exits 0 and registers row → Test 10 has teeth"
-      else
-        no "teeth-web-empty: mutant rc=$_rc10m row=$_row10m (expected 0+row)"
-      fi
-    fi
-  fi
 fi
 
 # ─── #1313: cancellation, overwrite policy, symlinked DEST, stale part sweep ───
@@ -2117,7 +835,7 @@ rm -f "$d55/sources/datasheets/live.pdf.fetchdoc-part.$$"
 # R56 — web mode follows the same policy: refuse without --replace (exit 4), keep old bytes with it.
 d56="$TMP/rr-56/target"; mkdir -p "$d56"
 STUB_ROUTES="" sut web "http://s56.example/page" "$d56" >/dev/null 2>&1
-slug56="$(slug_of "http://s56.example/page")"
+slug56="s56.example_page"
 f56="$d56/sources/web-snapshots/$slug56.md"; old12_56="$(sha12 "$f56")"
 _rc56=0; STUB_ROUTES="" sut web "http://s56.example/page" "$d56" >/dev/null 2>&1 || _rc56=$?
 _rc56s=0; STUB_ROUTES="" STUB_DOWNLOAD_FAIL=1 STUB_WGET_FAIL=1 sut --replace web "http://s56.example/page" "$d56" >/dev/null 2>&1 || _rc56s=$?
@@ -2154,25 +872,6 @@ if [ "$_rc59" = "0" ] && <<<"$(grep -F 'http://s59.example/B' "$md59")" grep -qF
    && <<<"$(grep -F 'http://s59.example/A' "$md59")" grep -qF '| datasheets/r59.pdf |' && grep -qi 'different sha' "$TMP/err59.txt"; then
   ok "doc: #1313 B2 — --replace retargets only the row whose sha matches the archived bytes and warns about the other"
 else no "R59: rc=$_rc59 rows='$(grep 'r59' "$md59" | cut -d'|' -f2,4 | tr '\n' '/')' err='$(cat "$TMP/err59.txt")'"; fi
-
-# R60 — N2: INT/TERM arriving while the file is installed and registered is deferred, so the run completes WITH its row
-#       (no new bytes without a row). A slow sha256sum stub widens the install window deterministically.
-slowsha="$TMP/slowsha-bin"; mkdir -p "$slowsha"; _realsha="$(command -v sha256sum)"
-printf '#!/usr/bin/env bash\n[ -n "${SLOWSHA_MARK:-}" ] && : > "$SLOWSHA_MARK"\nsleep 1\nexec %s "$@"\n' "$_realsha" > "$slowsha/sha256sum"; chmod +x "$slowsha/sha256sum"
-# run_slow_term <script> <dir> — runs a fresh doc fetch with the slow sha256sum, sends TERM to the script pid once it is
-# in the install window, echoes its exit code.
-run_slow_term(){
-  local script="$1" dir="$2" pid rc=0; rm -f "$TMP/slow60.mark"
-  STUB_ROUTES="" SLOWSHA_MARK="$TMP/slow60.mark" PATH="$slowsha:$stubbin:$PATH" bash "$script" doc "http://s60.example/a" "$dir" datasheets r60.pdf >/dev/null 2>&1 &
-  pid=$!
-  for _ in $(seq 1 100); do [ -e "$TMP/slow60.mark" ] && break; sleep 0.1; done
-  kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || rc=$?
-  echo "$rc"
-}
-d60="$TMP/rr-60/target"; mkdir -p "$d60"; _rc60="$(run_slow_term "$SUT" "$d60")"
-if [ -e "$TMP/slow60.mark" ] && [ "$_rc60" = "0" ] && [ -e "$d60/sources/datasheets/r60.pdf" ] && grep -q 'r60.pdf' "$d60/sources/SOURCES.md" 2>/dev/null; then
-  ok "doc: #1313 N2 — a TERM during install+register is deferred: the run completes with file AND row"
-else no "R60: rc=$_rc60 file=$([ -e "$d60/sources/datasheets/r60.pdf" ] && echo y || echo n) row=$(grep -c r60 "$d60/sources/SOURCES.md" 2>/dev/null)"; fi
 
 # R61 — N4: the download child runs in its own process group and the whole GROUP is killed, so the grandchild
 #       (the stub's sleep, standing in for a curl/wget helper) dies too — pkill -P of the direct child is not enough.
@@ -2226,7 +925,7 @@ else no "R62: rc=$_rc62/$_rc62l err='$(cat "$TMP/err62.txt")'"; fi
 # R63 — N8: web --replace SUCCEEDS: old snapshot kept under a versioned name, new content registered, rows consistent.
 d63="$TMP/rr-63/target"; mkdir -p "$d63"
 STUB_ROUTES="" sut web "http://s63.example/page" "$d63" >/dev/null 2>&1
-slug63="$(slug_of "http://s63.example/page")"
+slug63="s63.example_page"
 f63="$d63/sources/web-snapshots/$slug63.md"; o12_63="$(sha12 "$f63")"; osum63="$(sum_of "$f63")"
 _rc63=0; STUB_ROUTES="" STUB_BODY='<p>changed upstream</p>' sut --replace web "http://s63.example/page" "$d63" >/dev/null 2>"$TMP/err63.txt" || _rc63=$?
 md63="$d63/sources/SOURCES.md"
@@ -2258,31 +957,6 @@ _part65="$(find "$d65/sources" -name '*.fetchdoc-part.*' | wc -l | tr -d ' ')"
 if [ "$rc65" = "143" ] && [ ! -e "$TMP/done65.marker" ] && [ "$_part65" = "0" ] && [ "$(sum_of "$f65")" = "$EVID_SUM" ] && [ ! -e "$d65/sources/SOURCES.md" ]; then
   ok "doc: #1354 N5 — TERM between the fork and DL_PID=\$! still cancels the download (exit 143, no orphan, no debris)"
 else no "R65: rc=$rc65 orphan-finished=$([ -e "$TMP/done65.marker" ] && echo y || echo n) parts=$_part65"; fi
-
-# R66 — N5b: TERM delivered WHILE mktemp (the download's stdout capture file) is running must not leak that file.
-#       A mktemp stub TERMs the script (pid read from a pidfile; the script is exec'd so the pid is stable) once, then
-#       creates the file for real. fired=y proves the signal really landed inside the window (non-vacuous).
-mkbin="$TMP/mktemp-term-bin"; mkdir -p "$mkbin"; _realmktemp="$(command -v mktemp)"
-cat > "$mkbin/mktemp" <<EOF
-#!/usr/bin/env bash
-if [ -n "\${MKTEMP_TERM_PIDFILE:-}" ] && [ ! -e "\$MKTEMP_TERM_PIDFILE.fired" ]; then : > "\$MKTEMP_TERM_PIDFILE.fired"; kill -TERM "\$(cat "\$MKTEMP_TERM_PIDFILE")"; fi
-exec $_realmktemp "\$@"
-EOF
-chmod +x "$mkbin/mktemp"
-# run_mktemp_term <script> <dir> <tmpdir> <probe-count-file> — echoes the exit code.
-run_mktemp_term(){
-  local script="$1" dir="$2" tdir="$3" pcf="$4" rc=0
-  rm -f "$TMP/pid66" "$TMP/pid66.fired"; : > "$pcf"
-  STUB_ROUTES="" STUB_PROBE_COUNT_FILE="$pcf" MKTEMP_TERM_PIDFILE="$TMP/pid66" TMPDIR="$tdir" PATH="$mkbin:$stubbin:$PATH" \
-    bash -c 'echo $$ > "$MKTEMP_TERM_PIDFILE"; exec bash "$0" doc http://s66.example/a "$1" datasheets r66.pdf' "$script" "$dir" >/dev/null 2>&1 || rc=$?
-  echo "$rc"
-}
-d66="$TMP/rr-66/target"; mkdir -p "$d66"; t66="$TMP/rr-66-tmp"; mkdir -p "$t66"
-rc66="$(run_mktemp_term "$SUT" "$d66" "$t66" "$TMP/probe66.txt")"
-_leak66="$(find "$t66" -mindepth 1 | wc -l | tr -d ' ')"
-if [ -e "$TMP/pid66.fired" ] && [ "$rc66" = "143" ] && [ "$_leak66" = "0" ] && [ ! -s "$TMP/probe66.txt" ] && [ ! -e "$d66/sources/SOURCES.md" ]; then
-  ok "doc: #1354 N5 — TERM during mktemp leaks no temp file and starts no download (exit 143)"
-else no "R66: fired=$([ -e "$TMP/pid66.fired" ] && echo y || echo n) rc=$rc66 leaked=$_leak66 probes=$(wc -l < "$TMP/probe66.txt")"; fi
 
 # R67 — N6: a concurrent run on the same NAME lands its file AFTER this run's preflight_dest but BEFORE its install.
 #       Without --replace the second run must REFUSE (exit 4): the other run's bytes stay, nothing is archived,
@@ -2317,7 +991,7 @@ else no "R67d: rc=$_rc67d files=$(find "$d67d/sources" -type f | tr '\n' ' ')"; 
 
 # R67c — web mode shares the contract.
 d67c="$TMP/rr-67c/target"; mkdir -p "$d67c/sources/web-snapshots"
-slug67c="$(slug_of "http://s67c.example/page")"
+slug67c="s67c.example_page"
 _rc67c=0
 STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
   PATH="$stubbin:$PATH" bash "$SUT" web "http://s67c.example/page" "$d67c" >/dev/null 2>&1 || _rc67c=$?
@@ -2377,320 +1051,54 @@ if [ "$_rc70" = "5" ] && [ "$_rc70r" = "5" ] && [ "$_lk70a" = "LINK-TARGET" ] &&
   ok "doc: #1354 — a DEST that becomes a symlink during the download is refused (exit 5), link and target untouched, no row"
 else no "R70: rc=$_rc70/$_rc70r target='$_lk70a'/'$_lk70b' link=$_isl70/$_isl70r"; fi
 
-if [ "${1:-}" = "--prove-teeth" ]; then
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  # tm13<name> <sed-expr>... — build a #1313 mutant of the SUT into $TMP; echoes its path, or "" when refused.
-  tm13(){ local n="$1" out="$TMP/m1313-$1.sh" a=(); shift; for e in "$@"; do a+=(-e "$e"); done
-    mutant_sed "$SUT" "$out" "${a[@]}" 2>/dev/null && printf '%s' "$out"; }
 
-  echo "-- teeth #1313: cancel_download kills nothing -> the download finishes (R50 must see it) --"
-  m="$(tm13 nokill 's/^      if ! kill -TERM -- "-\$DL_PID" 2>\/dev\/null; then$/      if false; then/')"
-  if [ -z "$m" ]; then no "teeth-nokill: could not build mutant (cancel_download kill lines not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-nokill/target"; mkexisting "$d" r50.pdf >/dev/null
-    rc="$(run_term_to_pid_only "$m" "$d" "$TMP/done-nokill.marker" "$TMP/start-nokill.marker")"
-    if [ -e "$TMP/done-nokill.marker" ]; then ok "teeth-nokill: without the kill the download runs to completion -> R50 has teeth (rc=$rc)"
-    else no "teeth-nokill: download did not complete without the kill — R50's marker assertion does NOT bite (THEATER)"; fi
+# ---- Teeth for the shim itself ----------------------------------------------------------------------------------
+if [ "${1:-}" = "--prove-teeth" ] && [ "$SUT_IS_SHIM" = 1 ]; then
+  echo "-- teeth: mutation controls for fetch-doc.sh (shim) --"
+  # The retired controls sed the old script body, which is gone: each is a typed SKIP naming the Go tests that replace it.
+  skip "teeth (old reg() mutants) end-of-table insert, ENVIRON vs awk -v: srcregistry TestInsertRow*, TestParseRows*, differential doc-registry-with-trailing-prose and doc-backslash-url"
+  skip "teeth (old redirect resolver mutants) hop cap, probe method, permanent-only, scheme guard, loc guard, connect-class retry: internal/sources/redirect tests"
+  skip "teeth (old fetch_and_register mutants) part file, empty guard, wget fallback, notices, -L, keep-part: internal/sources/download tests and differential doc-curl-*, doc-wget-*"
+  skip "teeth (old install_file, --replace and sweep mutants) versioned names, sha-scoped retarget, exclusive link, symlink refusal, stale parts: internal/sources/place tests and differential doc-replace-*, doc-symlink-*, doc-stale-part-sweep"
+  skip "teeth (old cancellation and test-seam mutants) group kill, signal windows, TERM during pandoc, seam opt-in: fetchdoc TestSignal*, TestSeam*, TestConcurrentWriterAtInstall"
+  skip "teeth (old web_slug and sha256-probe mutants) 80-char boundary, constant hash, scheme in the hash, no sha256 tool: internal/sources/slug tests and TestIntendedDivergences/no-sha256-tool-is-not-a-dependency"
+  # mkshim NAME [SEDEXPR] -> a (mutant) shim with the lib beside it, in a kit layout: $MUT/NAME/toolbelt
+  mkshim() {
+    local d="$MUT/$1/toolbelt"
+    mkdir -p "$d/lib" && cp "$HERE/../lib/rsdd-exec.sh" "$d/lib/"   # stage-libs-ok: the shim sources only lib/rsdd-exec.sh
+    if [ -z "${2:-}" ]; then cp "$SUT" "$d/fetch-doc.sh"; return 0; fi
+    mutant_sed "$SUT" "$d/fetch-doc.sh" "$2" >/dev/null 2>&1 || { no "teeth $1: could not build the mutant (refused by lib/mutant.sh)"; return 1; }
+  }
+  # the stub curl/wget answer every probe and download; --replace keeps the repeated run of a tooth idempotent
+  export PATH="$stubbin:$PATH" STUB_ROUTES=""
+  SHIM_LINE='^rsdd_exec sources fetch-doc "\$@"'
+  GOODSHIM="$MUT/good/toolbelt/fetch-doc.sh"
+  mkshim good "" || exit 2
+  dT="$TMP/teeth-shim/target"; mkdir -p "$dT"
+  if mkshim A 's#'"$SHIM_LINE"'#rsdd_exec sources fetch-doc#'; then
+    tooth "teeth(shim-args): arguments no longer forwarded → no mode, a usage error instead of a download" 0 2 "$MUT/A/toolbelt/fetch-doc.sh" \
+      --orig "$GOODSHIM" --good-has '^OK: ' -- bash @SUT@ --replace doc "http://shim.example/a.pdf" "$dT"
   fi
-
-  echo "-- teeth #1313: no kill AND the move back inside the download subshell -> registered file overwritten --"
-  m="$(tm13 mvsub 's/^      if ! kill -TERM -- "-\$DL_PID" 2>\/dev\/null; then$/      if false; then/' 's/if \[ "\$keep_part" != "--keep-part" \]; then/if true; then/')"
-  if [ -z "$m" ]; then no "teeth-mvsub: could not build mutant (keep-part guards not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-mvsub/target"; f="$(mkexisting "$d" r50.pdf)"
-    run_term_to_pid_only "$m" "$d" "$TMP/done-mvsub.marker" "$TMP/start-mvsub.marker" >/dev/null
-    if [ "$(sum_of "$f")" != "$EVID_SUM" ]; then ok "teeth-mvsub: a subshell move overwrites the registered file after TERM-to-pid -> the deferral is load-bearing"
-    else no "teeth-mvsub: registered file still intact — the main-shell move is NOT what protects it (THEATER)"; fi
+  if mkshim B 's#^rsdd_exec sources fetch-doc #rsdd_exec sources fetch-docs #'; then
+    tooth "teeth(shim-command): wrong subcommand name → an unknown command, not a download" 0 2 "$MUT/B/toolbelt/fetch-doc.sh" \
+      --orig "$GOODSHIM" --good-has '^OK: ' -- bash @SUT@ --replace doc "http://shim.example/a.pdf" "$dT"
   fi
-
-  # teeth_refuse <name> <expected-rc-that-must-vanish> <sed-expr> <fixture-setup...> — shared shape: a mutant that drops a guard must
-  # let the run SUCCEED where the real SUT exits with the typed refusal code.
-  echo "-- teeth #1313: overwrite refusal removed -> existing NAME is silently replaced --"
-  # #1354: install_file's exclusive-install backstop would still refuse, so the mutant drops it as well.
-  m="$(tm13 norefuse 's/if \[ -e "\$dest" \] \&\& \[ "\$REPLACE" -eq 0 \]; then/if false; then/' 's/^  if \[ "\$REPLACE" -eq 0 \]; then$/  if false; then/')"
-  if [ -z "$m" ]; then no "teeth-norefuse: could not build mutant (refusal condition not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-norefuse/target"; mkdir -p "$d"; seed51 "$d" r51.pdf "http://s51.example/old"
-    rc=0; STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" doc "http://s51.example/new" "$d" datasheets r51.pdf >/dev/null 2>&1 || rc=$?
-    if [ "$rc" = "0" ]; then ok "teeth-norefuse: mutant overwrites a registered NAME (exit 0) -> R51 has teeth"
-    else no "teeth-norefuse: mutant still exited $rc — R51 does NOT depend on the refusal (THEATER)"; fi
+  if mkshim F 's#^rsdd_exec sources #rsdd_exec source #'; then
+    tooth "teeth(shim-group): wrong group name → an unknown group, not a download" 0 2 "$MUT/F/toolbelt/fetch-doc.sh" \
+      --orig "$GOODSHIM" --good-has '^OK: ' -- bash @SUT@ --replace doc "http://shim.example/a.pdf" "$dT"
   fi
-
-  echo "-- teeth #1313: symlink refusal removed -> a symlinked DEST is replaced --"
-  m="$(tm13 nosymlink 's/^  if \[ -L "\$dest" \]; then$/  if false; then/')"
-  if [ -z "$m" ]; then no "teeth-nosymlink: could not build mutant (symlink test not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-nosymlink/target"; mkdir -p "$d/sources/datasheets"; ln -s "$TMP/link54.txt" "$d/sources/datasheets/r54.pdf"
-    rc=0; STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s54.example/a" "$d" datasheets r54.pdf >/dev/null 2>&1 || rc=$?
-    if [ "$rc" = "0" ]; then ok "teeth-nosymlink: mutant proceeds on a symlinked DEST (exit 0) -> R54 has teeth"
-    else no "teeth-nosymlink: mutant still exited $rc — R54 does NOT depend on the symlink check (THEATER)"; fi
+  mkdir -p "$TMP/teeth-shim-refuse/target/sources/datasheets"; printf 'REGISTERED\n' > "$TMP/teeth-shim-refuse/target/sources/datasheets/kept.pdf"
+  if mkshim D 's#'"$SHIM_LINE"'#( rsdd_exec sources fetch-doc "$@" ); exit 0#'; then
+    tooth "teeth(shim-exit): exit code laundered to 0 → a refused overwrite no longer fails the caller" 4 0 "$MUT/D/toolbelt/fetch-doc.sh" \
+      --orig "$GOODSHIM" --good-has 'REFUSED' -- bash @SUT@ doc "http://shim.example/kept.pdf" "$TMP/teeth-shim-refuse/target"
   fi
-
-  echo "-- teeth #1313: stale sweep removes nothing / removes live pids too --"
-  m="$(tm13 nosweep 's/^      rm -f "\$f"$/      :/')"
-  if [ -z "$m" ]; then no "teeth-nosweep: could not build mutant (sweep rm not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-nosweep/target"; mkdir -p "$d/sources/datasheets"; : > "$d/sources/datasheets/old.pdf.fetchdoc-part.$_dead55"
-    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" doc "http://s55.example/a" "$d" datasheets r55.pdf >/dev/null 2>&1
-    if [ -e "$d/sources/datasheets/old.pdf.fetchdoc-part.$_dead55" ]; then ok "teeth-nosweep: mutant leaves the dead pid's part file -> R55 has teeth"
-    else no "teeth-nosweep: the part file was still removed — R55 does NOT depend on the sweep (THEATER)"; fi
-  fi
-  m="$(tm13 sweeplive 's/^    if ! pid_alive "\$pid"; then$/    if true; then/')"
-  if [ -z "$m" ]; then no "teeth-sweeplive: could not build mutant (liveness test not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-sweeplive/target"; mkdir -p "$d/sources/datasheets"; : > "$d/sources/datasheets/live.pdf.fetchdoc-part.$$"
-    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" doc "http://s55.example/a" "$d" datasheets r55.pdf >/dev/null 2>&1
-    if [ ! -e "$d/sources/datasheets/live.pdf.fetchdoc-part.$$" ]; then ok "teeth-sweeplive: without the liveness test a LIVE pid's part file is deleted -> R55 has teeth"
-    else no "teeth-sweeplive: live part file survived the mutant — R55's live-pid assertion does NOT bite (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1313: --replace drops the old bytes / leaves the old row stale / always archives --"
-  m="$(tm13 dropold 's/^        mv -f "\$dest" "\$vpath"$/        rm -f "$dest"/')"
-  if [ -z "$m" ]; then no "teeth-dropold: could not build mutant (archive mv not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-dropold/target"; mkdir -p "$d"; seed51 "$d" r52.pdf "http://s52.example/old"; o12="$(sha12 "$d/sources/datasheets/r52.pdf")"
-    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s52.example/new" "$d" datasheets r52.pdf >/dev/null 2>&1
-    if [ ! -e "$d/sources/datasheets/r52.$o12.pdf" ]; then ok "teeth-dropold: mutant loses the old bytes -> R52's evidence-kept assertion has teeth"
-    else no "teeth-dropold: versioned copy still exists — R52 does NOT depend on the archive move (THEATER)"; fi
-  fi
-  m="$(tm13 stalerow 's/mv "\$tmp" "\$md"  # SENTINEL-RENAME-ROW-WRITE/rm -f "$tmp"  # MUTANT: row retarget dropped/')"
-  if [ -z "$m" ]; then no "teeth-stalerow: could not build mutant (rename_row write-back not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-stalerow/target"; mkdir -p "$d"; seed51 "$d" r52.pdf "http://s52.example/old"; o12="$(sha12 "$d/sources/datasheets/r52.pdf")"
-    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s52.example/new" "$d" datasheets r52.pdf >/dev/null 2>&1
-    if [ -z "$(row_cell "$d/sources/SOURCES.md" "datasheets/r52.$o12.pdf" 5)" ]; then ok "teeth-stalerow: mutant leaves the old row on NAME (stale sha) -> R52's row assertion has teeth"
-    else no "teeth-stalerow: old row was retargeted anyway — R52 does NOT depend on rename_row (THEATER)"; fi
-  fi
-  m="$(tm13 alwaysarchive 's/if \[ "\$oldsha" = "\$newsha" \]; then/if false; then/')"
-  if [ -z "$m" ]; then no "teeth-alwaysarchive: could not build mutant (sha comparison not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-alwaysarchive/target"; mkdir -p "$d"; seed51 "$d" r53.pdf "http://s53.example/same"
-    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s53.example/same" "$d" datasheets r53.pdf >/dev/null 2>&1
-    if [ "$(find "$d/sources/datasheets" -type f | wc -l | tr -d ' ')" != "1" ]; then ok "teeth-alwaysarchive: mutant archives identical bytes too -> R53 has teeth"
-    else no "teeth-alwaysarchive: still one file — R53 does NOT depend on the sha comparison (THEATER)"; fi
-  fi
-
-  # ── fix-first round (Opus review) teeth ──
-  echo "-- teeth #1313 B1: registration guard removed -> a registered part-named file is swept --"
-  m="$(tm13 sweepreg 's/^    has_row "\${f#"\$SDIR"\/}" \&\& continue.*$/    :/')"
-  if [ -z "$m" ]; then no "teeth-sweepreg: could not build mutant (registered guard not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-sweepreg/target"; mkdir -p "$d"; seed51 "$d" "spec.fetchdoc-part.2999998" "http://s57.example/b"
-    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" doc "http://s57.example/c" "$d" datasheets r57.pdf >/dev/null 2>&1
-    if [ ! -e "$d/sources/datasheets/spec.fetchdoc-part.2999998" ]; then ok "teeth-sweepreg: mutant deletes registered evidence (row dangling) -> R57 has teeth"
-    else no "teeth-sweepreg: registered file survived the mutant — R57 does NOT depend on the registration guard (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1313 B1: liveness by kill -0 -> a pid we cannot signal (pid 1) reads as dead --"
-  if [ "$(id -u)" = "0" ]; then printf '  SKIP  teeth-pidalive: running as root (kill -0 1 succeeds, EPERM not reproducible)\n'
-  else
-    m="$(tm13 pidalive 's/^  if \[ -d \/proc\/self \]; then \[ -d "\/proc\/\$1" \]$/  if true; then kill -0 "$1" 2>\/dev\/null/')"
-    if [ -z "$m" ]; then no "teeth-pidalive: could not build mutant (pid_alive /proc branch not found, or refused by lib/mutant.sh)"
-    else
-      d="$TMP/t-pidalive/target"; mkdir -p "$d/sources/datasheets"; : > "$d/sources/datasheets/y.pdf.fetchdoc-part.1"
-      STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" doc "http://s58.example/a" "$d" datasheets r58.pdf >/dev/null 2>&1
-      if [ ! -e "$d/sources/datasheets/y.pdf.fetchdoc-part.1" ]; then ok "teeth-pidalive: kill -0 treats pid 1 (EPERM) as dead and deletes its part file -> R58 has teeth"
-      else no "teeth-pidalive: pid 1's part file survived the kill -0 mutant — R58 does NOT depend on the liveness probe (THEATER)"; fi
-    fi
-  fi
-
-  echo "-- teeth #1313 B2: sha condition removed from rename_row -> every row for the file is retargeted --"
-  m="$(tm13 shascope 's/if (s==ENVIRON\["SHA"\]) \$2=/if (1) $2=/')"
-  if [ -z "$m" ]; then no "teeth-shascope: could not build mutant (sha comparison not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-shascope/target"; mkdir -p "$d/sources/datasheets"
-    printf '# External sources preserved\n\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\n|---|---|---|---|---|---|\n| datasheets/r59.pdf | datasheets | http://s59.example/A | 2026-01-01T00:00:00Z | %s | |\n| datasheets/r59.pdf | datasheets | http://s59.example/B | 2026-02-01T00:00:00Z | %s | |\n' "$shaA59" "$shaB59" > "$d/sources/SOURCES.md"
-    printf 'B-BYTES\n' > "$d/sources/datasheets/r59.pdf"
-    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s59.example/C" "$d" datasheets r59.pdf >/dev/null 2>&1
-    if <<<"$(grep -F 'http://s59.example/A' "$d/sources/SOURCES.md")" grep -qF "r59.${shaB59:0:12}.pdf"; then ok "teeth-shascope: mutant also retargets the other sha's row (wrong archive) -> R59 has teeth"
-    else no "teeth-shascope: the A row was not retargeted by the mutant — R59 does NOT depend on the sha condition (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1313 N2: INT/TERM block removed -> TERM during install leaves bytes without a row --"
-  m="$(tm13 nosigblock "s/^\( *\)trap '' INT TERM.*\$/\1:/")"
-  if [ -z "$m" ]; then no "teeth-nosigblock: could not build mutant (signal-block trap not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-nosigblock/target"; mkdir -p "$d"; rc="$(run_slow_term "$m" "$d")"
-    if [ "$rc" != "0" ] && ! grep -q 'r60.pdf' "$d/sources/SOURCES.md" 2>/dev/null; then ok "teeth-nosigblock: without the block TERM aborts the install window (rc=$rc, no row) -> R60 has teeth"
-    else no "teeth-nosigblock: run still completed with a row (rc=$rc) — R60 does NOT depend on the signal block (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1313 N4: kill the child pid only, not the group -> the grandchild survives --"
-  m="$(tm13 nogroup 's/kill -TERM -- "-\$DL_PID"/kill -TERM -- "$DL_PID"/')"
-  if [ -z "$m" ]; then no "teeth-nogroup: could not build mutant (group kill not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-nogroup/target"; mkdir -p "$d"; r="$(run_grandchild "$m" "$d")"
-    if [ "$r" = "alive" ]; then ok "teeth-nogroup: killing only the child pid leaves the grandchild running -> R61 has teeth"
-    else no "teeth-nogroup: grandchild died anyway — R61 does NOT depend on the group kill (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1313 N7: versioned-name sha compare removed / symlink check removed --"
-  m="$(tm13 novcompare 's/!= "\$oldsha" \]; then  # SENTINEL-VNAME-COMPARE/= "never" ]; then/')"
-  if [ -z "$m" ]; then no "teeth-novcompare: could not build mutant (sentinel not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-novcompare/target"; mkdir -p "$d"; seed51 "$d" r62.pdf "http://s62.example/old"; o12="$(sha12 "$d/sources/datasheets/r62.pdf")"
-    printf 'SOMETHING-ELSE\n' > "$d/sources/datasheets/r62.$o12.pdf"; rc=0
-    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s62.example/new" "$d" datasheets r62.pdf >/dev/null 2>&1 || rc=$?
-    if [ "$rc" = "0" ]; then ok "teeth-novcompare: mutant proceeds over different bytes at the versioned name -> R62 has teeth"
-    else no "teeth-novcompare: mutant still refused (rc=$rc) — R62 does NOT depend on the compare (THEATER)"; fi
-  fi
-  m="$(tm13 novlink 's/if \[ -L "\$vpath" \]; then/if false; then/')"
-  if [ -z "$m" ]; then no "teeth-novlink: could not build mutant (symlink test not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-novlink/target"; mkdir -p "$d"; seed51 "$d" r62.pdf "http://s62.example/old"; o12="$(sha12 "$d/sources/datasheets/r62.pdf")"
-    ln -s /nonexistent-target "$d/sources/datasheets/r62.$o12.pdf"; rc=0
-    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s62.example/new" "$d" datasheets r62.pdf >/dev/null 2>&1 || rc=$?
-    if [ "$rc" = "0" ]; then ok "teeth-novlink: mutant proceeds over a dangling symlink at the versioned name -> R62 has teeth"
-    else no "teeth-novlink: mutant still refused (rc=$rc) — R62 does NOT depend on the symlink test (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1313 N1: identical-bytes shortcut removed -> a duplicate row is appended --"
-  m="$(tm13 noidentical 's/^      if has_row "\$rel" "\$newsha"; then$/      if false; then/')"
-  if [ -z "$m" ]; then no "teeth-noidentical: could not build mutant (identical-bytes guard not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-noidentical/target"; mkdir -p "$d"; seed51 "$d" r53.pdf "http://s53.example/same"
-    STUB_ROUTES="" PATH="$stubbin:$PATH" bash "$m" --replace doc "http://s53.example/same" "$d" datasheets r53.pdf >/dev/null 2>&1
-    if [ "$(grep -c r53 "$d/sources/SOURCES.md")" = "2" ]; then ok "teeth-noidentical: mutant appends a duplicate row for identical bytes -> R53 has teeth"
-    else no "teeth-noidentical: no duplicate row — R53 does NOT depend on the identical-bytes shortcut (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1313 N8: preflight moved AFTER the download -> a refused run still hits the network --"
-  m="$(tm13 lateprefl 's/preflight_dest "\$DEST"; sweep_stale_parts/sweep_stale_parts/' 's/^\(    download_into "\$URL" "\$DEST".*\)$/\1\n    preflight_dest "$DEST"/')"
-  if [ -z "$m" ]; then no "teeth-lateprefl: could not build mutant (preflight/download lines not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-lateprefl/target"; mkdir -p "$d"; seed51 "$d" r51.pdf "http://s51.example/old"; : > "$TMP/probe-lateprefl.txt"; rc=0
-    STUB_ROUTES="" STUB_PROBE_COUNT_FILE="$TMP/probe-lateprefl.txt" PATH="$stubbin:$PATH" bash "$m" doc "http://s51.example/new" "$d" datasheets r51.pdf >/dev/null 2>&1 || rc=$?
-    if [ "$rc" = "4" ] && [ -s "$TMP/probe-lateprefl.txt" ]; then ok "teeth-lateprefl: late preflight still refuses (exit 4) but only after probing the network -> R51's no-probe assertion has teeth"
-    else no "teeth-lateprefl: rc=$rc probes=$(wc -l < "$TMP/probe-lateprefl.txt") — R51 does NOT pin the preflight-before-download order (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1313 W1: INT/TERM ignored while pandoc runs -> a TERM during the conversion is swallowed --"
-  # #1354: the conversion is a tracked child now; arm_cancel_traps (called once DL_PID is set) is what keeps TERM live.
-  m="$(tm13 sigabovepandoc 's/^  arm_cancel_traps$/  trap '"''"' INT TERM/')"
-  if [ -z "$m" ]; then no "teeth-sigabovepandoc: could not build mutant (web signal-block / HTML move not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-sigabovepandoc/target"; mkdir -p "$d"; rc="$(run_pandoc_term "$m" "$d")"
-    if [ "$rc" = "0" ]; then ok "teeth-sigabovepandoc: with the block above pandoc the TERM is swallowed and the run completes (rc=$rc) -> R64 has teeth"
-    else no "teeth-sigabovepandoc: still cancelled (rc=143) — R64 does NOT pin the block's position (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1354 N5a: defer_cancel records nothing -> a TERM between the fork and DL_PID orphans the download --"
-  m="$(tm13 nodefer 's/^defer_cancel() { CANCEL_PENDING=0; trap .*$/defer_cancel() { CANCEL_PENDING=0; }/')"
-  if [ -z "$m" ]; then no "teeth-nodefer: could not build mutant (defer_cancel not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-nodefer/target"; mkexisting "$d" r65.pdf >/dev/null; rc="$(run_hook_term "$m" "$d" "$TMP/done-nodefer.marker")"
-    if [ -e "$TMP/done-nodefer.marker" ]; then ok "teeth-nodefer: without the deferral the orphaned download finishes (rc=$rc) -> R65 has teeth"
-    else no "teeth-nodefer: the download was still cancelled — R65 does NOT pin the deferral (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1354 N5b: cancel_download no longer removes the capture file -> TERM during mktemp leaks it --"
-  m="$(tm13 nodlout 's/^  \[ -z "\$DL_OUT" \] || rm -f "\$DL_OUT"$/  :/')"
-  if [ -z "$m" ]; then no "teeth-nodlout: could not build mutant (DL_OUT cleanup not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-nodlout/target"; mkdir -p "$d"; t="$TMP/t-nodlout-tmp"; mkdir -p "$t"; rc="$(run_mktemp_term "$m" "$d" "$t" "$TMP/probe-nodlout.txt")"
-    _l="$(find "$t" -mindepth 1 | wc -l | tr -d ' ')"
-    if [ -e "$TMP/pid66.fired" ] && [ "$_l" != "0" ]; then ok "teeth-nodlout: the capture file leaks ($_l) without the cleanup -> R66 has teeth"
-    else no "teeth-nodlout: leaked=$_l fired=$([ -e "$TMP/pid66.fired" ] && echo y || echo n) — R66 does NOT observe the capture file (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1354 N6: install_file archives without --replace (the old behaviour) --"
-  m="$(tm13 instarch 's/^  if \[ "\$REPLACE" -eq 1 \] && \[ -e "\$dest" \]; then  # SENTINEL-INSTALL-REPLACE-GUARD$/  if [ -e "$dest" ]; then/')"
-  if [ -z "$m" ]; then no "teeth-instarch: could not build mutant (replace guard not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-instarch/target"; mkdir -p "$d/sources/datasheets"; rc=0
-    STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
-      PATH="$stubbin:$PATH" bash "$m" doc "http://s67.example/a" "$d" datasheets r67.pdf >/dev/null 2>&1 || rc=$?
-    if [ "$rc" != "4" ] && [ "$(find "$d/sources/datasheets" -type f | wc -l | tr -d ' ')" -gt 1 ]; then ok "teeth-instarch: the mutant archives the other run's file (rc=$rc) -> R67 has teeth"
-    else no "teeth-instarch: rc=$rc — R67 does NOT pin the REPLACE re-check (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1354 N6: install_file overwrites a late-appearing file (no exclusive install) --"
-  m="$(tm13 instexcl 's/^  if \[ "\$REPLACE" -eq 0 \]; then$/  if false; then/')"
-  if [ -z "$m" ]; then no "teeth-instexcl: could not build mutant (exclusive-install branch not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-instexcl/target"; mkdir -p "$d/sources/datasheets"; rc=0
-    STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
-      PATH="$stubbin:$PATH" bash "$m" doc "http://s67.example/a" "$d" datasheets r67.pdf >/dev/null 2>&1 || rc=$?
-    if [ "$rc" = "0" ] && [ "$(cat "$d/sources/datasheets/r67.pdf")" != "OTHER-RUN" ]; then ok "teeth-instexcl: the mutant overwrites the other run's bytes (rc=0) -> R67 has teeth"
-    else no "teeth-instexcl: rc=$rc — R67 does NOT pin the exclusive install (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1354 item 5: pandoc back in the foreground -> TERM waits for pandoc to finish --"
-  m="$(tm13 fgpandoc 's/^    run_cancellable \/dev\/null convert_html "\$HTML" "\$WPART"$/    convert_html "$HTML" "$WPART"/')"
-  if [ -z "$m" ]; then no "teeth-fgpandoc: could not build mutant (pandoc call not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-fgpandoc/target"; mkdir -p "$d"; rc="$(run_pandoc_kill "$m" "$d")"
-    if [ -e "$TMP/pandoc68.done" ]; then ok "teeth-fgpandoc: a foreground pandoc runs to completion after TERM (rc=$rc) -> R68 has teeth"
-    else no "teeth-fgpandoc: pandoc was still killed — R68 does NOT pin the tracked conversion (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1354: seam opt-in guard removed -> FETCHDOC_TEST_CMD runs without FETCHDOC_TEST_SEAM --"
-  m="$(tm13 noseam 's/^_test_hook() { \[ "\${FETCHDOC_TEST_SEAM:-}" = "1" \] || return 0; /_test_hook() { /')"
-  if [ -z "$m" ]; then no "teeth-noseam: could not build mutant (SEAM guard not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-noseam/target"; mkdir -p "$d"; rm -f "$TMP/seam-noseam.marker"
-    STUB_ROUTES="" FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD=': > "$TMP_MARKER"' TMP_MARKER="$TMP/seam-noseam.marker" \
-      PATH="$stubbin:$PATH" bash "$m" doc "http://s69.example/a" "$d" datasheets r69.pdf >/dev/null 2>&1 || true
-    if [ -e "$TMP/seam-noseam.marker" ]; then ok "teeth-noseam: without the guard the hook command runs unopted -> R69 has teeth"
-    else no "teeth-noseam: the command did not run — R69 does NOT pin the SEAM opt-in (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1354: install_file symlink re-check removed -> a late symlink is not refused with exit 5 --"
-  m="$(tm13 nolatelink '/^install_file()/,/^}/ s/^  if \[ -L "\$dest" \]; then$/  if false; then/')"
-  if [ -z "$m" ]; then no "teeth-nolatelink: could not build mutant (install_file symlink re-check not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-nolatelink/target"; rc="$(run_late_symlink "$m" "$d" "")"
-    if [ "$rc" = "4" ]; then ok "teeth-nolatelink: without the re-check a late symlink is not refused with exit 5 (rc=$rc) -> R70 has teeth"
-    else no "teeth-nolatelink: still exit 5 — R70 does NOT pin the install-time re-check (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1904: web_slug reverts to a plain 80-char cut -> two long URLs collide --"
-  if ! mutant_sed "$SUT" "$TMP/webslug.MUT.sh" 's/^  if \[ "\${#slug}" -le 80 \]; then printf/  if true; then slug="${slug:0:80}"; printf/'; then
-    no "teeth-webslug: could not build mutant (web_slug length guard not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-webslug/target"; STUB_ROUTES=""; export STUB_ROUTES
-    PATH="$stubbin:$PATH" bash "$TMP/webslug.MUT.sh" web "${long71}/first" "$d" >/dev/null 2>&1
-    _rcw=0; PATH="$stubbin:$PATH" bash "$TMP/webslug.MUT.sh" web "${long71}/second" "$d" >/dev/null 2>&1 || _rcw=$?
-    unset STUB_ROUTES
-    if [ "$_rcw" -eq 4 ]; then ok "teeth-webslug: the plain-cut mutant refuses the second long URL (rc=$_rcw) -> R71 has teeth"
-    else no "teeth-webslug: mutant still fetched both (rc=$_rcw) — R71 does NOT depend on web_slug (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1904: web_slug hash neutered (constant digest) -> middle-only-different URLs collide --"
-  if ! mutant_sed "$SUT" "$TMP/webhash.MUT.sh" 's/^  h="\$(printf .%s. "\$1" | sha256_stdin | cut -c1-12)"$/  h=aaaaaaaaaaaa  # MUTANT: constant hash/'; then
-    no "teeth-webhash: could not build mutant (web_slug hash line not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-webhash/target"; STUB_ROUTES=""; export STUB_ROUTES
-    PATH="$stubbin:$PATH" bash "$TMP/webhash.MUT.sh" web "$(printf "$mid71" 1)" "$d" >/dev/null 2>&1
-    _rch=0; PATH="$stubbin:$PATH" bash "$TMP/webhash.MUT.sh" web "$(printf "$mid71" 2)" "$d" >/dev/null 2>&1 || _rch=$?
-    unset STUB_ROUTES
-    if [ "$_rch" -eq 4 ]; then ok "teeth-webhash: constant-hash mutant refuses the second middle-only URL (rc=$_rch) -> R71e has teeth"
-    else no "teeth-webhash: mutant still fetched both (rc=$_rch) — R71e does NOT depend on the hash (THEATER)"; fi
-  fi
-
-  echo "-- teeth #1904: web_slug length boundary moved (-le 79 / -le 81) -> R71f goes red --"
-  for _b in 79 81; do
-    if ! mutant_sed "$SUT" "$TMP/webb$_b.MUT.sh" "s/\"\${#slug}\" -le 80/\"\${#slug}\" -le $_b/"; then
-      no "teeth-webbound-$_b: could not build mutant (-le 80 guard not found, or refused by lib/mutant.sh)"
-    else
-      _m80="$(bash -c 'source "$1" >/dev/null 2>&1; web_slug "$2"' _ "$TMP/webb$_b.MUT.sh" "http://$x80")"
-      _m81="$(bash -c 'source "$1" >/dev/null 2>&1; web_slug "$2"' _ "$TMP/webb$_b.MUT.sh" "http://${x80}a")"
-      if [ "$_m80" != "$x80" ] || [ "${#_m81}" -ne 80 ] || ! [[ "$_m81" =~ -[0-9a-f]{12}$ ]]; then
-        ok "teeth-webbound-$_b: boundary mutant violates the 80/81 contract -> R71f has teeth"
-      else no "teeth-webbound-$_b: mutant still satisfied R71f (THEATER)"; fi
-    fi
-  done
-
-  echo "-- teeth #1904: sha256 probe removed -> a missing sha256 tool is no longer a typed exit 3 --"
-  if ! mutant_sed "$SUT" "$TMP/probesha.MUT.sh" 's/^    probe_downloaders; probe_sha256$/    probe_downloaders  # MUTANT: sha probe removed/'; then
-    no "teeth-probesha: could not build mutant (probe_sha256 calls not found, or refused by lib/mutant.sh)"
-  else
-    d="$TMP/t-probesha/target"; mkdir -p "$d"
-    _rcs=0; PATH="$nosha" "$nosha/bash" "$TMP/probesha.MUT.sh" doc "http://sps.example/a.pdf" "$d" datasheets "ps.pdf" >/dev/null 2>&1 || _rcs=$?
-    if [ "$_rcs" -ne 3 ]; then ok "teeth-probesha: without the probe the run is not the typed exit 3 (rc=$_rcs) -> R71h has teeth"
-    else no "teeth-probesha: mutant still exited 3 — R71h does NOT depend on probe_sha256 (THEATER)"; fi
-  fi
+  # the library guard: a shim with no lib beside it says so and exits 2; a mutant that exits 0 there hides a missing binary
+  mkdir -p "$MUT/Cgood" "$MUT/C"
+  cp "$SUT" "$MUT/Cgood/fetch-doc.sh"
+  if mutant_sed "$SUT" "$MUT/C/fetch-doc.sh" 's#exit 2; }   \# SENTINEL-RSDD-EXEC-GUARD#exit 0; }   \# SENTINEL-RSDD-EXEC-GUARD#' >/dev/null 2>&1; then
+    tooth "teeth(shim-guard): missing-library guard exits 0 → a missing rsdd reads as a successful fetch" 2 0 "$MUT/C/fetch-doc.sh" \
+      --orig "$MUT/Cgood/fetch-doc.sh" --good-has 'rsdd-exec.sh missing' -- bash @SUT@ doc "http://shim.example/a.pdf" "$dT"
+  else no "teeth(shim-guard): could not build the mutant (refused by lib/mutant.sh)"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

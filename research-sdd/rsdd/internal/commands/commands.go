@@ -20,6 +20,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/formats"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/gate"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/hook"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/hygiene"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/install"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/lint"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/maint"
@@ -27,6 +28,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/retro"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/secretscan"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/serial"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/sources"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/status"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/sweep"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/verify"
@@ -86,6 +88,7 @@ func mustAssemble() []cli.Command {
 		{"formats", formats.Commands},
 		{"gate", gate.Commands},
 		{"hook", hook.Commands},
+		{"hygiene", hygiene.Commands},
 		{"install", install.Commands},
 		{"lint", lint.Commands},
 		{"maint", maint.Commands},
@@ -93,6 +96,7 @@ func mustAssemble() []cli.Command {
 		{"retro", retro.Commands},
 		{"secretscan", secretscan.Commands},
 		{"serial", serial.Commands},
+		{"sources", sources.Commands},
 		{"status", status.Commands},
 		{"sweep", sweep.Commands},
 		{"verify", verify.Commands},

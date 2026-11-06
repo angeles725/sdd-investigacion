@@ -61,6 +61,6 @@ func s6Visibility() []s6Scenario {
 	vis("v-git-dir-that-is-not-a-repository-is-silent", hdrOne, files{"corpus/.git/": ""}, gh("PUBLIC"), nil)
 	vis("v-degraded-line-sets-the-footer", reasonFtr, origin("https://gitlab.com/o/r"), gh("PUBLIC"), nil)
 	vis("v-public-alone-does-not-set-the-footer", pubWarn, origin(gh1), gh("PUBLIC"), nil)
-	vis("v-visibility-block-comes-after-the-campaign-block", "S6-STANDIN", origin(gh1), gh("PUBLIC"), nil)
+	vis("v-visibility-block-comes-after-the-campaign-block", "campaign        : none (1 active focus, 0 with a queue)", origin(gh1), gh("PUBLIC"), nil)
 	return scs
 }
