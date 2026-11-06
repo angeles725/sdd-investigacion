@@ -60,10 +60,12 @@ Intended divergences from the retired script (each pinned from both sides: `Test
   checks it right after, so the run exits 130/143 with nothing installed instead of completing with exit 0 (the script's trap could
   lose the same signal in the window). A signal that arrives after the block is ignored until the row is written, as before.
   Residual, declared: a signal delivered by the OS after `Block` returned but before the row is written is ignored by design.
-- **`.SOURCES.md.tmp` is a transient file inside `sources/`.** The atomic replace of `SOURCES.md` is the shared
-  `fsx.WriteAtomicMode` (write, fsync, chmod to the registry's mode, rename): it writes the sibling `.SOURCES.md.tmp` and renames it
-  over the registry; the temp is removed on every error path after it was created and never left behind by a run that returns.
-  Pinned by `TestAppendKeepsTheModeLeavesNoTempAndReportsAWriteFailure` and the `fsx` `WriteAtomicMode` tests.
+- **`.SOURCES.md.<random>.tmp` is a transient file inside `sources/`.** The atomic replace of `SOURCES.md` is the shared
+  `fsx.WriteAtomicMode` (write, chmod to the registry's mode, fsync, rename). Each write creates a temp of its own, as the script's
+  `mktemp` did, so two runs on one target never write through the same file: the worst case of that race stays a lost row (#2750),
+  never a torn document. The temp is removed on every error path and never left behind by a run that returns; a run killed
+  mid-write can leave one, which nothing reads. Pinned by `TestAppendKeepsTheModeLeavesNoTempAndReportsAWriteFailure` and the `fsx`
+  tests (`TestWriteAtomicModeNeverTouchesAnotherWritersTemp`).
 - **The process runner is cross-platform.** Process groups (a cancel also stops what curl/pandoc started) exist on unix only;
   elsewhere a cancel ends the child itself. `GOOS=windows` and `GOOS=darwin` builds of `rsdd` are part of `make cross`.
 - **The file modes are pinned from both sides.** `sources-md-keeps-its-mode` asserts the legacy 0600 (mktemp) against the Go 0644 /

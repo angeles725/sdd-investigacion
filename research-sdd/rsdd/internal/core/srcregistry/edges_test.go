@@ -35,12 +35,17 @@ func TestAppendKeepsTheModeLeavesNoTempAndReportsAWriteFailure(t *testing.T) {
 	if ents, _ := os.ReadDir(dir); len(ents) != 1 {
 		t.Errorf("stray files next to SOURCES.md: %v", ents)
 	}
-	// the write cannot start (its temp path is a directory): the error is returned and the document is intact
+	if os.Geteuid() == 0 {
+		return // root creates files in a read-only directory
+	}
+	// the write cannot start (the directory takes no new entry): the error is returned and the document is intact
 	before, _ := os.ReadFile(path)
-	if err := os.Mkdir(filepath.Join(dir, "."+SourcesFile+".tmp"), 0o755); err != nil {
+	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Fatal(err)
 	}
-	if err := Append(dir, FormatRow("b.pdf", "datasheet", "http://h/b", "2026-01-02T03:04:05Z", SHA256Hex([]byte("b")))); err == nil {
+	err := Append(dir, FormatRow("b.pdf", "datasheet", "http://h/b", "2026-01-02T03:04:05Z", SHA256Hex([]byte("b"))))
+	_ = os.Chmod(dir, 0o755)
+	if err == nil {
 		t.Error("a write that cannot start reported success")
 	}
 	if after, _ := os.ReadFile(path); string(after) != string(before) {
