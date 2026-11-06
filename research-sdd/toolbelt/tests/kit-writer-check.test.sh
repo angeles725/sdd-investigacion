@@ -9,6 +9,9 @@
 # `pkill-guard` token, pre-existing line, second-hunk line number, tests scanned, untracked file under --worktree),
 # --worktree, --format json, --write-teeth-log (pass, fail, timeout, refusals), degraded states and usage.
 #
+# The SUT is a shim over the Go command `rsdd maint writer-check` (kit issue #2212): the behaviour's mutation controls
+# live in the Go tests (research-sdd/rsdd/internal/maint/writercheck); --prove-teeth here mutates the shim itself.
+#
 # Usage: kit-writer-check.test.sh                (run the suite)
 #        kit-writer-check.test.sh --prove-teeth  (run suite + mutation controls)
 # Exit: 0 every assertion held · 1 regression · 2 harness error.
@@ -20,10 +23,31 @@ IMPACT_REAL="$HERE/suite-impact.sh"
 [ -f "$IMPACT_REAL" ] || { echo "FATAL: suite-impact.sh not found: $IMPACT_REAL" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 command -v git >/dev/null 2>&1 || { echo "FATAL: git not on PATH" >&2; exit 2; }
+
+# The SUT is a compatibility shim over the Go binary (kit issue #2212): `rsdd maint writer-check`. $RSDD_BIN wins;
+# otherwise one binary is built into a temp dir (never into the tree). The behaviour's mutation controls live in the
+# Go tests (internal/maint/writercheck, `make teeth`); the controls at the end mutate the shim itself.
+BIN_DIR=""
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  BIN_DIR="$(mktemp -d)" || { echo "FATAL: cannot create a temp dir" >&2; exit 2; }
+  RSDD_BIN="$BIN_DIR/rsdd"
+  ( cd "$HERE/../../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$BIN_DIR/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$BIN_DIR/build.log" >&2; rm -rf "$BIN_DIR"; exit 2; }
+fi
+export RSDD_BIN
 export KIT_WRITER_CHECK_IMPACT="$IMPACT_REAL"   # a mutant copy of the SUT lives elsewhere: pin the real map
 
 TMP="$(mktemp -d)"; MUT="$(mktemp -d)"
-trap 'rm -rf "$TMP" "$MUT"' EXIT
+trap 'rm -rf "$TMP" "$MUT" "${BIN_DIR:-}"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %-72s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-72s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -226,35 +250,35 @@ nk() { # nk NAME FILE CONTENT -> repo with FILE added (appended) containing CONT
   local d; d="$(newcase "nk_$1")"; mkdir -p "$d/$(dirname "$2")"; printf '%s\n' "$3" >> "$d/$2"; commit_all "$d"; printf '%s' "$d"; }
 nkrun() { run --repo "$1" "${BASE[@]}"; }
 D="$(nk pk $T/alpha.sh "echo start
-$PK -f myloop")"; D_nk1="$D"
+$PK -f myloop")"
 nkrun "$D"; { hasre "^name-kill ${T}/alpha.sh:3 " && [ "$RC" = 1 ]; } && ok "name kill is reported with file:LINE of the added line" || no "name-kill basic" "(rc=$RC $OUT)"
 D="$(nk ka $T/alpha.sh "$KA python3")"; nkrun "$D"; hasre "^name-kill ${T}/alpha.sh:" && ok "name-kill: second tool name" || no "killall" "($OUT)"
-D="$(nk k9 $T/alpha.sh "kill -9 -1")"; D_nk2="$D"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: kill -9 -1 (every process)" || no "kill -9 -1" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
-D="$(nk px $T/alpha.sh 'pgrep -f loop | xargs kill')"; D_nk3="$D"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: pgrep | xargs kill" || no "pgrep xargs" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
-D="$(nk sub $T/alpha.sh 'kill $(pgrep -f loop)')"; D_nk4="$D"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: kill \$(pgrep ...)" || no "kill subst" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
-D="$(nk ok1 $T/alpha.sh "$PK -f x  # writer-check: allow-name-kill reaper owns this host")"; D_nk5="$D"; nkrun "$D"
+D="$(nk k9 $T/alpha.sh "kill -9 -1")"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: kill -9 -1 (every process)" || no "kill -9 -1" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk px $T/alpha.sh 'pgrep -f loop | xargs kill')"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: pgrep | xargs kill" || no "pgrep xargs" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk sub $T/alpha.sh 'kill $(pgrep -f loop)')"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: kill \$(pgrep ...)" || no "kill subst" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk ok1 $T/alpha.sh "$PK -f x  # writer-check: allow-name-kill reaper owns this host")"; nkrun "$D"
 { ! hasre '^name-kill '; } && ok "the allow comment on the same line suppresses the finding" || no "allow comment" "($OUT)"
-D="$(nk cmt $T/alpha.sh "# cleanup; $PK -f loop")"; D_nk6="$D"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "a comment-only line is not scanned" || no "comment line" "($OUT)"
-D="$(nk md $T/notes.md "$PK -f anything")"; D_nk7="$D"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "documentation (.md) mentioning the word does not trip" || no "md false positive" "($OUT)"
+D="$(nk cmt $T/alpha.sh "# cleanup; $PK -f loop")"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "a comment-only line is not scanned" || no "comment line" "($OUT)"
+D="$(nk md $T/notes.md "$PK -f anything")"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "documentation (.md) mentioning the word does not trip" || no "md false positive" "($OUT)"
 D="$(nk guard $T/alpha.sh "source hook-pretool-$PK-guard.sh")"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "the token '$PK-guard' is not a kill" || no "guard token" "($OUT)"
 D="$(nk word $T/alpha.sh 'echo skill killing-time pkillx')"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "similar words (skill, killing, longer identifiers) do not trip" || no "similar words" "($OUT)"
 D="$(newcase pre)"; printf '# c\n' >> "$D/$T/old.sh"; commit_all "$D"; nkrun "$D"
 { ! hasre '^name-kill '; } && ok "a PRE-EXISTING name kill on an untouched line is not reported" || no "pre-existing" "($OUT)"
 D="$(newcase hunk2)"; { printf 'x1\nx2\nx3\nx4\nx5\nx6\nx7\nx8\nx9\nx10\n'; } > "$D/$T/hk.sh"; commit_all "$D"; ( cd "$D" && git tag base2 )
 { printf 'x1\nx2\nx3\nx4\nx5\nx6\nx7\nx8\n%s -x y\nx10\n' "$PK"; } > "$D/$T/hk.sh"; commit_all "$D"
-D_hunk="$D"; run --repo "$D" --base base2; hasre "^name-kill ${T}/hk.sh:9 " && ok "line number is right in a later hunk" || no "hunk line number" "($OUT)"
+run --repo "$D" --base base2; hasre "^name-kill ${T}/hk.sh:9 " && ok "line number is right in a later hunk" || no "hunk line number" "($OUT)"
 D="$(nk tst $TS/a.test.sh "$PK -f loop")"; nkrun "$D"; hasre "^name-kill ${TS}/a.test.sh:" && ok "test files are scanned too" || no "tests scanned" "($OUT)"
-D="$(nk cp1 $T/alpha.sh 'make && pkill -f x')"; D_cp1="$D"; nkrun "$D"; hasre '^name-kill ' && ok "command position after &&" || no "cp &&" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk cp1 $T/alpha.sh 'make && pkill -f x')"; nkrun "$D"; hasre '^name-kill ' && ok "command position after &&" || no "cp &&" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
 D="$(nk cp2 $T/alpha.sh 'sudo -n killall python3')"; nkrun "$D"; hasre '^name-kill ' && ok "command position after sudo -n" || no "cp sudo" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
 D="$(nk cp3 $T/alpha.sh 'FOO=1 /usr/bin/pkill -9 loop')"; nkrun "$D"; hasre '^name-kill ' && ok "command position after VAR=x with an absolute path" || no "cp abs" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
 D="$(nk cp4 $T/alpha.sh 'timeout 5 pkill -f loop')"; nkrun "$D"; hasre '^name-kill ' && ok "command position after timeout N" || no "cp timeout" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
 D="$(nk cp5 $T/alpha.sh 'x=$(pkill -f loop)')"; nkrun "$D"; hasre '^name-kill ' && ok "command position inside \$( )" || no "cp subst" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
 D="$(nk str1 $T/alpha.sh "grep -Eq '$PK|pgrep' file")"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "a grep pattern naming the tool is not a kill" || no "grep pattern" "($OUT)"
-D="$(nk str2 $T/alpha.sh 'echo "never use pkill -f on loops"')"; D_str2="$D"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "prose inside a quoted echo is not a kill" || no "echo prose" "($OUT)"
+D="$(nk str2 $T/alpha.sh 'echo "never use pkill -f on loops"')"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "prose inside a quoted echo is not a kill" || no "echo prose" "($OUT)"
 D="$(nk str3 $T/alpha.sh "STDIN='{\"tool_input\":{\"command\":\"pkill -f foo\"}}'")"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "a JSON fixture string naming the tool is not a kill" || no "json fixture" "($OUT)"
 D="$(nk str4 $T/alpha.sh 'case_pkill_closed() { :; }')"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "an identifier containing the tool name is not a kill" || no "identifier" "($OUT)"
-D="$(nk pyl $T/helper.py "cmd = [\"$PK\", \"-f\", \"x\"]")"; D_pyl="$D"; nkrun "$D"; hasre "^name-kill ${T}/helper.py:1 " && ok "python argv-list form is a kill" || no "py argv" "($OUT)"
-D="$(nk pid $T/alpha.sh 'pidof loop | xargs kill -9')"; D_nk8="$D"; nkrun "$D"; hasre '^name-kill ' && ok "pidof piped into xargs kill is a name kill" || no "pidof pipe" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk pyl $T/helper.py "cmd = [\"$PK\", \"-f\", \"x\"]")"; nkrun "$D"; hasre "^name-kill ${T}/helper.py:1 " && ok "python argv-list form is a kill" || no "py argv" "($OUT)"
+D="$(nk pid $T/alpha.sh 'pidof loop | xargs kill -9')"; nkrun "$D"; hasre '^name-kill ' && ok "pidof piped into xargs kill is a name kill" || no "pidof pipe" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
 D="$(nk py $T/helper.py "import os; os.system('$PK -f x')")"; nkrun "$D"; hasre "^name-kill ${T}/helper.py:1 " && ok "python files are scanned" || no "py scanned" "($OUT)"
 D="$(nk two $T/alpha.sh "$PK a
 $KA b")"; nkrun "$D"; { [ "$(grep -c '^name-kill ' <<<"$OUT")" = 2 ]; } && ok "two offending added lines -> two findings" || no "two kills" "($OUT)"
@@ -322,7 +346,7 @@ D_c="$(kase wtl_check $T/alpha.sh)"; run --repo "$D_c" --write-teeth-log "$TMP/w
 printf '#!/usr/bin/env bash\necho "-- teeth --"; echo "  FAIL  boom"; echo "== 1 passed · 1 failed =="; exit 1\n' > "$D/$TS/red.test.sh"
 run --repo "$D" --write-teeth-log "$TMP/wl3" --base base "$TS/red.test.sh"
 { [ "$RC" = 1 ] && ehas 'FAIL  research-sdd/toolbelt/tests/red.test.sh: exit 1'; } && ok "a failing suite -> exit 1, FAIL line, log still written" || no "failing suite" "(rc=$RC $ERR)"
-printf '#!/usr/bin/env bash\nsleep 5\n' > "$D/$TS/slow.test.sh"; D_slow="$D"
+printf '#!/usr/bin/env bash\nsleep 5\n' > "$D/$TS/slow.test.sh"
 KIT_WRITER_CHECK_TIMEOUT=1 run --repo "$D" --write-teeth-log "$TMP/wl4" --base base "$TS/slow.test.sh"
 { [ "$RC" = 1 ] && ehas 'timed out after 1s'; } && ok "a suite over the timeout is killed and reported (timeout, not a name kill)" || no "timeout" "(rc=$RC $ERR)"
 KIT_WRITER_CHECK_TIMEOUT=abc run --repo "$D" --write-teeth-log "$TMP/wl5" --base base "$TS/a.test.sh"; { [ "$RC" = 2 ] && ehas 'KIT_WRITER_CHECK_TIMEOUT must be a positive integer'; } && ok "invalid timeout value -> degraded, exit 2" || no "bad timeout" "(rc=$RC $ERR)"
@@ -411,79 +435,29 @@ run --repo "$D" "${BASE[@]}" stray; { [ "$RC" = 2 ]; } && ok "stray positional i
 
 # =================================================================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth --"
+  echo "-- teeth: the shim must dispatch to rsdd maint writer-check with the caller's arguments and its own impact map --"
+  # a mutant of the shim must still find ../lib/rsdd-exec.sh and ../tests/suite-impact.sh: it lives in a throwaway kit skeleton
+  KC="$MUT/kit"; mkdir -p "$KC/maint" && ln -s "$HERE/../lib" "$KC/lib" && ln -s "$HERE" "$KC/tests"
   # mt LABEL GOOD-RC BAD-RC SED-EXPR [tooth flags...] -- ARGV...
   mt() {
     local label="$1" grc="$2" brc="$3" expr="$4"; shift 4
-    local m; m="$MUT/m-$(printf '%s' "$label" | tr -c 'A-Za-z0-9' '_').sh"
+    local m; m="$KC/maint/m-$(printf '%s' "$label" | tr -c 'A-Za-z0-9' '_').sh"
     mk_sed "$label" "$m" "$expr" && tooth "teeth: $label" "$grc" "$brc" "$m" "$@"
   }
   TA="$(kase t_alpha $T/alpha.sh)"
-  mt "teeth banner no longer required" 1 0 's/if ! grep -qEi/if false \&\& grep -qEi/' \
-    -- "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}" --teeth-log "$TMP/logs_plain"
-  mt "FAIL-line check removed" 1 0 's/if grep -qE .\^  FAIL  . "\$log"; then/if false; then/' \
-    -- "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}" --teeth-log "$TMP/logs_failline"
-  mt "zero-passed check removed" 1 0 's/if \[ "\${n%% \*}" = "0" \]; then/if false; then/' \
-    -- "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}" --teeth-log "$TMP/logs_zero"
-  mt "failed-summary check removed" 1 0 's/if \[ "\${n#\* }" != "0" \]; then/if false; then/' \
-    -- "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}" --teeth-log "$TMP/logs_failed"
-  mt "first summary used instead of last" 0 1 's/| tail -n 1)"/| head -n 1)"/' \
-    -- "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}" --teeth-log "$TMP/logs_last"
-  mt "missing log tolerated" 1 0 's/echo "missing|no log \$(basename -- "\$log")"; return; fi/return; fi/' \
-    -- "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}" --teeth-log "$TMP/logs_missing"
-  mt "empty log no longer named" 1 1 's/if \[ ! -s "\$log" \]; then echo "missing|log is empty"; return; fi//' \
-    --good-has 'log is empty' --bad-lacks 'log is empty' -- "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}" --teeth-log "$TMP/logs_empty"
-  mt "no-suite finding dropped" 1 0 's/if \[ "\$n" -eq 0 \]; then printf/if false; then printf/' \
-    -- "$BASH_BIN" @SUT@ --repo "$D_solo" "${BASE[@]}"
-  mt "changed suites no longer required" 1 0 's/^cat "\$TMP\/chsuites" >> "\$TMP\/req"$/:/' \
-    -- "$BASH_BIN" @SUT@ --repo "$D3" "${BASE[@]}"
-  mt "rename resolves to the old path" 1 1 's/R\*|C\*) p="\$b"/R*|C*) p="$a"/' \
-    --good-has 'no-suite research-sdd/toolbelt/beta2.sh' --bad-lacks 'beta2.sh' -- "$BASH_BIN" @SUT@ --repo "$D_ren" "${BASE[@]}"
-  mt "FULL note dropped" 0 0 's/if \[ -n "\$FULL_REASON" \]; then printf/if false; then printf/' \
-    --good-has 'full-gate-needed' --bad-lacks 'full-gate-needed' -- "$BASH_BIN" @SUT@ --repo "$D_lib" "${BASE[@]}"
-  mt "required: 0 note dropped" 0 0 's/if \[ "\$NREQ" -eq 0 \]; then/if false; then/' \
-    --good-has 'required: 0' --bad-lacks 'required: 0' -- "$BASH_BIN" @SUT@ --repo "$D_doc" "${BASE[@]}"
-  mt "suite-impact failure ignored" 2 1 's/if \[ "\$irc" -ne 0 \]; then/if false; then/' \
-    --good-has 'suite-impact.sh exited 2' --bad-lacks 'suite-impact.sh exited' -- env "KIT_WRITER_CHECK_IMPACT=$TMP/badimpact.sh" "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}"
-  mt "name-kill pattern dead" 1 0 's/\[p\]kill|\[k\]illall/ZZZ/' -- "$BASH_BIN" @SUT@ --repo "$D_nk1" "${BASE[@]}" --teeth-log "$(lg "$D_nk1")"
-  mt "kill -1 pattern dead" 1 0 's/\[k\]ill\[\[:space:\]\]+(-/[k]illZ[[:space:]]+(-/' -- "$BASH_BIN" @SUT@ --repo "$D_nk2" "${BASE[@]}" --teeth-log "$(lg "$D_nk2")"  # writer-check: allow-name-kill label text, never executed
-  mt "pgrep-xargs pattern dead" 1 0 's/(xargs|while)\[^&\]\*/(xargsZ)[^\&]*/' -- "$BASH_BIN" @SUT@ --repo "$D_nk3" "${BASE[@]}" --teeth-log "$(lg "$D_nk3")"
-  mt "kill-subst pattern dead" 1 0 's/\[k\]ill\[^;|&\]\*/ZZ/' -- "$BASH_BIN" @SUT@ --repo "$D_nk4" "${BASE[@]}" --teeth-log "$(lg "$D_nk4")"
-  mt "allow comment ignored" 0 1 's/if (line ~ \/writer-check:/if (0 \&\& line ~ \/writer-check:/' -- "$BASH_BIN" @SUT@ --repo "$D_nk5" "${BASE[@]}" --teeth-log "$(lg "$D_nk5")"
-  mt "comment-line skip removed" 0 1 's@if (line ~ /^\[\[:space:\]\]\*(#|\\/\\/)/) next@if (0) next@' -- "$BASH_BIN" @SUT@ --repo "$D_nk6" "${BASE[@]}" --teeth-log "$(lg "$D_nk6")"
-  mt "non-code files scanned" 0 1 's@scan = (f ~ /\\.(sh|bash|py|mjs|cjs|js|ts)\$/)@scan = 1@' -- "$BASH_BIN" @SUT@ --repo "$D_nk7" "${BASE[@]}" --teeth-log "$(lg "$D_nk7")"
-  mt "FULL uses the whole closure instead of direct suites" 1 1 's/^  if \[ -n "\$FULL_REASON" \]; then$/  if false; then/' \
-    --good-lacks '/t[.]test[.]sh' --bad-has '/t[.]test[.]sh' -- "$BASH_BIN" @SUT@ --repo "$D_fd" "${BASE[@]}"
-  mt "FULL fallback to the map removed" 1 1 's/^  if \[ "\$n" -eq 0 \]; then$/  if false; then/' \
-    --good-lacks '^no-suite' --bad-has '^no-suite' -- "$BASH_BIN" @SUT@ --repo "$D_fl" "${BASE[@]}"
-  mt "command-position rule dropped (prose trips)" 0 1 's/cmd = pre opt /cmd = "[ ]" /' \
-    -- "$BASH_BIN" @SUT@ --repo "$D_str2" "${BASE[@]}" --teeth-log "$(lg "$D_str2")"
-  mt "separator & no longer a command position" 1 0 's/\[;&|(/[;|(/' \
-    -- "$BASH_BIN" @SUT@ --repo "$D_cp1" "${BASE[@]}" --teeth-log "$(lg "$D_cp1")"
-  mt "python argv-list form dropped" 1 1 's/(script && (line ~ argv || line ~ call))/(script \&\& line ~ call)/' \
-    --good-has '^name-kill' --bad-lacks '^name-kill' -- "$BASH_BIN" @SUT@ --repo "$D_pyl" "${BASE[@]}" --teeth-log "$(lg "$D_pyl")"
-  mt "binding comparison removed" 1 0 's/if \[ "\${first##\* tree=}" != "\${BIND_HDR##\* tree=}" \]; then/if false; then/' \
-    -- "$BASH_BIN" @SUT@ --repo "$D_b" "${BASE[@]}" --teeth-log "$TMP/wb"
-  mt "header requirement removed" 1 1 's/if ! grep -qE .\^# writer-check: head=\[0-9a-f\]+ tree=\[0-9a-f\]{40}\$. <<<"\$first"; then/if false; then/' \
-    --good-has 'no writer-check header' --bad-lacks 'no writer-check header' -- "$BASH_BIN" @SUT@ --repo "$D_b4" "${BASE[@]}" --teeth-log "$TMP/hand"
-  mt "waiver no longer applied" 0 1 's/if \[ -n "\$wr" \]; then printf/if false; then printf/' \
-    -- "$BASH_BIN" @SUT@ --repo "$D_w" "${BASE[@]}"
-  mt "reason-less waiver accepted" 1 0 's/\[ -z "\$wreason" \]/false/' \
-    --good-has '^bad-waiver' --bad-lacks '^bad-waiver' -- "$BASH_BIN" @SUT@ --repo "$D_w3" "${BASE[@]}"
-  mt "tests/lib no longer production" 0 0 's#research-sdd/toolbelt/tests/lib/\*) ;;#research-sdd/toolbelt/tests/lib/*) return 1 ;;#' \
-    --good-has '^production ' --bad-lacks '^production ' -- "$BASH_BIN" @SUT@ --classify research-sdd/toolbelt/tests/lib/mutant.sh
-  mt "install/tests counted as production" 0 0 's#^    research-sdd/install/tests/\*) return 1 ;;##' \
-    --good-has '^other ' --bad-lacks '^other ' -- "$BASH_BIN" @SUT@ --classify research-sdd/install/tests/helper.sh
-  mt "templates no longer production" 0 0 's#|research-sdd/templates/\*) ;;#) ;;#' \
-    --good-has '^production ' --bad-lacks '^production ' -- "$BASH_BIN" @SUT@ --classify research-sdd/templates/hook-kit-run.sh
-  mt "extension filter narrowed" 0 0 's#\*\.sh|\*\.py|\*\.mjs|\*\.js|\*\.cjs|\*\.ts) return 0#*.sh) return 0#' \
-    --good-has '^production ' --bad-lacks '^production ' -- "$BASH_BIN" @SUT@ --classify research-sdd/toolbelt/x.ts
-  mt "pidof not scanned" 1 0 's/pipekill = "(\[p\]grep|\[p\]idof)/pipekill = "([p]grep)/' \
-    -- "$BASH_BIN" @SUT@ --repo "$D_nk8" "${BASE[@]}" --teeth-log "$(lg "$D_nk8")"
-  mt "hunk line numbering off by one" 1 1 's/ln=a\[1\]+0; next/ln=a[1]+1; next/' \
-    --good-has ':9 ' --bad-lacks ':9 ' -- "$BASH_BIN" @SUT@ --repo "$D_hunk" --base base2
-  mt "timeout wrapper removed" 1 0 's/timeout "\$T_OUT" bash "\$sp"/bash "$sp"/' \
-    -- env KIT_WRITER_CHECK_TIMEOUT=1 "$BASH_BIN" @SUT@ --repo "$D_slow" --write-teeth-log "$TMP/wlt" --base base "$TS/slow.test.sh"
+  # shellcheck disable=SC2016  # the sed expressions are literal text
+  {
+    mt "s1 shim dispatches to the sibling command" 0 2 's/^rsdd_exec maint writer-check /rsdd_exec maint gate /' \
+      --good-has "production $T/foo.sh" --bad-lacks "production $T/foo.sh" -- "$BASH_BIN" @SUT@ --classify "$T/foo.sh"
+    mt "s2 shim drops the caller's arguments" 0 2 's/^rsdd_exec maint writer-check "\$@"$/rsdd_exec maint writer-check/' \
+      --good-has "production $T/foo.sh" --bad-lacks "production $T/foo.sh" -- "$BASH_BIN" @SUT@ --classify "$T/foo.sh"
+    mt "s3 shim no longer names its own impact map" 1 2 's/^export KIT_WRITER_CHECK_IMPACT=.*$/:/' \
+      --good-has 'Required suites: 2' --bad-lacks 'Required suites: 2' \
+      -- env -u KIT_WRITER_CHECK_IMPACT -u RESEARCH_SDD_KIT "HOME=$TMP/nohome" "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}"
+    mt "s4 shim ignores a caller's impact map" 2 1 's/^export KIT_WRITER_CHECK_IMPACT=.*$/export KIT_WRITER_CHECK_IMPACT="$_RSDD_SELF\/..\/tests\/suite-impact.sh"/' \
+      --good-has 'suite-impact.sh exited 2: boom' --bad-lacks 'suite-impact.sh exited 2: boom' \
+      -- env "KIT_WRITER_CHECK_IMPACT=$TMP/badimpact.sh" "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}"
+  }
 fi
 
 echo "== $pass passed · $fail failed =="

@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# verify-tool-catalog.test.sh — red-first harness for verify-tool-catalog.sh.
-# Covers: absent-input (both files), empty-input, no-match (clean), single missing tool,
-# dedup across repeated log rows, first/middle/last row coverage, and mutation proof
-# via --prove-teeth.
+# verify-tool-catalog.test.sh — harness for verify-tool-catalog.sh, now a shim to `rsdd verify tool-catalog`
+# (kit issue #2749).
+# Cases 1-12 run the SHIM end to end against the real Go binary (RSDD_BIN, else built once from research-sdd/rsdd):
+# absent-input (both files), empty-input, no-match (clean), single missing tool, dedup, first/middle/last row,
+# no trailing newline, the Tool-paths table, the "## <tool> (...)" form, case-insensitive match and the alias token.
+# The report is also pinned byte for byte against the old bash script, in both locales, by the Go differential and
+# golden tests (internal/verify/toolcatalog, `make test`); the mutation teeth that targeted that bash (the WARN
+# emission, the dedup, -w, -i, the form-2 extraction) moved there with it (`make teeth`). Cases 13-16 pin the shim:
+# own-directory argument, symlinked invocation, missing lib, unusable binary (a typed degraded state, never a silent
+# pass). --prove-teeth mutates the SHIM (each mutant must lose its case).
 # Exit: 0 = every assertion held · 1 = regression · 2 = harness error.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -15,12 +21,20 @@ pass=0; fail=0
 ok() { printf '  PASS  %-70s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-70s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
-# mkkit <name> — a fresh toolbelt/ dir with a copy of the SUT, ready for fixture files.
+# The Go binary the shim execs: the caller's RSDD_BIN, else one build into the temp dir.
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$ROOT/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  export RSDD_BIN="$ROOT/rsdd"
+fi
+
+# stage_shim DEST [SHIM] — a toolbelt dir holding the shim (the real one, or a mutant) and lib/rsdd-exec.sh.
+stage_shim() { mkdir -p "$1/lib"; cp "${2:-$SUT}" "$1/verify-tool-catalog.sh"; chmod +x "$1/verify-tool-catalog.sh"; cp "$HERE/../lib/rsdd-exec.sh" "$1/lib/" || exit 2; }   # stage-libs-ok: the shim needs only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case 15
+
+# mkkit <name> — a fresh toolbelt/ dir with the shim, ready for fixture files.
 mkkit() {
   local kit="$ROOT/$1"
-  mkdir -p "$kit"
-  cp "$SUT" "$kit/verify-tool-catalog.sh"
-  chmod +x "$kit/verify-tool-catalog.sh"
+  stage_shim "$kit"
   printf '%s' "$kit"
 }
 
@@ -242,6 +256,44 @@ else
     "with_alias=[exit=$alias_present_rc out=$alias_present_out] without_alias=[exit=$alias_absent_rc out=$alias_absent_out]"
 fi
 
+# stub_bin RC OUTPUT — a fake rsdd that records its arguments (one per line) in $ROOT/args, prints OUTPUT, exits RC.
+stub_bin() {
+  printf '%s' "$2" > "$ROOT/stub-out.txt"; : > "$ROOT/args"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s"\ncat "%s"\nexit %s\n' "$ROOT/args" "$ROOT/stub-out.txt" "$1" > "$ROOT/stub-rsdd"
+  chmod +x "$ROOT/stub-rsdd"
+}
+
+# 13 — the shim hands the binary the group, the command and its OWN directory (never the caller's cwd), and the
+#      binary's output and exit code pass through unchanged.
+kit="$(mkkit c13-args)"; PHYS="$(cd -P "$kit" && pwd -P)"
+stub_bin 1 "stub report"
+OUT="$(cd "$ROOT" && RSDD_BIN="$ROOT/stub-rsdd" "$BASH_BIN" "$kit/verify-tool-catalog.sh" extra-arg 2>&1)"; RC=$?
+if [ "$RC" = 1 ] && [ "$OUT" = "stub report" ] && [ "$(tr '\n' ' ' < "$ROOT/args")" = "verify tool-catalog $PHYS " ]; then
+  ok "13 shim → 'verify tool-catalog <own dir>', output and exit code pass through, arguments not forwarded" "(exit $RC)"
+else
+  no "13 shim contract" "rc=$RC out=[$OUT] args=[$(tr '\n' ' ' < "$ROOT/args")]"
+fi
+
+# 14 — invoked through a symlink in another directory, the shim still names its REAL directory.
+mkdir -p "$ROOT/elsewhere"; ln -s "$kit/verify-tool-catalog.sh" "$ROOT/elsewhere/link.sh"
+stub_bin 0 ""
+RSDD_BIN="$ROOT/stub-rsdd" "$BASH_BIN" "$ROOT/elsewhere/link.sh" >/dev/null 2>&1
+if [ "$(tail -n 1 "$ROOT/args")" = "$PHYS" ]; then ok "14 symlinked shim → binary gets the physical own directory"; else no "14 symlink" "args=[$(tr '\n' ' ' < "$ROOT/args")] want ...$PHYS"; fi
+
+# 15 — the shim's own lib missing → a typed degraded line, rc 2, nothing on stdout (never a silent pass).
+mkdir -p "$ROOT/nolib"; cp "$SUT" "$ROOT/nolib/verify-tool-catalog.sh"
+OUT="$("$BASH_BIN" "$ROOT/nolib/verify-tool-catalog.sh" 2>"$ROOT/err15")"; RC=$?
+if [ "$RC" = 2 ] && [ -z "$OUT" ] && grep -q '^degraded: rsdd-unavailable — rsdd-exec.sh missing beside ' "$ROOT/err15"; then
+  ok "15 lib missing → degraded line on stderr, rc 2, empty stdout" "(exit $RC)"
+else no "15 lib missing" "rc=$RC out=[$OUT] err=[$(cat "$ROOT/err15")]"; fi
+
+# 16 — rsdd unusable → a typed degraded state on stderr, rc 2 (the check never "passes" without a binary).
+kit="$(mkkit c16-nobin)"
+OUT="$(RSDD_BIN="$ROOT/does-not-exist" "$BASH_BIN" "$kit/verify-tool-catalog.sh" 2>"$ROOT/err16")"; RC=$?
+if [ "$RC" = 2 ] && [ -z "$OUT" ] && grep -q '^degraded: rsdd-unavailable — RSDD_BIN not executable: ' "$ROOT/err16"; then
+  ok "16 rsdd unusable → degraded line, rc 2, empty stdout" "(exit $RC)"
+else no "16 rsdd unusable" "rc=$RC out=[$OUT] err=[$(cat "$ROOT/err16")]"; fi
+
 # ======================== TEETH (mutation proof) — --prove-teeth ==========================
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
@@ -249,148 +301,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_built mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
-  mk_mut(){ mutant_chain_or_count fail "$@" || return 1; }
-  mk_built(){ mutant_built_or_count fail "$@" || return 1; }
-  # Every bite below also requires the Summary line, so a crashed mutant (no output) never reads as a bite.
-  echo "-- teeth: verify-tool-catalog.sh must go RED under meaningful mutations --"
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
+  echo "-- teeth: each shim mutation must lose its case --"
 
-  # Tooth A: disable the WARN emission for missing tools (simulates a broken/silenced guard).
-  # Test 5 (single uncataloged tool must WARN) must catch this and go RED.
-  kit="$(mkkit tA-no-warn)"
-  { installed_header; printf '| typst | `brew` | already | kit | 2026-01-01T00:00:00Z | v0.15.1 |\n'; } \
-    > "$kit/INSTALLED-TOOLS.md"
-  printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n' > "$kit/tool-registry.md"
-  if mk_mut "teeth A: WARN-emission silenced" "$SUT" "$kit/verify-tool-catalog.sh" \
-    "s/echo \"WARN  installed-but-not-cataloged/: \"WARN  installed-but-not-cataloged/"; then
-    chmod +x "$kit/verify-tool-catalog.sh"
-    run "$kit"
-    if ! grep -q "WARN.*'typst'" <<<"$OUT" && grep -q 'distinct tool(s)' <<<"$OUT"; then
-      ok "teeth A: WARN-emission mutant silences the finding → test 5 would catch it (RED)"
-    else
-      no "teeth A: WARN-emission mutant still emitted the WARN — mutation ineffective"
-    fi
+  # A: the own-directory argument dropped → the binary would check the cwd; case 13 sees no directory.
+  if mk_mut "teeth A: own dir dropped" "$SUT" "$ROOT/mutA.sh" 's/ "\$_RSDD_SELF"$//'; then
+    stage_shim "$ROOT/mA" "$ROOT/mutA.sh"; stub_bin 0 ""
+    RSDD_BIN="$ROOT/stub-rsdd" "$BASH_BIN" "$ROOT/mA/verify-tool-catalog.sh" >/dev/null 2>&1
+    if [ "$(tr '\n' ' ' < "$ROOT/args")" = "verify tool-catalog " ]; then ok "teeth A: own dir dropped → case 13 would go RED"; else no "teeth A: mutant still passes the own dir" "args=[$(tr '\n' ' ' < "$ROOT/args")]"; fi
   fi
-
-  # Tooth B: break dedup (drop the awk dedup filter) — inflates the distinct-tool count.
-  # Test 6 (3 rows, same tool name → 2 distinct) must catch this and go RED.
-  kit="$(mkkit tB-no-dedup)"
-  { installed_header
-    printf '| blutter | `git clone` | installed | targetA | 2026-01-01T00:00:00Z | n/a |\n'
-    printf '| blutter-build | `brew` | failed | targetA | 2026-01-02T00:00:00Z | n/a |\n'
-    printf '| blutter | `precheck` | incompatible | targetB | 2026-01-03T00:00:00Z | n/a |\n'
-  } > "$kit/INSTALLED-TOOLS.md"
-  printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n' > "$kit/tool-registry.md"
-  # Literal string replace via python3 (regex escaping of `[$0]` in sed is a false-friend hazard —
-  # exact-substring replace sidesteps it entirely).
-  rm -f "$kit/verify-tool-catalog.sh"   # a failed anchor assert must leave NO file, never the previous tooth's mutant
-  python3 -c "
-import sys
-src = open('$SUT').read()
-old = \"awk '!seen[\$0]++'\"
-new = 'cat'
-assert old in src, 'mutation anchor not found in SUT'
-open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
-"
-  if mk_built "teeth B: dedup removed" "$SUT" "$kit/verify-tool-catalog.sh"; then
-    chmod +x "$kit/verify-tool-catalog.sh"
-    run "$kit"
-    if ! grep -q '2 distinct tool(s)' <<<"$OUT" && grep -q '[0-9] distinct tool(s)' <<<"$OUT"; then
-      ok "teeth B: dedup-removal mutant inflates the count → test 6 would catch it (RED)"
-    else
-      no "teeth B: dedup-removal mutant still reported 2 distinct — mutation ineffective"
-    fi
+  # B: the wrong command (the hook instead of the check) → the binary's answer is an envelope, not the report.
+  if mk_mut "teeth B: wrong command" "$SUT" "$ROOT/mutB.sh" 's/verify tool-catalog /verify tool-catalog-hook /'; then
+    stage_shim "$ROOT/mB" "$ROOT/mutB.sh"; stub_bin 0 ""
+    RSDD_BIN="$ROOT/stub-rsdd" "$BASH_BIN" "$ROOT/mB/verify-tool-catalog.sh" >/dev/null 2>&1
+    if [ "$(sed -n 2p "$ROOT/args")" = "tool-catalog-hook" ]; then ok "teeth B: wrong command → case 13 would go RED"; else no "teeth B: mutant still runs the check" "args=[$(tr '\n' ' ' < "$ROOT/args")]"; fi
   fi
-
-  # Tooth C: widen the registry match from whole-word (-w) to bare substring, so a short tool
-  # name (e.g. "capa") false-matches inside an unrelated longer word in the registry.
-  # A dedicated fixture (not tests 1-9) isolates this false-positive class.
-  kit="$(mkkit tC-substring)"
-  { installed_header; printf '| capa | `brew` | installed | kit | 2026-01-01T00:00:00Z | n/a |\n'; } \
-    > "$kit/INSTALLED-TOOLS.md"
-  printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\nlong capacity build note\n' \
-    > "$kit/tool-registry.md"
-  rm -f "$kit/verify-tool-catalog.sh"   # a failed anchor assert must leave NO file, never the previous tooth's mutant
-  python3 -c "
-src = open('$SUT').read()
-old = 'grep -qiwF'
-new = 'grep -qiF'
-assert old in src, 'mutation anchor not found in SUT'
-open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
-"
-  if mk_built "teeth C: substring match" "$SUT" "$kit/verify-tool-catalog.sh"; then
-    chmod +x "$kit/verify-tool-catalog.sh"
-    run "$kit"
-    if grep -q '0 not cataloged' <<<"$OUT"; then
-      ok "teeth C: substring-match mutant false-positives on 'capacity' → dedicated check catches it (RED)"
-    else
-      no "teeth C: substring-match mutant did not false-positive — mutation ineffective, cannot prove -w matters"
-    fi
+  # C: the missing-lib guard stripped → no degraded line and no rc 2 → case 15.
+  if mk_mut "teeth C: guard removed" "$SUT" "$ROOT/mutC.sh" 's/ 2>\/dev\/null || { printf .*exit 2; }//'; then
+    mkdir -p "$ROOT/mC"; cp "$ROOT/mutC.sh" "$ROOT/mC/verify-tool-catalog.sh"
+    OUT="$("$BASH_BIN" "$ROOT/mC/verify-tool-catalog.sh" 2>"$ROOT/errC")"; RC=$?
+    if ! grep -q '^degraded: rsdd-unavailable' "$ROOT/errC"; then ok "teeth C: unguarded shim announces nothing when the lib is missing → case 15 would go RED"; else no "teeth C: mutant still announces" "rc=$RC"; fi
   fi
-
-  # Tooth D: strip the Form-2 (narrative "## <tool> (...)") extraction — those entries then vanish
-  # from the sweep. Test 10 (section tool must be checked) must catch this and go RED.
-  kit="$(mkkit tD-no-section)"
-  { installed_header
-    printf '| table-tool | \x60brew\x60 | installed | kit | 2026-01-01T00:00:00Z | n/a |\n'
-    printf '\n## section-gap (manual tool) — 2026-07-02\n'
-  } > "$kit/INSTALLED-TOOLS.md"
-  printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n| A | table-tool direct |\n' \
-    > "$kit/tool-registry.md"
-  # Remove both lines that reference the Form-2 variable (extraction + append). The comment uses
-  # "section names" (space), so only the two code lines carry the "section_names" token.
-  grep -v 'section_names' "$SUT" > "$kit/verify-tool-catalog.sh"
-  if mk_built "teeth D: Form-2 extraction stripped" "$SUT" "$kit/verify-tool-catalog.sh"; then
-    chmod +x "$kit/verify-tool-catalog.sh"
-    run "$kit"
-    if ! grep -q "WARN.*'section-gap'" <<<"$OUT" && grep -q 'distinct tool(s)' <<<"$OUT"; then
-      ok "teeth D: Form-2 extraction stripped → '## <tool>' entry vanishes → test 10 catches it (RED)"
-    else
-      no "teeth D: Form-2 stripped but section tool still seen — mutation ineffective"
-    fi
-  fi
-
-  # Tooth E: strip -i from the matcher (grep -qiwF → grep -qwF) — logged lowercase tool names
-  # cataloged only in Title/upper case must then generate false WARNs (the false-negative
-  # the case fix closes). Case 11 (vineflower/Vineflower) must catch this and go RED.
-  kit="$(mkkit tE-no-case-i)"
-  { installed_header; printf '| vineflower | `brew` | installed | kit | 2026-01-01T00:00:00Z | n/a |\n'; } \
-    > "$kit/INSTALLED-TOOLS.md"
-  { printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n'
-    printf '| JAR decompile | Vineflower direct |\n'
-  } > "$kit/tool-registry.md"
-  rm -f "$kit/verify-tool-catalog.sh"   # a failed anchor assert must leave NO file, never the previous tooth's mutant
-  python3 -c "
-src = open('$SUT').read()
-old = 'grep -qiwF'
-new = 'grep -qwF'
-assert old in src, 'mutation anchor not found in SUT'
-open('$kit/verify-tool-catalog.sh', 'w').write(src.replace(old, new))
-"
-  if mk_built "teeth E: -i stripped" "$SUT" "$kit/verify-tool-catalog.sh"; then
-    chmod +x "$kit/verify-tool-catalog.sh"
-    run "$kit"
-    if grep -q "WARN.*'vineflower'" <<<"$OUT"; then
-      ok "teeth E: -i stripped → case mismatch generates false WARN for 'vineflower' → case 11 catches it (RED)"
-    else
-      no "teeth E: -i stripped but WARN absent — mutation ineffective, -i not what suppresses the WARN"
-    fi
-  fi
-
-  # Tooth F: alias token drives the match — removing it from the fixture must cause a WARN.
-  # Uses the un-mutated SUT to prove that without the alias token in the registry row, the logged
-  # name 'kaitai-struct-compiler' cannot match display-only 'ksc', confirming the alias is the carrier.
-  kit="$(mkkit tF-alias-removed)"
-  { installed_header; printf '| kaitai-struct-compiler | `brew` | installed | kit | 2026-01-01T00:00:00Z | n/a |\n'; } \
-    > "$kit/INSTALLED-TOOLS.md"
-  { printf '# Tool Registry\n\n| Artifact type | Tool |\n|---|---|\n'
-    printf '| Binary parse | ksc 0.11 direct |\n'
-  } > "$kit/tool-registry.md"
-  run "$kit"
-  if grep -q "WARN.*'kaitai-struct-compiler'" <<<"$OUT" && grep -q '1 not cataloged' <<<"$OUT"; then
-    ok "teeth F: alias token absent from registry row → 'kaitai-struct-compiler' WARNs as expected (RED)"
-  else
-    no "teeth F: alias token absent but no WARN — fixture or SUT behavior changed" "out=[$OUT]"
+  # D: the caller's cwd instead of the own directory → case 13 (run from another cwd) sees the wrong directory.
+  if mk_mut "teeth D: cwd instead of own dir" "$SUT" "$ROOT/mutD.sh" 's/"\$_RSDD_SELF"$/"$PWD"/'; then
+    stage_shim "$ROOT/mD" "$ROOT/mutD.sh"; stub_bin 0 ""
+    (cd "$ROOT" && RSDD_BIN="$ROOT/stub-rsdd" "$BASH_BIN" "$ROOT/mD/verify-tool-catalog.sh" >/dev/null 2>&1)
+    if [ "$(sed -n 3p "$ROOT/args")" = "$ROOT" ]; then ok "teeth D: cwd passed instead of the own directory → case 13 would go RED"; else no "teeth D: mutant still passes the own directory" "args=[$(tr '\n' ' ' < "$ROOT/args")]"; fi
   fi
 fi
 

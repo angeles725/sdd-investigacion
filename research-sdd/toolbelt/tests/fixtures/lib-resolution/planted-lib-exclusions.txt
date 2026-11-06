@@ -9,3 +9,4 @@ maint/kit-rdd-drive.sh | an rsdd shim (kit issue #2394) that sources ../lib/rsdd
 maint/kit-rdd-start.sh | an rsdd shim (kit issue #2394) that sources ../lib/rsdd-exec.sh from maint/, which the planted fixture does not model, and running it starts a native review
 maint/kit-size-check.sh | an rsdd shim (kit issue #2212) that sources ../lib/rsdd-exec.sh from maint/, which the planted fixture does not model, and running it reads a git diff
 maint/kit-wait-merge.sh | an rsdd shim (kit issue #2212) that sources ../lib/rsdd-exec.sh from maint/, which the planted fixture does not model, and running it polls and merges through gh
+maint/kit-writer-check.sh | an rsdd shim (kit issue #2212) that sources ../lib/rsdd-exec.sh from maint/, which the planted fixture does not model, and running it reads a git diff

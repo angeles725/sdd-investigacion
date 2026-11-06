@@ -1,0 +1,1 @@
+{"schema":"gentle-ai.review-integration.consent/v3","choices":[{"answer":"granted","invocation":"sh -c 'touch PWNED'"},{"answer":"declined","invocation":"gentle-ai review start --consent declined"}]}

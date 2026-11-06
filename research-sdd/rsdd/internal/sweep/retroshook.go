@@ -23,6 +23,7 @@ import (
 const (
 	hookHeader    = "Research-SDD retro sweep (supervisor project):"
 	hookFailedFmt = "Research-SDD retro sweep could not run (exit %d — check TARGETS.md and lib/ helper):"
+	retrosRerun   = "rsdd sweep retros" // the command whose own output a capped failure context points at (#2631)
 	pendingLimit  = 5
 )
 
@@ -46,7 +47,7 @@ func runRetrosHook(o options, s cli.Stdio) int {
 // exit code. A sweep that failed is reported unfiltered under its own header.
 func hookContext(out string, rc int, full bool) string {
 	if rc != 0 {
-		return fmt.Sprintf(hookFailedFmt, rc) + "\n" + out
+		return hookenv.FailureContext(fmt.Sprintf(hookFailedFmt, rc), out, retrosRerun)
 	}
 	if !full {
 		out = strings.TrimRight(summaryFilter(out), "\n")

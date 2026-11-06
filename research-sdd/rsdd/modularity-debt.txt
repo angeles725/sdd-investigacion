@@ -72,7 +72,7 @@ internal/formats/zipname.go 201 legacy recorded when the ratchet was created (#2
 internal/formats/zipout.go 436 legacy recorded when the ratchet was created (#2738)
 internal/formats/zipread.go 476 legacy recorded when the ratchet was created (#2738)
 internal/formats/zipstored.go 443 legacy recorded when the ratchet was created (#2738)
-internal/gate/merge.go 373 legacy recorded when the ratchet was created (#2738)
+internal/gate/merge.go 376 legacy recorded when the ratchet was created (#2738)
 internal/gate/mergeclosure.go 292 legacy recorded when the ratchet was created (#2738)
 internal/gate/mergefinish.go 218 legacy recorded when the ratchet was created (#2738)
 internal/gate/mergejq.go 264 legacy recorded when the ratchet was created (#2738)
