@@ -1,0 +1,14 @@
+### verify-tool-catalog (#2749)
+
+Intended divergences of `rsdd verify tool-catalog` and `rsdd verify tool-catalog-hook` (the Go port behind `verify-tool-catalog.sh` and `verify-tool-catalog-hook.sh`, kit issue #2749) from the frozen legacy scripts. Everything else is pinned, in the C and the C.UTF-8 locale, against the sha-pinned scripts by `internal/verify/toolcatalog/differential_test.go` (`!nodiff`) and replayed from `testdata/golden/cases.golden` in every build. Character classes and case follow `LC_ALL`, else `LC_CTYPE`, else `LANG`, as grep, awk and bash do.
+
+| Divergence | Legacy script | Port |
+|---|---|---|
+| An input that exists but cannot be read (mode 000) | `grep` failed into a command substitution and the failure was swallowed: an unreadable `INSTALLED-TOOLS.md` read as `(empty-input)` and an unreadable `tool-registry.md` as every tool uncataloged, both exit 0. `TestLegacyUnreadableInputReadsAsEmptyOrAllMissing`. | `verify-tool-catalog: ERROR — cannot read <path>: <error> (unreadable-input)` on stderr, exit 1 (the hook's could-not-run context). `TestUnreadableInputIsOperational`. |
+| Binary data in `INSTALLED-TOOLS.md` (a NUL byte, or in a UTF-8 locale an invalid sequence) | `grep` stopped at the first such line (`binary file matches` on stderr): every row after it was lost, and a log whose first row was bad read as `(empty-input)`. `TestLegacyBinaryLogLosesRows`. | Every line is read; an invalid byte is a character that is no letter, digit or space. `TestBinaryLogKeepsEveryRow`, `TestHookKeepsAnInvalidWarnLine` (the same for the hook's own `grep` over the check's output). |
+| More than one argument to the check | Ignored. `TestLegacyIgnoresExtraArguments`. | Usage line on stderr, exit 2. `TestRunRejectsExtraArguments`. The hook still ignores what it does not know (a hook never fails the session). |
+| Could-not-run contexts of the hook (exit other than 0, no Summary line, a panic) | Header and the whole output, however long. | `hookenv.FailureContext` (kit issue #2631, `rsdd verify tool-catalog` named as the command for the whole output); a panic is reported as `rsdd: internal-error: <value>` under the exit 1 header. `TestHookCapsEveryCouldNotRunPath`, `TestHookPanicIsCouldNotRun`, and the capped stub cases of `TestDifferentialHookStates`. |
+| Envelope when `jq` is missing | Plain text. | Always the JSON envelope, byte for byte what `jq` prints (`core/hookenv`). |
+| `WARN-line extraction failed: grep exit N` notice | Printed when the hook's `grep '^WARN'` exited 2. | Gone: selecting lines in Go cannot fail. |
+
+Kept on purpose (pinned by the differential): the name of a tool is cut at its first closing quote in the compact line (`o'brien` is listed as `o`), every comma in a name becomes a comma and a space, and `--full` counts only as the first argument of the hook (or the one after the directory).
