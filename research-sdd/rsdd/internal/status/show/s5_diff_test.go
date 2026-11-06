@@ -154,21 +154,16 @@ func s5Stage(t testing.TB) string {
 			return
 		}
 		must(t, os.MkdirAll(bin, 0o755))
-		for name, withCC := range map[string]bool{"toolbelt": true, "toolbelt-nocc": false} {
-			tb := filepath.Join(s5Dir, name)
-			must(t, os.MkdirAll(tb, 0o755))
-			must(t, os.Symlink(lib, filepath.Join(tb, "lib")))
-			fakes := map[string]string{
-				filepath.Join(tb, "research-sdd-status.sh"): string(script),
-				filepath.Join(tb, "verify-state.sh"):        fakeVerifyScript,
-				filepath.Join(tb, "reconcile-issues.sh"):    fakeReconcile,
-			}
-			if withCC {
-				fakes[filepath.Join(tb, "clean-check.sh")] = fakeCleanCheck
-			}
-			for p, body := range fakes {
-				must(t, os.WriteFile(p, []byte(body), 0o755))
-			}
+		tb := filepath.Join(s5Dir, "toolbelt")
+		must(t, os.MkdirAll(tb, 0o755))
+		must(t, os.Symlink(lib, filepath.Join(tb, "lib")))
+		for p, body := range map[string]string{
+			filepath.Join(tb, "research-sdd-status.sh"): string(script),
+			filepath.Join(tb, "verify-state.sh"):        fakeVerifyScript,
+			filepath.Join(tb, "reconcile-issues.sh"):    fakeReconcile,
+			filepath.Join(tb, "clean-check.sh"):         fakeCleanCheck,
+		} {
+			must(t, os.WriteFile(p, []byte(body), 0o755))
 		}
 		for name, body := range map[string]string{"gh": fakeGH, "git": fakeGit} {
 			must(t, os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755))
