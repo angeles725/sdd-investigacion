@@ -87,7 +87,7 @@ func TestDivergencePiToolbeltFallback(t *testing.T) {
 	sb := newSbx(t)
 	card := sb.target("pi-card")
 	env := sb.piEnv()
-	with := sb.golang(env, "--harness", "pi", card)
+	with := sb.golangRaw(env, "--harness", "pi", card)
 	if !has(with.stdout, `^aggregate\[pi\]: `) {
 		t.Fatalf("baseline run failed: %q", with.stdout)
 	}

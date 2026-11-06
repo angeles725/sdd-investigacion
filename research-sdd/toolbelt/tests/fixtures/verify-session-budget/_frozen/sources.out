@@ -3,21 +3,27 @@ source startup:
 hook[1] chars=400 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/a400.sh
 hook[2] chars=100 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh
 aggregate[startup]: 500 chars (budget < 8000) OK
+mixed[startup]: 1600 chars (budget < 8000) mixed-verdict=OK (normal total 500, all-fail 2 x 800 = 1600) — normal: none; cap 800: a400, d100
 source resume:
 hook[1] chars=400 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/a400.sh
 hook[2] chars=5000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/c5000.sh
 hook[3] chars=100 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh
 aggregate[resume]: 5500 chars (budget < 8000) OK
+mixed[resume]: 6600 chars (budget < 8000) mixed-verdict=OK (normal total 5500, all-fail 3 x 800 = 2400) — normal: c5000 5000; cap 800: a400, d100
 source clear:
 hook[1] chars=400 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/a400.sh
 hook[2] chars=100 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh
 aggregate[clear]: 500 chars (budget < 8000) OK
+mixed[clear]: 1600 chars (budget < 8000) mixed-verdict=OK (normal total 500, all-fail 2 x 800 = 1600) — normal: none; cap 800: a400, d100
 source compact:
 hook[1] chars=9000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/b9000.sh
 hook[2] chars=100 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh
 aggregate[compact]: 9100 chars (budget < 8000) OVER BUDGET
+mixed[compact]: 9800 chars (budget < 8000) mixed-verdict=OVER (normal total 9100, all-fail 2 x 800 = 1600) — normal: b9000 9000; cap 800: d100
 source fork:
 hook[1] chars=100 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh
 aggregate[fork]: 100 chars (budget < 8000) OK
+mixed[fork]: 800 chars (budget < 8000) mixed-verdict=OK (normal total 100, all-fail 1 x 800 = 800) — normal: none; cap 800: d100
 aggregate: 9100 chars (budget < 8000) OVER BUDGET worst-source=compact
+mixed: 9800 chars (budget < 8000) mixed-verdict=OVER worst-source=compact — a reading from measured normal contexts, not a bound until every hook declares a success-path maximum (#2773)
 state: ok (10 hook runs, 0 truncated, 0 timed-out)

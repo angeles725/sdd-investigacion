@@ -4,9 +4,11 @@ hook[1] chars=3000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/a3000.sh
 hook[2] chars=3000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/b3000.sh
 hook[3] chars=3000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/c3000.sh
 aggregate[startup]: 9000 chars (budget < 8000) OVER BUDGET
+mixed[startup]: 9000 chars (budget < 8000) mixed-verdict=OVER (normal total 9000, all-fail 3 x 800 = 2400) — normal: a3000 3000, b3000 3000, c3000 3000; cap 800: none
 source resume: (no matching SessionStart hooks)
 source clear: (no matching SessionStart hooks)
 source compact: (no matching SessionStart hooks)
 source fork: (no matching SessionStart hooks)
 aggregate: 9000 chars (budget < 8000) OVER BUDGET worst-source=startup
+mixed: 9000 chars (budget < 8000) mixed-verdict=OVER worst-source=startup — a reading from measured normal contexts, not a bound until every hook declares a success-path maximum (#2773)
 state: ok (3 hook runs, 0 truncated, 0 timed-out)

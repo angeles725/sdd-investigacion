@@ -3,13 +3,17 @@ source startup:
 hook[1] chars=200 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/regex200.sh
 hook[2] chars=300 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/list300.sh
 aggregate[startup]: 500 chars (budget < 8000) OK
+mixed[startup]: 1600 chars (budget < 8000) mixed-verdict=OK (normal total 500, all-fail 2 x 800 = 1600) — normal: none; cap 800: regex200, list300
 source resume:
 hook[1] chars=300 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/list300.sh
 aggregate[resume]: 300 chars (budget < 8000) OK
+mixed[resume]: 800 chars (budget < 8000) mixed-verdict=OK (normal total 300, all-fail 1 x 800 = 800) — normal: none; cap 800: list300
 source clear: (no matching SessionStart hooks)
 source compact: (no matching SessionStart hooks)
 source fork:
 hook[1] chars=50 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/fork50.sh
 aggregate[fork]: 50 chars (budget < 8000) OK
+mixed[fork]: 800 chars (budget < 8000) mixed-verdict=OK (normal total 50, all-fail 1 x 800 = 800) — normal: none; cap 800: fork50
 aggregate: 500 chars (budget < 8000) OK worst-source=startup
+mixed: 1600 chars (budget < 8000) mixed-verdict=OK worst-source=startup — a reading from measured normal contexts, not a bound until every hook declares a success-path maximum (#2773)
 state: ok (4 hook runs, 0 truncated, 0 timed-out)

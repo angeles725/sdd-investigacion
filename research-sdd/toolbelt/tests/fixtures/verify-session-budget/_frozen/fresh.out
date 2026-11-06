@@ -2,17 +2,23 @@ verify-session-budget: @FIX@/fresh
 source startup:
 hook[1] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/marker.sh
 aggregate[startup]: 5 chars (budget < 8000) OK
+mixed[startup]: 800 chars (budget < 8000) mixed-verdict=OK (normal total 5, all-fail 1 x 800 = 800) — normal: none; cap 800: marker
 source resume:
 hook[1] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/marker.sh
 aggregate[resume]: 5 chars (budget < 8000) OK
+mixed[resume]: 800 chars (budget < 8000) mixed-verdict=OK (normal total 5, all-fail 1 x 800 = 800) — normal: none; cap 800: marker
 source clear:
 hook[1] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/marker.sh
 aggregate[clear]: 5 chars (budget < 8000) OK
+mixed[clear]: 800 chars (budget < 8000) mixed-verdict=OK (normal total 5, all-fail 1 x 800 = 800) — normal: none; cap 800: marker
 source compact:
 hook[1] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/marker.sh
 aggregate[compact]: 5 chars (budget < 8000) OK
+mixed[compact]: 800 chars (budget < 8000) mixed-verdict=OK (normal total 5, all-fail 1 x 800 = 800) — normal: none; cap 800: marker
 source fork:
 hook[1] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/marker.sh
 aggregate[fork]: 5 chars (budget < 8000) OK
+mixed[fork]: 800 chars (budget < 8000) mixed-verdict=OK (normal total 5, all-fail 1 x 800 = 800) — normal: none; cap 800: marker
 aggregate: 5 chars (budget < 8000) OK worst-source=startup
+mixed: 800 chars (budget < 8000) mixed-verdict=OK worst-source=startup — a reading from measured normal contexts, not a bound until every hook declares a success-path maximum (#2773)
 state: ok (5 hook runs, 0 truncated, 0 timed-out)

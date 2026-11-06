@@ -1,0 +1,14 @@
+# Frozen reading of the normal (success-path) SessionStart context size of each hook registered in the repo's
+# .claude/settings.json, taken 2026-11-06 at origin/main 4494fb02 on one WSL2 machine with `rsdd budget session`
+# (decoded characters of additionalContext, startup source; resume and clear register the same hooks). Kit issue #2756.
+# Format: <hook script basename without .sh> <characters>. The gate in mixed_gate_test.go calibrates on THIS file,
+# never on a live run; the live reading is taken, dated and hand-verified alongside. A hook added to or removed from
+# settings.json without a line here (or a line here without a registered hook) fails the gate: re-measure, re-date.
+sweep-retros-hook 2028
+sweep-audits-hook 686
+sweep-breakthroughs-hook 650
+verify-registry-hook 1155
+verify-kit-clean-hook 0
+sweep-tools-hook 308
+verify-tool-catalog-hook 326
+verify-skill-drift-hook 622

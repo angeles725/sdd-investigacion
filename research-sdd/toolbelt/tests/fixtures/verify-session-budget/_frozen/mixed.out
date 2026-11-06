@@ -5,9 +5,11 @@ hook[2] chars=10500 status=TRUNCATED cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/plain
 hook[3] chars=500 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/json500.sh
 hook[4] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/writer.sh
 aggregate[startup]: 11505 chars (budget < 8000) OVER BUDGET
+mixed[startup]: 12900 chars (budget < 8000) mixed-verdict=OVER (normal total 11505, all-fail 4 x 800 = 3200) — normal: plain10500 10500; cap 800: plain500, json500, writer
 source resume: (no matching SessionStart hooks)
 source clear: (no matching SessionStart hooks)
 source compact: (no matching SessionStart hooks)
 source fork: (no matching SessionStart hooks)
 aggregate: 11505 chars (budget < 8000) OVER BUDGET worst-source=startup
+mixed: 12900 chars (budget < 8000) mixed-verdict=OVER worst-source=startup — a reading from measured normal contexts, not a bound until every hook declares a success-path maximum (#2773)
 state: ok (4 hook runs, 1 truncated, 0 timed-out)

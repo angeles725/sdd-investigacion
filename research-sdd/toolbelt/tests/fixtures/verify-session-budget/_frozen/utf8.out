@@ -2,9 +2,11 @@ verify-session-budget: @FIX@/utf8
 source startup:
 hook[1] chars=3 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/accents.sh
 aggregate[startup]: 3 chars (budget < 8000) OK
+mixed[startup]: 800 chars (budget < 8000) mixed-verdict=OK (normal total 3, all-fail 1 x 800 = 800) — normal: none; cap 800: accents
 source resume: (no matching SessionStart hooks)
 source clear: (no matching SessionStart hooks)
 source compact: (no matching SessionStart hooks)
 source fork: (no matching SessionStart hooks)
 aggregate: 3 chars (budget < 8000) OK worst-source=startup
+mixed: 800 chars (budget < 8000) mixed-verdict=OK worst-source=startup — a reading from measured normal contexts, not a bound until every hook declares a success-path maximum (#2773)
 state: ok (1 hook runs, 0 truncated, 0 timed-out)

@@ -201,13 +201,30 @@ func (sb *sbx) legacy(env []string, args ...string) observed {
 	return observed{out.String(), errb.String(), rc}
 }
 
-// golang runs the Go command the way the shim does: through the command table, with --toolbelt.
-func (sb *sbx) golang(env []string, args ...string) observed {
+// golangRaw runs the Go command the way the shim does: through the command table, with --toolbelt. Its output
+// still carries the mixed lines of kit issue #2756.
+func (sb *sbx) golangRaw(env []string, args ...string) observed {
 	sb.t.Helper()
 	var out, errb bytes.Buffer
 	full := append([]string{"budget", "session", "--toolbelt", sb.toolbelt}, args...)
 	rc := cli.Run(Commands, full, stdioFor(env, sb.cwd, &out, &errb))
 	return observed{out.String(), errb.String(), rc}
+}
+
+// golang is golangRaw without the mixed lines. The frozen script prints no `mixed` lines: they are the one
+// intended divergence of kit issue #2756 (the mixed worst case of the SessionStart budget), removed here, by this
+// helper only, before the comparison with the oracle. Their content is pinned by mixed*_test.go and the goldens.
+func (sb *sbx) golang(env []string, args ...string) observed {
+	sb.t.Helper()
+	o := sb.golangRaw(env, args...)
+	var keep []string
+	for _, l := range strings.SplitAfter(o.stdout, "\n") {
+		if !strings.HasPrefix(l, "mixed: ") && !strings.HasPrefix(l, "mixed[") {
+			keep = append(keep, l)
+		}
+	}
+	o.stdout = strings.Join(keep, "")
+	return o
 }
 
 var workDir = regexp.MustCompile(`tmp\.[A-Za-z0-9]+`)

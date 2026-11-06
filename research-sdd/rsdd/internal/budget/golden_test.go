@@ -32,7 +32,7 @@ func TestFrozenGoldens(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			o := sb.golang(sb.environ(), filepath.Join(fix, name))
+			o := sb.golangRaw(sb.environ(), filepath.Join(fix, name))
 			got := strings.ReplaceAll(o.stdout, fix, "@FIX@")
 			if got != string(want) || o.rc != 0 || o.stderr != "" {
 				t.Errorf("%s differs from the frozen output (rc=%d stderr=%q):\n--- frozen\n%s--- go\n%s", name, o.rc, o.stderr, want, got)
