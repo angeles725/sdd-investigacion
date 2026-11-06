@@ -1,7 +1,9 @@
 package writercheck
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -37,6 +39,9 @@ func (c *ctx) execute() int {
 			if err != nil || !kitmaint.IsDir(dir) {
 				return degrade(s, "teeth-log dir absent: "+o.logDir)
 			}
+			if _, err := os.ReadDir(dir); err != nil { // absent and unreadable are different states
+				return degrade(s, "teeth-log dir unreadable: "+o.logDir+" ("+osErr(err)+")")
+			}
 			o.logDir = dir
 		}
 		if script = c.impactScript(); !o.printBinding && !isFile(kitmaint.Abs(s.Cwd, script)) {
@@ -65,6 +70,15 @@ func (c *ctx) execute() int {
 	return c.check(r, d, header, script)
 }
 
+// osErr is the operating-system part of err ("permission denied"), without the path the caller already prints.
+func osErr(err error) string {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err.Error()
+	}
+	return err.Error()
+}
+
 // resolveRange verifies the refs and fixes what the diff is taken against. The second result is the degraded reason.
 func (c *ctx) resolveRange() (rangeSpec, string) {
 	o := c.o
@@ -90,10 +104,10 @@ func (c *ctx) write(header string) int {
 	if !ok {
 		return degrade(c.s, fmt.Sprintf("KIT_WRITER_CHECK_TIMEOUT must be a positive integer, got: '%s'", c.s.Env("KIT_WRITER_CHECK_TIMEOUT")))
 	}
-	if err := os.MkdirAll(kitmaint.Abs(c.s.Cwd, c.o.writeDir), 0o755); err != nil {
-		return degrade(c.s, "cannot create teeth-log dir: "+c.o.writeDir)
+	dir, err := "", os.MkdirAll(kitmaint.Abs(c.s.Cwd, c.o.writeDir), 0o755)
+	if err == nil {
+		dir, err = kitmaint.ResolveDir(c.s.Cwd, c.o.writeDir)
 	}
-	dir, err := kitmaint.ResolveDir(c.s.Cwd, c.o.writeDir)
 	if err != nil {
 		return degrade(c.s, "cannot create teeth-log dir: "+c.o.writeDir)
 	}

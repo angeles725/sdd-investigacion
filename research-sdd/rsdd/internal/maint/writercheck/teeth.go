@@ -1,7 +1,9 @@
 package writercheck
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,6 +25,8 @@ var (
 const (
 	missing = "missing-teeth"
 	stale   = "stale-teeth"
+	// unreadable is not a finding: the log exists but cannot be read, so the run is degraded.
+	unreadable = "unreadable"
 )
 
 // logName is the file name of a suite's log: the repo-relative suite path with / -> __, so the same basename in two
@@ -38,16 +42,22 @@ func checkLog(dir, suite, bindHeader string) (kind, reason string) {
 	p := filepath.Join(dir, logName(suite))
 	// `[ -f ]` and `[ -s ]` follow symlinks, as os.Stat does.
 	fi, err := os.Stat(p)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) { // could not look: absent and unreadable are different states
+		return unreadable, p + " (" + osErr(err) + ")"
+	}
 	if err != nil || !fi.Mode().IsRegular() {
 		return missing, "no log " + filepath.Base(p)
 	}
 	if fi.Size() == 0 {
 		return missing, "log is empty"
 	}
-	// An unreadable log gives head(1) no first line, so the bash reports no header.
+	// An unreadable log is degraded, not a finding (the bash read it as a log with no header).
 	b, err := os.ReadFile(p)
+	if err != nil {
+		return unreadable, p + " (" + osErr(err) + ")"
+	}
 	lines := strings.Split(string(b), "\n")
-	if err != nil || !reHeader.MatchString(lines[0]) {
+	if !reHeader.MatchString(lines[0]) {
 		return stale, "no writer-check header (a log not produced by --write-teeth-log is not evidence)"
 	}
 	if treeOf(lines[0]) != treeOf(bindHeader) {

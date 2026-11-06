@@ -74,7 +74,7 @@ func (c *ctx) loadDiff(r rangeSpec) (diffSet, string) {
 		return d, r.failedMsg("git diff")
 	}
 	d.changes = parseNameStatus(ns.Out)
-	ud := c.git(append(append(append([]string(nil), flags...), "diff", "-U0", "--no-color", "-M"), r.args()...)...)
+	ud := c.git(append(append(append([]string(nil), flags...), "diff", "-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-M"), r.args()...)...)
 	if !ud.OK() {
 		return d, r.failedMsg("git diff -U0")
 	}

@@ -23,7 +23,11 @@ func (c *ctx) check(r rangeSpec, d diffSet, header, script string) int {
 			res.notes = append(res.notes, "teeth-waived "+s+" ("+why+")")
 			continue
 		}
-		if kind, why := checkLog(c.o.logDir, s, header); kind != "" {
+		kind, why := checkLog(c.o.logDir, s, header)
+		if kind == unreadable {
+			return degrade(c.s, "teeth log unreadable: "+why)
+		}
+		if kind != "" {
 			res.findings = append(res.findings, finding{kind, s, why})
 		}
 	}

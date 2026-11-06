@@ -194,14 +194,14 @@ func TestCheckLogVerdicts(t *testing.T) {
 	if kind, why := checkLog("", "s.test.sh", h); kind != missing || why != "no --teeth-log given" {
 		t.Errorf("no dir: %q %q", kind, why)
 	}
-	// A log that exists and is not empty but cannot be read gives head(1) no first line: no header, as the bash.
+	// A log that exists and is not empty but cannot be read is degraded (intended divergence: the bash said no header).
 	if os.Geteuid() != 0 {
 		put(h + "\n-- teeth --\n== 3 passed · 0 failed ==\n")
 		p := dir + "/" + logName("s.test.sh")
 		if err := os.Chmod(p, 0); err != nil {
 			t.Fatal(err)
 		}
-		if kind, why := checkLog(dir, "s.test.sh", h); kind != stale || !strings.HasPrefix(why, "no writer-check header") {
+		if kind, why := checkLog(dir, "s.test.sh", h); kind != unreadable || why != p+" (permission denied)" {
 			t.Errorf("unreadable log: %q %q", kind, why)
 		}
 	}
