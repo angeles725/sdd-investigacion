@@ -8,8 +8,8 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
-// The row reader of lib/scripts-manifest.sh (THE one definition, kit #2600): every consumer of a
-// SCRIPTS-MANIFEST.md (verify block today, clean-check when it is ported) calls it.
+// The row reader of the deleted lib/scripts-manifest.sh (THE one definition, kit #2600): every consumer of a
+// SCRIPTS-MANIFEST.md (verify block, clean-check) calls it.
 
 // ScriptsManifestRows is scripts_manifest_rows <target> <manifest>: per valid row (a 64-hex sha cell) two
 // `<target-relative path><TAB><sha256 lowercase>` lines - the resolved cell and <manifest dir>/<basename>. ok is
