@@ -92,7 +92,7 @@ func (r *run) scanScratchpad() (state string, ok bool) {
 // vanishes mid-walk is benign, any other read error ends the run.
 func (r *run) scratchFiles() ([]string, bool) {
 	var files []string
-	errs := walkTree(r.scratchP, -1, func(p string, _ int, e entry) bool {
+	errs := walkTree(r.scratchP, noLimit, func(p string, _ int, e entry) bool {
 		if e.info.Mode().IsRegular() {
 			files = append(files, p)
 		}

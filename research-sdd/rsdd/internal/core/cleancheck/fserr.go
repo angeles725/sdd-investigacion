@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"sort"
 	"strings"
 	"syscall"
 )
@@ -50,7 +49,7 @@ type entry struct {
 	info fs.FileInfo // lstat: a symlink is a symlink
 }
 
-// listDir lists dir sorted by name (bytewise). An entry that vanishes while it is being read is left out.
+// listDir lists dir sorted by name (bytewise: os.ReadDir sorts by filename). An entry that vanishes while it is being read is left out.
 func listDir(dir string) ([]entry, error) {
 	des, err := os.ReadDir(dir)
 	if err != nil {
@@ -67,7 +66,6 @@ func listDir(dir string) ([]entry, error) {
 		}
 		out = append(out, entry{de.Name(), info})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
 	return out, nil
 }
 

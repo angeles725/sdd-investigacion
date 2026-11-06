@@ -1,7 +1,12 @@
 package cleancheck
 
+import "math"
+
+// noLimit is the maxDepth of a walk that goes all the way down.
+const noLimit = math.MaxInt
+
 // walkTree visits every entry below root in name order (pre-order), never following a symlink: it is find. depth is
-// the entry's distance from root (its children are 1); a directory at maxDepth is not read (maxDepth < 0 means no
+// the entry's distance from root (its children are 1); a directory at maxDepth is not read (noLimit means no
 // limit). visit says whether to descend into a directory. A directory that cannot be read is collected and the walk
 // goes on, as find does; one that vanished is left out.
 func walkTree(root string, maxDepth int, visit func(path string, depth int, e entry) (descend bool)) []findError {
@@ -17,7 +22,7 @@ func walkTree(root string, maxDepth int, visit func(path string, depth int, e en
 		}
 		for _, e := range ents {
 			p := join(dir, e.name)
-			if visit(p, depth+1, e) && e.info.IsDir() && (maxDepth < 0 || depth+1 < maxDepth) {
+			if visit(p, depth+1, e) && e.info.IsDir() && depth+1 < maxDepth {
 				walk(p, depth+1)
 			}
 		}

@@ -55,7 +55,7 @@ func (r *run) readProbes() (probes, bool) {
 		}
 	}
 	var manifests, files []string
-	errs := walkTree(root, -1, func(path string, _ int, e entry) bool {
+	errs := walkTree(root, noLimit, func(path string, _ int, e entry) bool {
 		if e.info.Mode().IsRegular() {
 			files = append(files, path)
 			if e.name == manifestName {

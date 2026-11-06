@@ -51,7 +51,7 @@ func TestMentions(t *testing.T) {
 		{"run.sh", "prerun.sh", false}, {"run.sh", "run.shx", false}, {"out", "the layout", false}, {"out", "out of", true},
 		{"a", "x/a", true}, {"a", "a/x", false}, {"a", "(a)", true}, {"a", "`a`", true}, {"a", "\"a\"", true}, {"a", "'a'", true},
 		{"a", "|a|", true}, {"a", "<a>", true}, {"a", "[a]", true}, {"a", "a,b", true}, {"a", "a:b", true}, {"a", "a;b", true},
-		{"a", "a!", true}, {"a", "a?", true}, {"a", "-a", false}, {"a", "a-", false}, {"a", "a_", false}, {"a", "_a", false}, {"a", "=a", false},
+		{"a", "a!", true}, {"a", "a?", true}, {"a", "a[", true}, {"a", "-a", false}, {"a", "a-", false}, {"a", "a_", false}, {"a", "_a", false}, {"a", "=a", false},
 		{"a", "a\tb", true}, {"a", "\ta", true}, {"a", "a\rb", true}, {"a", "a\vb", true}, {"a", "a\fb", true},
 		{"a.b", "aXb a.b", true}, {"a.b", "aXb", false},
 		{"a", "xa a", true}, {"a", "ax ax a", true}, {"x.sh", "first\nsecond x.sh\n", true}, {"x.sh", "x.\nsh", false},
@@ -216,7 +216,7 @@ func TestWalkTree(t *testing.T) {
 	}
 	var seen []string
 	depths := map[string]int{}
-	errs := walkTree(w.root+"/walk", -1, func(p string, d int, e entry) bool {
+	errs := walkTree(w.root+"/walk", noLimit, func(p string, d int, e entry) bool {
 		seen = append(seen, p[len(w.root+"/walk/"):])
 		depths[seen[len(seen)-1]] = d
 		return true
@@ -234,18 +234,18 @@ func TestWalkTree(t *testing.T) {
 		t.Errorf("maxDepth 2: %v", seen)
 	}
 	seen = nil
-	walkTree(w.root+"/walk", -1, func(p string, d int, e entry) bool {
+	walkTree(w.root+"/walk", noLimit, func(p string, d int, e entry) bool {
 		seen = append(seen, p[len(w.root+"/walk/"):])
 		return p[len(p)-1] != 'b'
 	})
 	if !reflect.DeepEqual(seen, []string{"a", "a/1", "a/b", "link", "z"}) {
 		t.Errorf("a declined directory is not read: %v", seen)
 	}
-	errs = walkTree(w.root+"/missing", -1, func(string, int, entry) bool { return true })
+	errs = walkTree(w.root+"/missing", noLimit, func(string, int, entry) bool { return true })
 	if len(errs) != 0 {
 		t.Errorf("a root that vanished is benign: %v", errs)
 	}
-	errs = walkTree(w.root+"/walk/z", -1, func(string, int, entry) bool { return true })
+	errs = walkTree(w.root+"/walk/z", noLimit, func(string, int, entry) bool { return true })
 	if len(errs) != 1 || errs[0].denied || errs[0].line() != "find: '"+w.root+"/walk/z': Not a directory" {
 		t.Errorf("a file as root is an error: %v", errs)
 	}

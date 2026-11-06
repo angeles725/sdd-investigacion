@@ -27,8 +27,8 @@ func parseKeep(src string) []string {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if i := strings.Index(line, " #"); i >= 0 {
-			line = line[:i]
+		if reasonless, _, found := strings.Cut(line, " #"); found {
+			line = reasonless
 		}
 		if line = strings.TrimRight(line, shellx.WsClass); line != "" {
 			globs = append(globs, line)

@@ -1,7 +1,6 @@
 package cleancheck
 
 import (
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -115,9 +114,6 @@ func (r *run) staleBackups(dir string) ([]string, bool) {
 	start := dir
 	if !strings.HasPrefix(start, "/") {
 		start = r.o.Cwd + "/" + start // walked against Options.Cwd; the printed paths keep the name that was given
-	}
-	if p, err := filepath.EvalSymlinks(start); err == nil {
-		start = p // a symlinked evidence directory is read through, not mistaken for an empty one
 	}
 	var stale []string
 	errs := walkTree(start, 2, func(p string, _ int, e entry) bool {
