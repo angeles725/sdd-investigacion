@@ -18,8 +18,8 @@ import (
 //   - blocked_open_count rc 3 (an awk or grep that could not run) has no counterpart, so the per-file degraded
 //     probe only ever names the head state, and only for rc 2;
 //   - awk's own diagnostics for an unreadable ledger or state file are not reproduced;
-//   - verify-state that cannot be started prints no consistency lines (the shell's error text went through the
-//     same filter and never matched it).
+//   - verify-state that cannot be started adds a typed `consistency: DEGRADED` line where the script printed an
+//     empty block (#2736); the exit stays 0.
 
 func (c *ctx) report() int {
 	if !c.listable() {
