@@ -14,24 +14,26 @@ const nextPad = "  next step       : "
 // nextStepLine prints the next step. A document-cycle NEXT / BOOTSTRAP is final; its STOP yields to any gap-centric
 // verdict that is not itself a STOP (DOC-STOP-GUARD). dgNames lists the state files whose blocked-rows derivation
 // is unreadable: the verdict is then not derived at all (NEXT-STEP-DEGRADED-GUARD).
-func (c *ctx) nextStepLine(doc docMode, dgNames string) {
+// It reports whether the line it printed is a DEGRADED verdict, so the report can add its reason-codes footer.
+func (c *ctx) nextStepLine(doc docMode, dgNames string) (degraded bool) {
 	nsDoc := ""
 	if doc == docOutline {
 		nsDoc = c.outlineNextStep()
 	}
 	if strings.HasPrefix(nsDoc, "NEXT") || strings.HasPrefix(nsDoc, "BOOTSTRAP") {
 		fmt.Fprintf(c.s.Out, "%s%s\n", nextPad, nsDoc)
-		return
+		return false
 	}
 	if dgNames != "" {
 		fmt.Fprintf(c.s.Out, "%sDEGRADED (blocked-rows derivation unreadable for %s — a next gap or a paused-focus count derived from it would be inflated)\n", nextPad, dgNames)
-		return
+		return true
 	}
 	gap := c.gapRun()
 	if nsDoc != "" && strings.HasPrefix(gap, "STOP") {
 		gap = nsDoc
 	}
 	fmt.Fprintf(c.s.Out, "%s%s\n", nextPad, gap)
+	return strings.HasPrefix(gap, "DEGRADED")
 }
 
 // gapRun is _ns_gap_run: the gap-centric verdict across EVERY focus (not just the picked one). A stopped or paused

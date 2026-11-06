@@ -15,8 +15,8 @@ import (
 //
 // Declared differences from the script (tool-registry.d/research-sdd-status.md):
 //   - a state-file listing that fails refuses the run before any output (exit 1), as --next does;
-//   - blocked_open_count rc 3 (an awk or grep that could not run) has no counterpart, so the per-file degraded
-//     probe only ever names the head state, and only for rc 2;
+//   - blocked_open_count rc 3 (an awk or grep that could not run) has no counterpart (12), and the per-file degraded
+//     probe only names the head state: a non-head failure surfaces from the walk (21);
 //   - awk's own diagnostics for an unreadable ledger or state file are not reproduced;
 //   - verify-state that cannot be started adds a typed `consistency: DEGRADED` line where the script printed an
 //     empty block (#2736); the exit stays 0.
@@ -80,9 +80,12 @@ func (c *ctx) report() int {
 	}
 	degraded = c.remoteVisibility() || degraded
 	if degraded { // RC-FOOTER
-		fmt.Fprintf(out, "  reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in %s/reason-codes.v1.md\n", c.toolbeltDir())
+		c.reasonFooter()
 	}
-	c.nextStepLine(doc, dgNames)
+	// A non-head blocked read degrades only the walk (divergence (21)): its footer follows the next step, once.
+	if c.nextStepLine(doc, dgNames) && !degraded {
+		c.reasonFooter()
+	}
 	c.consistency()
 	return 0
 }
@@ -102,4 +105,9 @@ func (c *ctx) contradictionsLine() {
 	} else {
 		fmt.Fprintln(c.s.Out, "  contradictions  : (none)")
 	}
+}
+
+// reasonFooter is the one reason-codes line of a report that printed a typed degraded state.
+func (c *ctx) reasonFooter() {
+	fmt.Fprintf(c.s.Out, "  reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in %s/reason-codes.v1.md\n", c.toolbeltDir())
 }

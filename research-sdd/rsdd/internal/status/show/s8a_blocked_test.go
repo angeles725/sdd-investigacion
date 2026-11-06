@@ -68,8 +68,8 @@ func TestS8aNextDegradedNonHeadAndScoped(t *testing.T) {
 			t.Errorf("want exit 0 and the exhausted STOP: %+v", o)
 		}
 	})
-	// DOCUMENTED (12): the script's per-file probe said `unreadable for y/RESEARCH-STATE.md `; the port has no probe
-	// (blocked_open_count rc 3 has no counterpart) and names the relative path in the resolving message instead.
+	// DOCUMENTED (21): the script's per-file probe said `unreadable for y/RESEARCH-STATE.md `; the port probes only
+	// the head state and names the relative path in the resolving message instead.
 	t.Run("227-split-layout-names-the-file-by-relative-path", func(t *testing.T) {
 		o := nbRun(t, nbSplit, "/y/", true)
 		if o.rc != 3 || !strings.Contains(o.out, "while resolving alpha-gap in y/RESEARCH-STATE.md ") || strings.Contains(o.out, "x/RESEARCH-STATE") {
@@ -96,20 +96,21 @@ func TestS8aDisplayDegradedNonHead(t *testing.T) {
 			}
 		})
 	}
-	// DOCUMENTED (12): the script's per-file probe named the non-head file (`DEGRADED (blocked-rows derivation
-	// unreadable for RESEARCH-STATE-b.md ...)`) and set the reason-codes footer; the port probes only the head state,
-	// so a non-head failure surfaces from the walk as `DEGRADED | blocked-rows read failed while resolving ...` and
-	// sets no footer.
+	// DOCUMENTED (21): the script's per-file probe named the non-head file (`DEGRADED (blocked-rows derivation
+	// unreadable for RESEARCH-STATE-b.md ...)`); the port probes only the head state, so a non-head failure surfaces
+	// from the walk as `DEGRADED | blocked-rows read failed while resolving <gap> in <file>`, still naming the file and
+	// still followed by the one reason-codes footer of the report.
 	t.Run("203-non-head-next-step-text", func(t *testing.T) {
 		o := nbRun(t, nbMulti, "-b.md", false)
 		if !strings.Contains(o.out, "next step       : DEGRADED | blocked-rows read failed while resolving alpha-gap in RESEARCH-STATE-b.md") {
 			t.Errorf("next step: %q", nextStepRE.FindString(o.out))
 		}
 	})
-	t.Run("222-non-head-sets-no-reason-codes-footer", func(t *testing.T) {
+	t.Run("222-non-head-sets-the-reason-codes-footer-once", func(t *testing.T) {
 		o := nbRun(t, nbMulti, "-b.md", false)
-		if n := strings.Count(o.out, "\n  reason codes    : "); n != 0 {
-			t.Errorf("reason-codes footer printed %d times, the port prints none for a non-head failure", n)
+		ns, rc := strings.Index(o.out, "next step       : DEGRADED"), strings.Index(o.out, "\n  reason codes    : ")
+		if n := strings.Count(o.out, "\n  reason codes    : "); n != 1 || ns < 0 || rc < ns {
+			t.Errorf("want one reason-codes footer after the DEGRADED next step, got %d (next step at %d, footer at %d)", n, ns, rc)
 		}
 	})
 	t.Run("202-display-healthy-twin-carries-the-stop-verdict", func(t *testing.T) {
