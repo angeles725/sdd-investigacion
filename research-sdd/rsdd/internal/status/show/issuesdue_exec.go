@@ -3,7 +3,6 @@ package show
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
@@ -96,15 +95,6 @@ func shellRC(res proc.Result) int {
 
 // toolbeltDir is the directory the status script lived in: RSDD_TOOLBELT_DIR, which the shim hands over.
 func (c *ctx) toolbeltDir() string { return c.s.Env("RSDD_TOOLBELT_DIR") }
-
-// toolbeltFile is "$here/<name>" when the toolbelt is known.
-func (c *ctx) toolbeltFile(name string) (string, bool) {
-	dir := c.toolbeltDir()
-	if dir == "" {
-		return "", false
-	}
-	return filepath.Join(dir, name), true
-}
 
 // ghOptions is the gh call of the batch prefetch: the caller's environment and working directory, the bound of
 // _IDG_RECONCILE_TIMEOUT_SECS (default 15 s, as the per-retro probes).
