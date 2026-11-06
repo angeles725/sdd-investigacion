@@ -401,6 +401,7 @@ gk_fixture() {
     && _git -C "$1" add research-sdd/.gitignore research-sdd/docx/tracked.md research-sdd/docx/gone.md \
     && rm "$1/research-sdd/docx/gone.md"  # tracked, then deleted from the work tree: not a doc input
 }
+_gk_env="$(declare -p GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM 2>/dev/null)"  # restored after the fixtures
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1  # the fixtures never read the caller's git config
 GK="$(mktemp -d)"; NG="$(mktemp -d)"
 if gk_fixture "$GK" && cp -R "$GK/research-sdd" "$NG/kit"; then
@@ -426,7 +427,7 @@ else
   no "docs: a failed git ls-files outside a repo did not report KIT-FILES-FAILED"
 fi
 rm -rf "$GK" "$NG"
-unset GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
+unset GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM; eval "$_gk_env"
 
 # ---- NEGATIVE CONTROL: prove both defects are closed -----------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
