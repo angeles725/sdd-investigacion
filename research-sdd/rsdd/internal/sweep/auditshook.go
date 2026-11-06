@@ -21,6 +21,7 @@ import (
 const (
 	auditsHookHeader    = "Research-SDD pending audits (per-target §13):"
 	auditsHookFailedFmt = "Research-SDD audits sweep could not run (exit %d — check TARGETS.md and lib/ helper):"
+	auditsRerun         = "rsdd sweep audits" // the command whose own output a capped failure context points at (#2631)
 )
 
 func runAuditsHook(o options, s cli.Stdio) int {
@@ -34,7 +35,7 @@ func runAuditsHook(o options, s cli.Stdio) int {
 // and its exit code. A sweep that failed is reported unfiltered under its own header.
 func auditsHookContext(out string, rc int, full bool) string {
 	if rc != 0 {
-		return fmt.Sprintf(auditsHookFailedFmt, rc) + "\n" + out
+		return hookenv.FailureContext(fmt.Sprintf(auditsHookFailedFmt, rc), out, auditsRerun)
 	}
 	if !full {
 		out = strings.TrimRight(auditsSummaryFilter(out), "\n")

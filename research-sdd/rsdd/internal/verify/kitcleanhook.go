@@ -50,6 +50,7 @@ func RunKitCleanHook(args []string, s cli.Stdio) int {
 	case rc != 1:
 		hdr = fmt.Sprintf(hdrCouldNot, rc)
 	}
-	hookenv.WriteSessionStart(s.Out, hdr+"\n"+strings.TrimRight(buf.String(), "\n"))
+	// a dirty kit is a finding, not a failure: its report is not capped
+	hookenv.WriteSessionStart(s.Out, capIf(hdr != hdrNotClean, hdr, strings.TrimRight(buf.String(), "\n"), kitCleanRerun))
 	return cli.ExitOK
 }
