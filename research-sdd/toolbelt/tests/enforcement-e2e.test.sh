@@ -21,7 +21,7 @@
 #               real fresh target → the real phase-1 "not wired yet" check fails.
 #   R2-TOOTH-B: kit-run Stop without SessionStart, or SessionStart without the kit-run Stop → the real "both wired" predicate fails.
 #   S1-TOOTH: the same wired Stop command with no resolvable kit does NOT block → the S1 check would FAIL.
-#   R3-TOOTH: mutant status (threshold=999) → no RETRO-DUE → R3 check would FAIL.
+#   (R3-TOOTH retired: research-sdd-status is a Go command, kit #2549; see the note before R5-TOOTH.)
 #   R5-TOOTH: mutant gate (SEEDING-CALL stripped) → seeder not invoked → R5 fails.
 #   R7-TOOTH: mutant gate (GH-PROBE stripped) → no WARN emitted → R7 fails.
 #
@@ -429,15 +429,6 @@ rsdd_stage_libs "$MUT_KIT/toolbelt"
 cp "$VR_SUT" "$MUT_KIT/toolbelt/"
 cp "$FKIT_R5/toolbelt/stage-retro-issues.sh" "$MUT_KIT/toolbelt/"  # stub seeder
 
-# ── Mutant status kit dir: status mirror with lib for R3 mutant ───────────────
-MUT_STAT_KIT="$ROOT/mutstatkit/toolbelt"
-# kit issue #1109: research-sdd-status.sh now sources lib/hook-wiring.sh unconditionally at
-# the top (before any mode dispatch), so the R3 mutant needs it alongside the libs it already had.
-rsdd_stage_libs "$MUT_STAT_KIT"
-# verify-state.sh is invoked by status's STALE gate. Without it (rc=127) the mutant answered STALE for
-# EVERY input, so "no RETRO-DUE" was read as a bite for the wrong reason (kit issue #1576).
-cp "$KIT_TOOLBELT/verify-state.sh" "$MUT_STAT_KIT/"
-
 # ── R2-TOOTH-A: mutant research-sdd-init.sh with the scaffold+wire SUBJECT guard neutered ─────
 # RDD finding (R2/R3-tooth-a-tautology): a hand-built settings.json fixture only proves a
 # hand-COPIED condition discriminates — it never runs the SUT, so a real regression in the SUT's
@@ -511,30 +502,10 @@ else
   no "S1-TOOTH: the wired command still blocked with no resolvable kit — S1 is THEATER"
 fi
 
-# ── R3-TOOTH: mutant status (threshold=999) → no RETRO-DUE → R3 check fails ───
-# Proves R3 check catches a SUT where RETRO-DUE threshold is effectively disabled.
-MUT_STAT_R3="$MUT_STAT_KIT/research-sdd-status.sh"
-mk_or_stop "R3-TOOTH" "$STATUS_SUT" "$MUT_STAT_R3" 's/_rd_threshold=10/_rd_threshold=999/'
-chmod +x "$MUT_STAT_R3"
-
-# Exact BAD verdict (kit issue #1576): "no RETRO-DUE" alone also reads a crashed or silent mutant as a
-# bite. The threshold mutant must instead behave exactly like the REAL status at a below-threshold state
-# (bsr=0): same exit code, same output.
-T_R3C="$ROOT/r3-ctl-target"; mkdir -p "$T_R3C"
-state_file "$T_R3C" 0
-_r3c_rc=0; _r3c_out="$("$BASH_BIN" "$STATUS_SUT" "$T_R3C" --next 2>/dev/null)" || _r3c_rc=$?
-_r3t_rc=0; _r3t_out="$("$BASH_BIN" "$MUT_STAT_R3" "$T_R3" --next 2>/dev/null)" || _r3t_rc=$?
-_r3t_pass=1
-case "$_r3t_out" in RETRO-DUE*) _r3t_pass=0 ;; esac
-
-# The control itself must be a healthy answer (NEXT/STOP), or equal-but-failed outputs would pass.
-_r3c_healthy=0
-case "$_r3c_out" in "NEXT | "*|"STOP | "*) _r3c_healthy=1 ;; esac
-if [ "$_r3c_healthy" -eq 1 ] && [ "$_r3t_pass" -eq 1 ] && [ "$_r3t_rc" -eq "$_r3c_rc" ] && [ "$_r3t_out" = "$_r3c_out" ]; then
-  ok "R3-TOOTH: mutant (threshold=999) at bsr=11 behaves exactly like the real status at bsr=0 (rc=$_r3t_rc, no RETRO-DUE) → R3 check would FAIL (bites)"
-else
-  no "R3-TOOTH: mutant (threshold=999) should match the below-threshold control (rc=$_r3c_rc out=[$_r3c_out]) but got rc=$_r3t_rc out=[$_r3t_out]"
-fi
+# R3-TOOTH retired (kit #2549): research-sdd-status is a Go command (`rsdd status show`) and the script a shim, so a
+# mutant that edits `_rd_threshold=10` in its text cannot apply. The threshold control is a Go test: the RETRO-DUE
+# boundary scenarios retro-threshold-10 and retro-threshold-11 (internal/status/show/s4_scenarios_test.go) and
+# TestRetroFires, and TestRunNextAnswersRetroDueAndTheExhaustedStop (s5_unit_test.go) for the --next answer.
 
 # The gate is `rsdd gate retro` now (kit issues #2367, #2368) and retro-gate.sh a shim: the sentinel mutants below edit
 # the text of the old bash script and cannot apply. Their controls (seeding call skipped, gh-auth warning dropped) are

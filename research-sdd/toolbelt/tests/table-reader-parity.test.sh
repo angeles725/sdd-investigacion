@@ -12,8 +12,8 @@
 #                            open-deferred rows of the --queue reader, document-cycle Outline rows
 #   lib/gap-rows.sh          gap_rows_parse
 # Kit issues #2161 and #2178 add the readers that were still on a bare-pipe split:
-#   research-sdd-status.sh   count_open_contra (CONTRADICTIONS ledger, STATUS = 4th cell) and the FOCUSES.md
-#                            status reader _read_focuses_tok_uncached
+#   research-sdd-status.sh   count_open_contra (CONTRADICTIONS ledger, STATUS = 4th cell); its FOCUSES.md status reader
+#                            is pinned in Go (internal/status/show), no longer lifted out of the script here
 #   focus-partition-audit.sh FOCUSES.md row cells and the Research-State column
 #   migrate-backlogs.sh      FOCUSES.md status rewrite (cells/setcell/rebuild) and the document-focus lookup
 #   verify-sources.sh        every SOURCES.md reader: the column-count pre-check, LEVEL 4 citation cross-check, LEVEL 5
@@ -48,7 +48,7 @@ EXP_INV=6; EXP_DEF=7; EXP_BLOCKS=9; EXP_KNOWN=16
 
 # probes <tree> : run every reader of <tree> over the shared fixture and set PR_<name>=ok|<detail> (one global per probe).
 declare -A PR=()
-PROBES="vs_inv vs_def vs_blocks st_inv st_def st_blocks st_iter st_outline st_queue st_hdr gr_rows st_contra st_foctok fpa_rows mb_status mb_doc vsrc_hdr vsrc_l4 vsrc_l5 vsrc_l6 vsrc_d2 vsrc_ed"
+PROBES="vs_inv vs_def vs_blocks st_inv st_def st_blocks st_iter st_outline st_queue st_hdr gr_rows st_contra fpa_rows mb_status mb_doc vsrc_hdr vsrc_l4 vsrc_l5 vsrc_l6 vsrc_d2 vsrc_ed"
 probes() {
   local t="$1" d out err rc
   # --- verify-state.sh ---
@@ -84,10 +84,6 @@ probes() {
   d="$(mktemp -d "$TMP/contra.XXXXXX")" || exit 2; cp "$FX/state/RESEARCH-STATE.md" "$FX/contra/CONTRADICTIONS.md" "$d/"
   out="$(bash "$t/research-sdd-status.sh" "$d" 2>/dev/null | grep 'contradictions')"
   if [ "$out" = "  contradictions  : 5 open" ]; then PR[st_contra]=ok; else PR[st_contra]="${out:-<no contradictions line>}"; fi
-  # --- research-sdd-status.sh _read_focuses_tok_uncached: the function is lifted out of the script and called per row ---
-  sed -n '/^_read_focuses_tok_uncached()/,/^}/p' "$t/research-sdd-status.sh" > "$TMP/foctok.fn.sh"
-  out="$(bash -c '. "$1"; for k in f1 f2 f3 f4 f5 f6 f7 f8 f9; do printf "%s=%s " "$k" "$(_read_focuses_tok_uncached "$2" "RESEARCH-STATE-$k.md" 2>/dev/null)"; done' _ "$TMP/foctok.fn.sh" "$FX/focuses/FOCUSES.md")"
-  if [ "$out" = "f1=stopped f2=paused f3=planned f4=document f5=active f6=stopped f7=paused f8=planned f9=stopped " ]; then PR[st_foctok]=ok; else PR[st_foctok]="$out"; fi
   # --- focus-partition-audit.sh: the Research-State column must still resolve its file after an escaped pipe ---
   d="$(mktemp -d "$TMP/fpa.XXXXXX")" || exit 2
   for k in 1 2 3 4 5 6 7 8 9; do mkdir -p "$d/subj/zzUnit$k"; : > "$d/subj/zzUnit$k/A.java"; done
@@ -137,7 +133,6 @@ declare -A DESC=(
   [st_hdr]="research-sdd-status.sh iter_gaps_rows: a header with an escaped pipe prints on the no-New-gaps-column line with the pipe restored (no raw mask byte)"
   [st_outline]="research-sdd-status.sh Outline rows: 9/9 covered with escapes in the middle and last cells"
   [st_contra]="research-sdd-status.sh count_open_contra: 5 open ledger rows counted; the resolved row whose claim cell says open and the row with an escape inside the STATUS cell are not"
-  [st_foctok]="research-sdd-status.sh FOCUSES.md status reader: 9 rows read with the right status token (escapes in the first/middle/last cells)"
   [fpa_rows]="focus-partition-audit.sh: 9 FOCUSES.md rows classified, every Research-State file resolved, 9/9 units chartered"
   [mb_status]="migrate-backlogs.sh FOCUSES.md rewrite: closed/reabierto become stopped/reopened in the Status cell only, escape bytes kept"
   [mb_doc]="migrate-backlogs.sh document-focus lookup: a document focus whose row carries an escaped pipe gets no empty-backlog skeleton"
@@ -181,15 +176,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # verify-state.sh is a shim over the Go port (kit #2457): its three escaped-pipe call sites are mutated in Go and
   # killed by internal/verify TestDifferentialState cases backlog-escaped-pipe, backlog-deferred-escaped-pipe and
   # blocks-history-escaped-pipe-before-block-column (RED recorded on the PR); the vs_* probes above still run the shim.
-  tooth st-backlog    research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # BP-ESCAPED-PIPE' 'line=line  # BP-ESCAPED-PIPE' st_inv
-  tooth st-deferred   research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-DEFERRED' 'line=line  # GFM-EP-DEFERRED' st_def
-  tooth st-blockcol   research-sdd-status.sh 'gsub(/\\\|/, "\001")  # GFM-EP-BLOCKCOL' '$0=$0  # GFM-EP-BLOCKCOL' st_blocks
-  tooth st-iter       research-sdd-status.sh 'gsub(/\\\|/,"\001",l)  # GFM-EP-ITER' 'l=l  # GFM-EP-ITER' st_iter
-  tooth st-queue      research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-DEFERRED' 'line=line  # GFM-EP-DEFERRED' st_queue
-  tooth st-hdr        research-sdd-status.sh 'gsub(/\001/,"|",l); print "col_none' 'print "col_none' st_hdr
-  tooth st-outline    research-sdd-status.sh 'gsub(/\\\|/, "\001", line)  # GFM-EP-OUTLINE' 'line=line  # GFM-EP-OUTLINE' st_outline
-  tooth st-contra     research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-CONTRA' 'line=line  # GFM-EP-CONTRA' st_contra
-  tooth st-foctok     research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-FOCTOK' 'line=line  # GFM-EP-FOCTOK' st_foctok
+  # research-sdd-status.sh is a shim over the Go port (kit #2549): its nine escaped-pipe call sites (backlog, deferred,
+  # Block column, New-gaps column, --queue open-deferred rows, the no-New-gaps-column header, Outline rows, the
+  # CONTRADICTIONS ledger and the FOCUSES.md status reader) are mutated in Go and killed by the S3-S6 scenario tables of
+  # internal/status/show (st-queue = s4_scenarios_test.go queue-open-deferred-with-an-escaped-pipe-is-known); the st_*
+  # probes above still run the shim, and the lifted-function st_foctok probe is gone with the script body it sed out.
   tooth fpa-rows      focus-partition-audit.sh 'gsub(/\\\|/, "\001", line)  # GFM-EP-FPA' 'line=line  # GFM-EP-FPA' fpa_rows
   # migrate-backlogs.sh is a shim over the Go port (kit #2684): its two escaped-pipe call sites (the cells of the FOCUSES.md
   # rewrite and the document-focus lookup) are core/gfm SplitRow, mutated in Go and killed by internal/corpus/migratebacklogs
