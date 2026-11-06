@@ -2,7 +2,6 @@ package show
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,8 +16,8 @@ import (
 
 // The S6 harness: full `research-sdd-status.sh <target> [flags]` invocations of the DEFAULT report over crafted
 // corpora. The rendering is the golden, as in S5: every run's rc, stdout and stderr, the tree it left behind, and
-// the subprocesses it started. The two sections that belong to slice S7 (the §8c campaign block and the
-// document-cycle outline) are the same authored stand-ins on both sides.
+// the subprocesses it started. The §8c campaign block and the document-cycle outline (slice S7) run as the
+// script's own on one side and as the port's on the other.
 //
 // The subprocesses are authored fakes, one set for both sides: a gh on PATH and the toolbelt's verify-state.sh.
 // Each logs its argv and answers from the world's spec/ directory:
@@ -26,45 +25,11 @@ import (
 //	spec/gh.{out,rc,sleep}      the visibility probe (sleep: the call outlives its bound)
 //	spec/v.{out,err,rc}         verify-state (the consistency footer)
 //
-// The scenario environment steers the stand-ins: S6_DOC is "outline" or "noheading", S6_DOC_NEXT is what the
-// outline's next step answers.
+// The clock of a run is fixed on both sides: _RSDD_NOW_EPOCH (the script's own hook) is 2026-01-01T00:00:00Z.
 
 const goldenS6 = goldenS2Dir + "s6.golden"
 
 type s6Scenario = s5Scenario
-
-// ---- the stand-ins for slice S7 -----------------------------------------------------------------------------
-
-const (
-	standInCampaign = "  campaign        : S6-STANDIN state=%s focus=%s\n"
-	standInOutline  = "  outline         : S6-STANDIN"
-	standInNext     = "BOOTSTRAP | stand-in"
-)
-
-// s6Sections are the Go stand-ins, in the same words as s6MidBash.
-func s6Sections() sections {
-	return sections{
-		campaign: func(c *ctx) { fmt.Fprintf(c.s.Out, standInCampaign, c.relState(c.state), c.opts.focus) },
-		doc: func(c *ctx) docCycle {
-			d := docCycle{
-				outlineLine: func(*ctx) string { return standInOutline },
-				nextStep: func(c *ctx) string {
-					if v := c.s.Env("S6_DOC_NEXT"); v != "" {
-						return v
-					}
-					return standInNext
-				},
-			}
-			switch c.s.Env("S6_DOC") {
-			case "outline":
-				d.mode = docOutline
-			case "noheading":
-				d.mode = docNoHeading
-			}
-			return d
-		},
-	}
-}
 
 // ---- recorded subprocess calls --------------------------------------------------------------------------------
 
@@ -170,7 +135,7 @@ func runGoS6(t testing.TB, sc s6Scenario, root string, e s5Env, rep *s6Replay) [
 		var out, errb bytes.Buffer
 		s := cli.Stdio{In: strings.NewReader(""), Out: &out, Err: &errb, Env: e.lookup, Environ: func() []string { return e.environ },
 			Clock: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }, Cwd: filepath.Join(root, sc.cwd)}
-		rc := run(sc.argv(i, root), s, syncOr(nextOr(liveSeams, defaultOr(s6Sections(), notPorted))))
+		rc := run(sc.argv(i, root), s, syncOr(nextOr(liveSeams, (*ctx).report)))
 		res = append(res, outcome{rc, out.String(), errb.String()})
 	}
 	return res

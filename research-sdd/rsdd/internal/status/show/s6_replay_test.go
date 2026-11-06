@@ -10,9 +10,11 @@ import (
 // differential test) through the Go port: every run's rc, stdout and stderr, the tree it leaves, and the
 // subprocesses it starts (the visibility probe and verify-state). The port's children are answered in process from
 // the scenario's spec, so it runs without bash and a mutant of the port dies here under -tags nodiff.
-func TestReplayS6(t *testing.T) {
-	golden := parseGolden(t, goldenS6)
-	scs := s6Scenarios()
+func TestReplayS6(t *testing.T) { replayDefault(t, s6Scenarios(), goldenS6) }
+
+// replayDefault replays the golden of one scenario table through the port.
+func replayDefault(t *testing.T, scs []s6Scenario, goldenPath string) {
+	golden := parseGolden(t, goldenPath)
 	if len(golden) != len(scs) {
 		t.Fatalf("golden has %d scenarios, the table %d", len(golden), len(scs))
 	}
@@ -43,9 +45,11 @@ func TestReplayS6(t *testing.T) {
 }
 
 // The golden is keyed by scenario name, so a duplicate would silently shadow a case.
-func TestS6ScenarioNamesAreUnique(t *testing.T) {
+func TestS6ScenarioNamesAreUnique(t *testing.T) { uniqueNames(t, s6Scenarios()) }
+
+func uniqueNames(t *testing.T, scs []s6Scenario) {
 	seen := map[string]bool{}
-	for _, sc := range s6Scenarios() {
+	for _, sc := range scs {
 		if seen[sc.name] {
 			t.Errorf("duplicate scenario name %s", sc.name)
 		}

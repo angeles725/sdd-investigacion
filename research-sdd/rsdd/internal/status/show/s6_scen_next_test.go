@@ -3,7 +3,7 @@ package show
 import "strings"
 
 // The next-step group: the gap-centric walk across every focus (_ns_gap_run), its paused/stopped skip, the
-// backlog-unreadable qualifier, the DEGRADED lines, the document-cycle stand-in, and the --focus / --root pick of
+// backlog-unreadable qualifier, the DEGRADED lines, the document-cycle next step (S7 scenarios), and the --focus / --root pick of
 // the head state. Then the Stop hook line and the consistency footer.
 
 func s6NextStep() []s6Scenario {
@@ -38,7 +38,7 @@ func s6NextStep() []s6Scenario {
 		ws6("n-backlog-unreadable-sums-the-skipped-focuses", next+stopLine+" [backlog-unreadable: 1 rows]",
 			two(exhausted("root"), unread("## Gap backlog", u1), files{"corpus/FOCUSES.md": focusRows("act", "stopped")}), nil),
 		ws6("n-focus-flag-reports-that-focus-and-walks-all", next+"NEXT | high | the root gap", two(pending("root", "0"), exhausted("act"), nil), nil, "--focus", "act"),
-		ws6("n-focus-flag-campaign-stand-in-sees-the-slug", "S6-STANDIN state=RESEARCH-STATE-act.md focus=act", two(pending("root", "0"), exhausted("act"), nil), nil, "--focus", "act"),
+		ws6("n-focus-flag-reports-the-campaign-of-that-focus", "campaign        : none (1 active focus, 0 with a queue)", two(pending("root", "0"), exhausted("act"), nil), nil, "--focus", "act"),
 		ws6("n-root-flag-reports-the-root-state", next+"NEXT | high | the act gap", two(exhausted("root"), pending("act", "0"), nil), nil, "--root"),
 		ws6("n-focus-flag-without-the-focus-bootstraps", "no RESEARCH-STATE-nope.md under", two(exhausted("root"), exhausted("act"), nil), nil, "--focus", "nope"),
 	)
@@ -48,25 +48,8 @@ func s6NextStep() []s6Scenario {
 	unreadableHead.unreadable, unreadableHead.needsUser = []string{stateRel}, true
 	add(unreadableStopped, unreadableHead)
 
-	doc := func(mode, nxt string) map[string]string {
-		env := map[string]string{"S6_DOC": mode}
-		if nxt != "" {
-			env["S6_DOC_NEXT"] = nxt
-		}
-		return env
-	}
 	add(
-		os6("n-doc-outline-line-and-next", "  outline         : S6-STANDIN", pending("root", "0"), nil, doc("outline", "NEXT | outline #2 | Intro")),
-		os6("n-doc-outline-next-is-final", next+"NEXT | outline #2 | Intro", pending("root", "0"), nil, doc("outline", "NEXT | outline #2 | Intro")),
-		os6("n-doc-bootstrap-is-final", next+"BOOTSTRAP | seed the ## Outline first", exhausted("root"), nil, doc("outline", "BOOTSTRAP | seed the ## Outline first")),
-		os6("n-doc-stop-yields-to-the-gap-next", next+"NEXT | high | the root gap", pending("root", "0"), nil, doc("outline", "STOP | outline fully covered (3/3)")),
-		os6("n-doc-stop-replaces-the-gap-stop", next+"STOP | outline fully covered (3/3)", exhausted("root"), nil, doc("outline", "STOP | outline fully covered (3/3)")),
-		ws6("n-doc-stop-replaces-the-root-flag-stop", next+"STOP | x", two(exhausted("root"), exhausted("act"), nil), doc("outline", "STOP | x"), "--root"),
-		os6("n-doc-no-heading-says-so", "  outline         : (no ## Outline section — gap-centric verdicts kept)", pending("root", "0"), nil, doc("noheading", "")),
-		os6("n-doc-no-heading-keeps-the-gap-walk", next+"NEXT | high | the root gap", pending("root", "0"), nil, doc("noheading", "")),
-		os6("n-doc-outline-replaces-the-saturation-line", "  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)", st6(1, itTable(itHdr, it("1", "0")), row("high", "H", "pending")), nil, doc("outline", "")),
-		os6("n-doc-no-heading-keeps-the-saturation-line", "  saturation      : insufficient history (1 iterations)", st6(1, itTable(itHdr, it("1", "0")), row("high", "H", "pending")), nil, doc("noheading", "")),
-		os6("n-doc-none-prints-no-outline-line", "  saturation      : (no iteration history)", pending("root", "0"), nil, nil),
+		os6("n-no-document-cycle-prints-no-outline-line", "  saturation      : (no iteration history)", pending("root", "0"), nil, nil),
 	)
 	return scs
 }
