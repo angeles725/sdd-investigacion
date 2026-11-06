@@ -16,101 +16,149 @@ type tok struct {
 func logicalLines(text string) []string {
 	var out []string
 	var cur strings.Builder
+	pending := false
 	for _, l := range strings.Split(text, "\n") {
-		if strings.HasSuffix(l, "\\") {
-			cur.WriteString(strings.TrimSuffix(l, "\\"))
+		cur.WriteString(strings.TrimSuffix(l, "\\"))
+		if pending = strings.HasSuffix(l, "\\"); pending {
 			cur.WriteByte(' ')
 			continue
 		}
-		cur.WriteString(l)
 		out = append(out, cur.String())
 		cur.Reset()
 	}
-	if cur.Len() > 0 {
+	if pending {
 		out = append(out, cur.String())
 	}
 	return out
 }
 
-// lex splits one logical line into words and separators. It is quote-aware (single, double, backslash), keeps
-// `${...}` inside its word, and stops at a comment word. It is not a shell parser: it only has to find words in
-// command position, and anything it mis-splits can only turn a real call into an unclassifiable one or an
-// extra caller, both of which fail closed.
-func lex(line string) []tok {
-	var out []tok
-	var cur strings.Builder
-	var subs []string
-	flush := func() {
-		if cur.Len() > 0 {
-			out = append(out, tok{text: cur.String(), subs: subs})
-			cur.Reset()
-			subs = nil
-		}
+// lexer holds the state of one lex call: the word being built, the substitutions inside it, and the tokens so far.
+type lexer struct {
+	s    string
+	cur  strings.Builder
+	subs []string
+	out  []tok
+	stop bool   // a comment ends the line, or a substitution never closed
+	bad  string // the unclosed rest of the line
+}
+
+func (l *lexer) flush() {
+	if l.cur.Len() != 0 {
+		l.out = append(l.out, tok{text: l.cur.String(), subs: l.subs})
+		l.cur.Reset()
+		l.subs = nil
 	}
-	rs := []rune(line)
-	// take consumes a command substitution opening at rs[i], in a quoted word or not.
-	take := func(i int) (next int, hit, bad bool) {
-		sb, ok := substAt(rs, i)
-		if !ok || !sb.ok {
-			return i, ok, ok
-		}
-		subs = append(subs, sb.body)
-		cur.WriteString("$()")
-		return sb.end, true, false
+}
+
+// pair writes the two bytes at i (a backslash and what it escapes) and returns the index of the second.
+func (l *lexer) pair(i int) int {
+	end := min(i+2, len(l.s))
+	l.cur.WriteString(l.s[i:end])
+	return end - 1
+}
+
+// sub consumes the substitution opening at i, if any, and returns the index of its closer.
+func (l *lexer) sub(i int) (next int, hit bool) {
+	sb, hit := substAt(l.s, i)
+	if !hit {
+		return i, false
 	}
-	for i := 0; i < len(rs); i++ {
-		r := rs[i]
-		if n, hit, bad := take(i); hit {
-			if bad {
-				return append(out, tok{bad: string(rs[i:])})
-			}
+	if !sb.ok {
+		l.stop, l.bad = true, l.s[i:]
+		return len(l.s), true
+	}
+	l.subs = append(l.subs, sb.body)
+	l.cur.WriteString("$()")
+	return sb.end, true
+}
+
+// single copies a single-quoted text starting at i, up to and including its closing quote.
+func (l *lexer) single(i int) int {
+	end := len(l.s)
+	if k := strings.IndexByte(l.s[i+1:], '\''); k != -1 {
+		end = i + k + 2
+	}
+	l.cur.WriteString(l.s[i:end])
+	return end - 1
+}
+
+// double copies a double-quoted text starting at i; a substitution inside it is a new command context.
+func (l *lexer) double(i int) int {
+	l.cur.WriteByte('"')
+	for i++; i < len(l.s) && !l.stop; i++ {
+		if l.s[i] == '\\' {
+			i = l.pair(i)
+			continue
+		}
+		if n, hit := l.sub(i); hit {
 			i = n
 			continue
 		}
-		switch {
-		case r == '\\' && i+1 < len(rs):
-			cur.WriteRune(r)
-			i++
-			cur.WriteRune(rs[i])
-		case r == '"' || r == '\'':
-			cur.WriteRune(r)
-			for i++; i < len(rs); i++ {
-				if r == '"' { // single quotes hold substitutions as text
-					if n, hit, bad := take(i); hit {
-						if bad {
-							return append(out, tok{bad: string(rs[i:])})
-						}
-						i = n
-						continue
-					}
-				}
-				cur.WriteRune(rs[i])
-				if rs[i] == '\\' && r == '"' && i+1 < len(rs) {
-					i++
-					cur.WriteRune(rs[i])
-				} else if rs[i] == r {
-					break
-				}
-			}
-		case r == '$' && i+1 < len(rs) && rs[i+1] == '{':
-			for ; i < len(rs); i++ {
-				cur.WriteRune(rs[i])
-				if rs[i] == '}' {
-					break
-				}
-			}
-		case r == ' ' || r == '\t':
-			flush()
-		case r == '#' && cur.Len() == 0:
-			flush()
-			return out
-		case strings.ContainsRune(";|&(){}", r):
-			flush()
-			out = append(out, tok{text: string(r), sep: true})
-		default:
-			cur.WriteRune(r)
+		l.cur.WriteByte(l.s[i])
+		if l.s[i] == '"' {
+			break
 		}
 	}
-	flush()
-	return out
+	return i
+}
+
+// brace copies a `${...}` parameter expansion starting at i.
+func (l *lexer) brace(i int) int {
+	end := len(l.s)
+	if k := strings.IndexByte(l.s[i:], '}'); k != -1 {
+		end = i + k + 1
+	}
+	l.cur.WriteString(l.s[i:end])
+	return end - 1
+}
+
+// step lexes the byte at i and returns the index of the last byte it consumed.
+func (l *lexer) step(i int) int {
+	c := l.s[i]
+	switch c {
+	case '\\':
+		return l.pair(i)
+	case '\'':
+		return l.single(i)
+	case '"':
+		return l.double(i)
+	case '$', '`':
+		if n, hit := l.sub(i); hit {
+			return n
+		}
+		if strings.HasPrefix(l.s[i:], "${") {
+			return l.brace(i)
+		}
+	case ' ', '\t':
+		l.flush()
+		return i
+	case '#':
+		if l.cur.Len() == 0 {
+			l.stop = true
+			return i
+		}
+	case ';', '|', '&', '(', ')', '{', '}':
+		l.flush()
+		l.out = append(l.out, tok{text: string(c), sep: true})
+		return i
+	}
+	l.cur.WriteByte(c)
+	return i
+}
+
+// lex splits one logical line into words and separators. It is quote-aware (single, double, backslash), keeps
+// `${...}` inside its word, and stops at a comment word. A command substitution, in a double-quoted word or
+// not, becomes a new command context (see tok). It is not a shell parser: it only has to find words in command
+// position, and anything it mis-splits can only turn a real call into a blind spot or an extra caller, both of
+// which fail closed.
+func lex(line string) []tok {
+	l := &lexer{s: line}
+	for i := 0; i < len(l.s) && !l.stop; i++ {
+		i = l.step(i)
+	}
+	if l.bad != "" {
+		return append(l.out, tok{bad: l.bad})
+	}
+	l.flush()
+	return l.out
 }

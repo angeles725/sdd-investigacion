@@ -32,41 +32,34 @@ func (f BashFile) Blind() string {
 func markEmptyReach(files []BashFile) {
 	var shims []string
 	for _, f := range files {
-		if len(f.Calls) > 0 {
+		if len(f.Calls) != 0 {
 			shims = append(shims, path.Base(f.Path))
 		}
 	}
 	for i := range files {
 		f := &files[i]
-		if len(f.Mentions) == 0 || len(f.Calls) > 0 || f.Blind() != "" {
+		if len(f.Mentions) == 0 || len(f.Calls) != 0 || f.Blind() != "" {
 			continue
 		}
 		f.Empty = !namesAny(f.Text, shims, path.Base(f.Path))
 	}
 }
 
+// nameChars are the bytes that continue a file name: a shim name only counts when it stands alone.
+const nameChars = "_-.0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+// namesAny reports whether text holds, as a whole name (not inside a longer one), any of names other than self.
 func namesAny(text string, names []string, self string) bool {
+	words := map[string]bool{}
+	for _, w := range strings.FieldsFunc(text, func(r rune) bool { return !strings.ContainsRune(nameChars, r) }) {
+		words[w] = true
+	}
 	for _, n := range names {
-		if n == self {
-			continue
-		}
-		for from := 0; ; {
-			i := strings.Index(text[from:], n)
-			if i < 0 {
-				break
-			}
-			i += from
-			from = i + len(n)
-			if (i == 0 || !nameChar(text[i-1])) && (from >= len(text) || !nameChar(text[from])) {
-				return true
-			}
+		if n != self && words[n] {
+			return true
 		}
 	}
 	return false
-}
-
-func nameChar(b byte) bool {
-	return b == '_' || b == '-' || b == '.' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // Counts are the per-class totals over every scanned bash file: mentions for A to unplaceable, files for the

@@ -2,6 +2,7 @@ package goimpact
 
 import (
 	"path"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -57,22 +58,29 @@ func (a *Analysis) Classify(file string) []string {
 	if !strings.HasSuffix(rel, ".go") { // a non-Go module file is never a member of its package (C10)
 		return full(file, "unclassified module file")
 	}
-	dir := path.Dir(rel)
-	if dir == "." {
-		dir = ""
-	}
+	dir, _ := path.Split(rel)
+	dir = strings.TrimSuffix(dir, "/")
 	if _, ok := a.mod.Pkgs[dir]; !ok {
 		return full(file, "not in a Go package of the module")
 	}
-	for _, d := range a.mod.Dirs() {
-		if e := a.mod.Pkgs[d].ParseErrors; len(e) > 0 {
-			return full(file, "parse error: "+e[0])
-		}
-		if u := a.mod.Pkgs[d].Unresolved; len(u) > 0 {
-			return full(file, "unresolved command literal at "+u[0])
-		}
+	if why := a.mod.firstProblem(); why != "" {
+		return full(file, why)
 	}
 	return a.reach(file, dir)
+}
+
+// firstProblem is the reason the parse cannot be trusted (the first parse error, else the first command
+// literal that is not constant) in the first package that has one, or "".
+func (m *Module) firstProblem() string {
+	for _, d := range m.Dirs() {
+		for _, e := range m.Pkgs[d].ParseErrors {
+			return "parse error: " + e
+		}
+		for _, u := range m.Pkgs[d].Unresolved {
+			return "unresolved command literal at " + u
+		}
+	}
+	return ""
 }
 
 // namedByBash returns the first bash file (by path) whose text names the testdata file or one of its
@@ -80,14 +88,8 @@ func (a *Analysis) Classify(file string) []string {
 // tail. A bare `testdata` is too generic to count as naming anything.
 func (a *Analysis) namedByBash(rel string) string {
 	segs := strings.Split(rel, "/")
-	ti := -1
-	for i, s := range segs {
-		if s == "testdata" {
-			ti = i
-			break
-		}
-	}
-	if ti < 0 {
+	ti := slices.Index(segs, "testdata")
+	if ti == -1 {
 		return ""
 	}
 	var needles []string

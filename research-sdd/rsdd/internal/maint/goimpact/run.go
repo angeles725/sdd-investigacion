@@ -35,11 +35,11 @@ func Run(args []string, s cli.Stdio) int {
 		return degrade(s, err.Error())
 	}
 	files := fs.Args()
-	switch {
-	case len(files) == 0:
+	if len(files) == 0 {
 		fmt.Fprint(s.Err, help)
 		return degrade(s, "no changed files given")
-	case *wide < 1:
+	}
+	if *wide < 1 {
 		return degrade(s, "--wide must be at least 1")
 	}
 	root := *repo

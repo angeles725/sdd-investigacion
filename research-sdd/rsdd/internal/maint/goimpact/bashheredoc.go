@@ -1,8 +1,10 @@
 package goimpact
 
 import (
+	"cmp"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -26,26 +28,29 @@ func sourceLines(text string) []srcLine {
 	for i := 0; i < len(lines); i++ {
 		l := lines[i]
 		out = append(out, srcLine{Text: l})
-		m := hereRe.FindStringSubmatchIndex(l)
-		if m == nil || (m[0] > 0 && l[m[0]-1] == '<') {
+		loc := hereRe.FindStringIndex(l)
+		if loc == nil || strings.HasSuffix(l[:loc[0]], "<") { // no here-doc, or a here-string (<<<)
 			continue
 		}
-		delim := ""
-		for g := 4; g <= 8 && delim == ""; g += 2 {
-			if m[g] >= 0 {
-				delim = l[m[g]:m[g+1]]
-			}
-		}
+		g := hereRe.FindStringSubmatch(l)
+		body, consumed := heredocBody(lines[i+1:], cmp.Or(g[2], g[3], g[4]))
 		exec := hasExecWord(l)
-		for i+1 < len(lines) {
-			i++
-			if strings.TrimSpace(lines[i]) == delim {
-				break
-			}
-			out = append(out, srcLine{Text: lines[i], Exec: exec})
+		for _, b := range body {
+			out = append(out, srcLine{Text: b, Exec: exec})
 		}
+		i += consumed
 	}
 	return out
+}
+
+// heredocBody splits the lines after a here-doc start into its body and the count of lines it consumed (the
+// body plus the delimiter line). A delimiter that never comes takes every remaining line.
+func heredocBody(rest []string, delim string) (body []string, consumed int) {
+	k := slices.IndexFunc(rest, func(s string) bool { return strings.TrimSpace(s) == delim })
+	if k == -1 {
+		return rest, len(rest)
+	}
+	return rest[:k], k + 1
 }
 
 func hasExecWord(line string) bool {

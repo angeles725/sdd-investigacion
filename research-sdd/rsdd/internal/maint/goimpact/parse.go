@@ -53,11 +53,12 @@ func parseDir(m *Module, abs, rel string) (*Package, error) {
 
 func recordImports(m *Module, pkg *Package, f *ast.File, isTest bool) {
 	for _, im := range f.Imports {
-		p, err := strconv.Unquote(im.Path.Value)
-		if err != nil || (p != m.Path && !strings.HasPrefix(p, m.Path+"/")) {
+		p, _ := strconv.Unquote(im.Path.Value) // the parser only yields valid literals
+		rest, ok := strings.CutPrefix(p+"/", m.Path+"/")
+		if !ok {
 			continue
 		}
-		dir := strings.TrimPrefix(strings.TrimPrefix(p, m.Path), "/")
+		dir := strings.TrimSuffix(rest, "/")
 		if isTest {
 			pkg.TestImports[dir] = true
 		} else {
@@ -177,11 +178,9 @@ func packageConsts(files []*ast.File) map[string]string {
 			}
 			for _, sp := range g.Specs {
 				vs := sp.(*ast.ValueSpec)
-				for i, id := range vs.Names {
-					if i < len(vs.Values) {
-						if s, ok := constString(vs.Values[i], nil); ok {
-							out[id.Name] = s
-						}
+				for i := range min(len(vs.Names), len(vs.Values)) { // an implicit repeat has no values
+					if s, ok := constString(vs.Values[i], nil); ok {
+						out[vs.Names[i].Name] = s
 					}
 				}
 			}

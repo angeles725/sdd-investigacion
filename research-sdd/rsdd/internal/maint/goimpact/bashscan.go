@@ -64,12 +64,13 @@ func commandIndex(words []string) int {
 // literalForm labels the non-variable ways to run the binary and the words to skip before <group> <name>
 // (rsdd_exec_hook takes a <kind> first). The literal path form excludes assignments (`RSDD_BIN=$ROOT/rsdd`).
 func literalForm(w string) (form string, skip int) {
-	switch {
-	case w == "rsdd_exec":
+	switch w {
+	case "rsdd_exec":
 		return "rsdd_exec", 0
-	case w == "rsdd_exec_hook":
+	case "rsdd_exec_hook":
 		return "rsdd_exec_hook", 1
-	case !strings.Contains(w, "=") && (w == "rsdd" || strings.HasSuffix(w, "/bin/rsdd")):
+	}
+	if !strings.Contains(w, "=") && (w == "rsdd" || strings.HasSuffix(w, "/bin/rsdd")) {
 		return "rsdd", 0
 	}
 	return "", 0
@@ -96,7 +97,7 @@ func scanText(text string, known func(Command) bool) ([]Call, []Mention) {
 		inDouble := false
 		for _, seg := range segments(lex(text)) {
 			w0 := commandIndex(seg.words)
-			if w0 >= 0 && norm(seg.words[w0]) == "[[" {
+			if w0 != -1 && norm(seg.words[w0]) == "[[" {
 				inDouble = true
 			}
 			for j, w := range seg.words {
@@ -112,11 +113,7 @@ func scanText(text string, known func(Command) bool) ([]Call, []Mention) {
 					if len(args) == 0 && seg.next == "(" {
 						continue // `rsdd_exec() {`: a function definition, not a call
 					}
-					if len(args) < skip {
-						ms = append(ms, Mention{Class: ClassC})
-						continue
-					}
-					record(ClassC, form, args[skip:])
+					record(ClassC, form, args[min(skip, len(args)):]) // too few words: an unresolved call
 				}
 			}
 			for _, w := range seg.words {

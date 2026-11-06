@@ -69,6 +69,9 @@ type Module struct {
 	Pkgs map[string]*Package
 }
 
+// skipDirs are the directory names Load never descends into.
+var skipDirs = map[string]bool{"testdata": true, "vendor": true}
+
 // ModuleDir is where the module lives under the repository root.
 const ModuleDir = "research-sdd/rsdd"
 
@@ -88,7 +91,7 @@ func Load(repo string) (*Module, error) {
 		if !d.IsDir() {
 			return nil
 		}
-		if p != root && (d.Name() == "testdata" || d.Name() == "vendor" || strings.HasPrefix(d.Name(), ".")) {
+		if skipDirs[d.Name()] || strings.HasPrefix(d.Name(), ".") { // the root is named rsdd: never skipped
 			return filepath.SkipDir
 		}
 		rel, _ := filepath.Rel(root, p)

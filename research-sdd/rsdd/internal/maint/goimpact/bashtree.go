@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -57,7 +57,7 @@ func ScanBash(repo string, known func(Command) bool) ([]BashFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot enumerate bash files under research-sdd: %w", err)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	slices.SortFunc(out, func(a, b BashFile) int { return strings.Compare(a.Path, b.Path) })
 	markEmptyReach(out)
 	return out, nil
 }
