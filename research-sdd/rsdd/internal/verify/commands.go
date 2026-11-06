@@ -7,6 +7,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/verify/block"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/verify/corrections"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/verify/gapdrift"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/verify/toolcatalog"
 )
 
 // Commands is this domain's contribution to the command table. A unit adds
@@ -20,5 +21,7 @@ var Commands = []cli.Command{
 	{Name: "registry-hook", Group: "verify", Summary: "SessionStart hook: emit the compact registry check (--full for the whole report)", Run: RunRegistryHook},
 	{Name: "corrections", Group: "verify", Summary: "section-14 reciprocal-backlink lint of a corpus (port of verify-corrections.sh)", Run: corrections.Run},
 	{Name: "gap-drift", Group: "verify", Summary: "flag backlog rows whose text drifted from their child-gap bullet (port of check-gap-drift.sh)", Run: gapdrift.Run},
+	{Name: "tool-catalog", Group: "verify", Summary: "drift guard: tools logged in INSTALLED-TOOLS.md vs the capability catalog tool-registry.md (port of verify-tool-catalog.sh)", Run: toolcatalog.Run},
+	{Name: "tool-catalog-hook", Group: "verify", Summary: "SessionStart hook: emit the tool-catalog drift report (--full for every WARN line)", Run: toolcatalog.RunHook},
 	{Name: "skill-drift", Group: "verify", Summary: "is a deployed SKILL.md the kit's source (port of verify-skill-drift.sh; --hook is the SessionStart hook)", Run: RunSkillDrift},
 }

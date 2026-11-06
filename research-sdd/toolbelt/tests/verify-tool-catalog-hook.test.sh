@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# verify-tool-catalog-hook.test.sh — red-first harness for verify-tool-catalog-hook.sh.
-# Covers: existence, silent-when-clean, surface-when-drift, error-when-failed,
-# anti-silent-zero (missing Summary line), empty-input passthrough, and mutation proof.
+# verify-tool-catalog-hook.test.sh — harness for verify-tool-catalog-hook.sh, now a shim to
+# `rsdd verify tool-catalog-hook` (kit issue #2749).
+# Covers: existence, executable; the shim contract against a STUB rsdd (arguments handed over, --full forwarded,
+# output and exit code passed through, symlinked invocation, rsdd unavailable → a DEGRADED envelope, rc 0); the real
+# Go binary end to end (clean sentinel, empty-input silent, drift compact and --full, could-not-run); and mutation
+# proof on the shim. The envelope bytes, the compact form, the 160-byte cut and the capped could-not-run contexts
+# are pinned against the old bash hook and against jq by the Go differential and golden tests
+# (internal/verify/toolcatalog, `make test`); the teeth that targeted that bash moved there (`make teeth`).
 # Exit: 0 all held · 1 regression · 2 harness error
 
 set -uo pipefail
@@ -27,77 +32,106 @@ echo "== verify-tool-catalog-hook.test.sh =="
   || no "2 hook NOT executable (missing +x bit)"
 
 if [ ! -f "$SUT" ]; then
-  for n in 3 4 5 6 7; do no "$n (skipped: hook missing)"; done
-  echo "== $pass passed · $fail failed =="; exit 1
+  for n in 3 4 5 6 7 8 9 10 11; do no "$n (skipped: hook missing)"; done
+  echo "== $pass passed · $fail failed =="; exit 2
 fi
 
 # ---- Temp workspace ---------------------------------------------------------
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-# write_stub <exit_code> <output_text> — creates TMP/verify-tool-catalog.sh + refreshes hook copy.
-write_stub() {
-  local rc="$1" txt="$2"
-  printf '%s\n' "$txt" > "$TMP/stub-out.txt"
-  printf '#!/usr/bin/env bash\ncat "%s"\nexit %s\n' "$TMP/stub-out.txt" "$rc" \
-    > "$TMP/verify-tool-catalog.sh"
-  chmod +x "$TMP/verify-tool-catalog.sh"
-  cp "$SUT" "$TMP/verify-tool-catalog-hook.sh"
-  rsdd_stage_libs "$TMP"  # the hook sources lib/hook-emit.sh beside itself (#1877)
-  chmod +x "$TMP/verify-tool-catalog-hook.sh"
+# The real binary for the end-to-end cases: the caller's RSDD_BIN, else one build into the temp dir.
+REAL_BIN="${RSDD_BIN:-}"
+if [ -z "$REAL_BIN" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$TMP/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  REAL_BIN="$TMP/rsdd"
+fi
+
+# stage_hook DEST [SHIM] — a sandbox toolbelt holding the hook shim (the real one, or a mutant) and every lib.
+stage_hook() { mkdir -p "$1"; cp "${2:-$SUT}" "$1/verify-tool-catalog-hook.sh"; chmod +x "$1/verify-tool-catalog-hook.sh"; rsdd_stage_libs "$1" || exit 2; }
+
+# stub_bin RC OUTPUT — a fake rsdd that records its arguments (one per line) in $TMP/args, prints OUTPUT, exits RC.
+stub_bin() {
+  printf '%s' "$2" > "$TMP/stub-out.txt"; : > "$TMP/args"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s"\ncat "%s"\nexit %s\n' "$TMP/args" "$TMP/stub-out.txt" "$1" > "$TMP/stub-rsdd"
+  chmod +x "$TMP/stub-rsdd"
 }
 
-# 3. Declared-clean sentinel when every logged tool is cataloged (0 not cataloged).
-#    A silent clean run is the defect (#380 precedent) — sentinel MUST be emitted.
-write_stub 0 "Summary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 5 cataloged · 0 not cataloged."
-OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
-<<<"$OUT" grep -q 'Research-SDD tool catalog: clean (5 logged tools, 0 uncataloged).' \
-  && ok "3 all-cataloged (0 not cataloged) → declared-clean sentinel emitted" \
-  || no "3 all-cataloged → expected clean sentinel, got exit=$RC out=[$OUT]"
+stage_hook "$TMP/tb"; HOOK="$TMP/tb/verify-tool-catalog-hook.sh"
+PHYS="$(cd -P "$TMP/tb" && pwd -P)"
 
-# 4. Emits drift when not-cataloged > 0.
-write_stub 0 "$(printf 'WARN  installed-but-not-cataloged: '\''typst'\'' is logged...\n\nSummary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.')"
-OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
-<<<"$OUT" grep -qi 'not cataloged' \
-  && <<<"$OUT" grep -qi 'Summary' \
-  && ok "4 not-cataloged > 0 → emits drift summary" \
-  || no "4 not-cataloged > 0 → expected drift summary (exit=$RC out=[$OUT])"
+# 3. The binary gets the group, the command and the hook's own directory; its output and exit code pass through.
+ENV='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"drift"}}
+'
+stub_bin 0 "$ENV"
+OUT="$(RSDD_BIN="$TMP/stub-rsdd" bash "$HOOK" 2>&1)"; RC=$?
+if [ "$RC" -eq 0 ] && [ "$OUT" = "${ENV%$'\n'}" ] && [ "$(tr '\n' ' ' < "$TMP/args")" = "verify tool-catalog-hook $PHYS " ]; then
+  ok "3 binary called as 'verify tool-catalog-hook <own dir>', output passes through, exit 0"
+else no "3 shim contract: rc=$RC out=[$OUT] args=[$(tr '\n' ' ' < "$TMP/args")]"; fi
 
-# 5. Operational failure (guard exits non-zero) → error banner, not silence.
-write_stub 1 "verify-tool-catalog: ERROR — cannot find INSTALLED-TOOLS.md (absent-input)"
-OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
-<<<"$OUT" grep -qi 'could not run\|error\|exit 1' \
-  && ok "5 guard failure (rc=1) → error banner emitted" \
-  || no "5 guard failure → expected error banner (exit=$RC out=[$OUT])"
+# 4. --full reaches the binary (after the own directory); any other first argument is passed along, never dropped.
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$HOOK" --full >/dev/null 2>&1
+if [ "$(tr '\n' ' ' < "$TMP/args")" = "verify tool-catalog-hook $PHYS --full " ]; then ok "4 --full forwarded after the own directory"; else no "4 --full: args=[$(tr '\n' ' ' < "$TMP/args")]"; fi
 
-# 6. Anti-silent-zero: guard exits 0 but emits no Summary AND no empty-input sentence → warning.
-write_stub 0 "some unexpected garbage with no Summary line"
-OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
-<<<"$OUT" grep -qi 'missing summary\|unexpected' \
-  && ok "6 missing Summary line (not empty-input) → anti-silent-zero warning emitted" \
-  || no "6 missing Summary line → expected warning, got exit=$RC out=[$OUT]"
+# 5. Invoked through a symlink in another directory, the hook still names its REAL directory.
+mkdir -p "$TMP/elsewhere"; ln -s "$HOOK" "$TMP/elsewhere/link-hook.sh"
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/elsewhere/link-hook.sh" >/dev/null 2>&1
+if [ "$(sed -n 3p "$TMP/args")" = "$PHYS" ]; then ok "5 symlinked hook → binary gets the physical own directory"; else no "5 symlink: args=[$(tr '\n' ' ' < "$TMP/args")] want ...$PHYS"; fi
 
-# 7. Empty-input passthrough: guard's explicit empty-input sentence → silent, not surfaced as an error.
-write_stub 0 "verify-tool-catalog: INSTALLED-TOOLS.md has no tool log rows (empty-input) — nothing to reconcile."
-OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC=$?
-[ -z "$OUT" ] && [ "$RC" -eq 0 ] \
-  && ok "7 empty-input sentence → silent (legitimate, not an anomaly), exit 0" \
-  || no "7 empty-input → expected silence, got exit=$RC out=[$OUT]"
+# 6. rsdd unavailable → exit 0 and a DEGRADED SessionStart envelope (never empty stdout), stderr names the cause.
+OUT="$(RSDD_BIN="$TMP/does-not-exist" bash "$HOOK" 2>"$TMP/err6")"; RC=$?
+if [ "$RC" -eq 0 ] && grep -q 'Research-SDD hooks DEGRADED: rsdd-unavailable — RSDD_BIN not executable' <<<"$OUT" \
+   && grep -q '^degraded: rsdd-unavailable — RSDD_BIN not executable: ' "$TMP/err6"; then
+  ok "6 rsdd unavailable → rc 0, DEGRADED envelope on stdout, degraded line on stderr"
+else no "6 unavailable: rc=$RC out=[$OUT] err=[$(cat "$TMP/err6")]"; fi
 
-# 8. WARN-line extraction grep error (exit ≥2) must append failure notice; never silently empty warn_lines.
-#    Stubs grep so any call for '^WARN' (the extraction call in the hook) exits 2.
-_vtch_real_grep=/usr/bin/grep
-_stub_vtch8="$TMP/stub-bin-vtch8"; mkdir -p "$_stub_vtch8"
-cat > "$_stub_vtch8/grep" << STUB_VTCH8
-#!/usr/bin/env bash
-[ "\$1" = '^WARN' ] && exit 2
-exec "${_vtch_real_grep}" "\$@"
-STUB_VTCH8
-chmod +x "$_stub_vtch8/grep"
-write_stub 0 "$(printf 'Summary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.')"
-OUT_VTCH8="$(PATH="$_stub_vtch8:$PATH" bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; RC_VTCH8=$?
-<<<"$OUT_VTCH8" grep -qiE 'WARN-line extraction failed|grep exit' \
-  && ok "8 WARN-line extraction grep exit-2 → failure notice in output" \
-  || no "8 WARN-line extraction grep exit-2 not reported (exit=$RC_VTCH8 out=[$OUT_VTCH8])"
+# ---- end to end against the real binary ----
+# e2e_kit NAME "<logged tools>" "<cataloged tools>" — a toolbelt holding the hook shim and the two inputs (a tool
+# per word; `-` for none).
+e2e_kit() {
+  local t
+  stage_hook "$TMP/$1"
+  { printf '| Tool | How | Status | Target | Date | Notes |\n|---|---|---|---|---|---|\n'
+    for t in $2; do [ "$t" = - ] || printf '| %s | `brew` | installed | kit | 2026-01-01T00:00:00Z | n/a |\n' "$t"; done; } > "$TMP/$1/INSTALLED-TOOLS.md"
+  { printf '| Artifact type | Tool |\n|---|---|\n'
+    for t in $3; do [ "$t" = - ] || printf '| A | %s |\n' "$t"; done; } > "$TMP/$1/tool-registry.md"
+}
+ctx_of() { jq -r '.hookSpecificOutput.additionalContext' <<<"$1" 2>/dev/null; }
+run_e2e() { RSDD_BIN="$REAL_BIN" bash "$TMP/$1/verify-tool-catalog-hook.sh" "${@:2}" 2>&1; }
+
+# 7. Every logged tool cataloged → the declared-clean sentinel (a silent clean run is the defect, #380 precedent).
+e2e_kit e2e-clean "alpha beta" "alpha beta"
+OUT="$(run_e2e e2e-clean)"; RC=$?
+if [ "$RC" -eq 0 ] && [ "$(ctx_of "$OUT")" = "Research-SDD tool catalog: clean (2 logged tools, 0 uncataloged)." ]; then
+  ok "7 real binary, all cataloged → clean sentinel in a SessionStart envelope"
+else no "7 clean: rc=$RC out=[$OUT]"; fi
+
+# 8. A log with no tool → silent (the legitimate empty-input state), exit 0.
+e2e_kit e2e-empty - -
+OUT="$(run_e2e e2e-empty)"; RC=$?
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then ok "8 real binary, empty log → silent, exit 0"; else no "8 empty-input not silent: rc=$RC out=[$OUT]"; fi
+
+# 9. Drift → the compact report: ONE line naming every uncataloged tool, the Summary, the pointer to the full list.
+e2e_kit e2e-drift "typst bkcrack ok" "ok"
+OUT="$(run_e2e e2e-drift)"; RC=$?; CTX="$(ctx_of "$OUT")"
+if [ "$RC" -eq 0 ] && [[ "$CTX" == "Research-SDD tool catalog drift (installed but not cataloged):"$'\n'"WARN  installed-but-not-cataloged (2): typst, bkcrack — add a tool-registry.md row each (propose-never-apply)."$'\n'"Summary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 1 cataloged · 2 not cataloged."$'\n'"Run toolbelt/verify-tool-catalog.sh for the full list." ]]; then
+  ok "9 real binary, drift → compact report naming every uncataloged tool"
+else no "9 drift: rc=$RC ctx=[$CTX]"; fi
+
+# 10. --full keeps one WARN line per tool.
+OUT="$(run_e2e e2e-drift --full)"; RC=$?; CTX="$(ctx_of "$OUT")"
+if [ "$RC" -eq 0 ] && [ "$(grep -c "^WARN  installed-but-not-cataloged: '" <<<"$CTX")" = 2 ] && grep -q "'typst'" <<<"$CTX" && grep -q "'bkcrack'" <<<"$CTX"; then
+  ok "10 real binary, drift --full → one WARN line per tool"
+else no "10 drift --full: rc=$RC ctx=[$CTX]"; fi
+
+# 11. A missing input → the could-not-run banner naming the exit code, never silence; the hook still exits 0.
+stage_hook "$TMP/e2e-absent"; printf '| Artifact type | Tool |\n' > "$TMP/e2e-absent/tool-registry.md"
+OUT="$(run_e2e e2e-absent)"; RC=$?; CTX="$(ctx_of "$OUT")"
+if [ "$RC" -eq 0 ] && [[ "$CTX" == "Research-SDD tool catalog check could not run (exit 1 — check INSTALLED-TOOLS.md and tool-registry.md):"$'\n'"verify-tool-catalog: ERROR — cannot find "*"INSTALLED-TOOLS.md (absent-input)" ]]; then
+  ok "11 real binary, input absent → 'could not run (exit 1)' banner with the ERROR line, hook exit 0"
+else no "11 absent input: rc=$RC ctx=[$CTX]"; fi
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -106,67 +140,39 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count mutant_crash_re || exit 2
-  CRASH_RE="$(mutant_crash_re bash cmd)" || exit 2
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
-  echo "-- teeth: hook must go red when silence is broken --"
+  echo "-- teeth: each shim mutation must lose its case --"
 
-  # Each tooth resets the hook copy (rm here, write_stub restores the pristine SUT) and is skipped when its
-  # mutant build is refused (already counted once by mk_mut), so a previous tooth's mutant can never run in its place.
-
-  # Tooth A: mutant hook always exits 0 without output (ignores not-cataloged count).
-  # Test 4 (not-cataloged > 0 → emits drift summary) must catch this and go RED.
-  # Mutant: insert unconditional exit 0 right after the missing= parse line — hook exits
-  # silently regardless of the not-cataloged count, so drift goes unreported.
-  rm -f "$TMP/verify-tool-catalog-hook.sh"
-  if mk_mut "teeth A: always-silent" "$SUT" "$TMP/mutant-hook.sh" '/missing.*not cataloged/a\  exit 0'; then
-    chmod +x "$TMP/mutant-hook.sh"
-    write_stub 0 "$(printf 'Summary: 3 distinct tool(s) logged in INSTALLED-TOOLS.md · 2 cataloged · 1 not cataloged.')"
-    cp "$TMP/stub-out.txt" "$TMP/stub-out-teeth.txt"
-    printf '#!/usr/bin/env bash\ncat "%s"\nexit 0\n' "$TMP/stub-out-teeth.txt" \
-      > "$TMP/verify-tool-catalog.sh"
-    cp "$TMP/mutant-hook.sh" "$TMP/verify-tool-catalog-hook.sh"
-    MUTANT_OUT="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; MRC=$?
-    if [ "$MRC" = 0 ] && [ -z "$MUTANT_OUT" ]; then
-      ok "teeth A: always-silent mutant produces no output → test 4 would catch it (RED)"
-    else
-      no "teeth A: mutant rc=$MRC out=[$MUTANT_OUT] — want rc 0 and no output (mutation did not silence correctly, or crashed)"
-    fi
+  # A: the own-directory argument dropped → case 3 sees no directory (and the real binary would check the cwd).
+  if mk_mut "teeth A: own dir dropped" "$SUT" "$TMP/mutA.sh" 's/ "\$_RSDD_SELF" "\$@"$/ "$@"/'; then
+    stage_hook "$TMP/mA" "$TMP/mutA.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mA/verify-tool-catalog-hook.sh" >/dev/null 2>&1
+    if [ "$(tr '\n' ' ' < "$TMP/args")" = "verify tool-catalog-hook " ]; then ok "teeth A: own dir dropped → case 3 would go RED"; else no "teeth A: mutant still passes the own dir (args=[$(tr '\n' ' ' < "$TMP/args")])"; fi
   fi
-
-  # Tooth C: mutant makes the clean state silent (reverts to old exit-0 idiom) → test 3 goes RED.
-  # Mutant: replace sentinel emission with bare exit 0 (no jq call, no output).
-  echo "-- teeth C: clean-silent mutant → test 3 (declared-clean sentinel) must catch it --"
-  rm -f "$TMP/verify-tool-catalog-hook.sh"
-  if mk_mut "teeth C: clean-silent" "$SUT" "$TMP/mutant-hook-c.sh" '/CLEAN-SENTINEL/c\  exit 0'; then
-    chmod +x "$TMP/mutant-hook-c.sh"
-    write_stub 0 "$(printf 'Summary: 5 distinct tool(s) logged in INSTALLED-TOOLS.md · 5 cataloged · 0 not cataloged.')"
-    cp "$TMP/mutant-hook-c.sh" "$TMP/verify-tool-catalog-hook.sh"
-    MUTANT_OUT_C="$(bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; MRC_C=$?
-    if [ "$MRC_C" = 0 ] && ! <<<"$MUTANT_OUT_C" grep -q 'Research-SDD tool catalog: clean'; then
-      ok "teeth C: clean-silent mutant omits sentinel → test 3 would catch it (RED)"
-    else
-      no "teeth C: mutant rc=$MRC_C out=[$MUTANT_OUT_C] — want rc 0 and no clean sentinel (a crash is no bite)"
-    fi
+  # B: the caller's arguments dropped → --full never reaches the binary → case 4.
+  if mk_mut "teeth B: arguments dropped" "$SUT" "$TMP/mutB.sh" 's/ "\$@"$//'; then
+    stage_hook "$TMP/mB" "$TMP/mutB.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mB/verify-tool-catalog-hook.sh" --full >/dev/null 2>&1
+    if [ "$(tr '\n' ' ' < "$TMP/args")" = "verify tool-catalog-hook $(cd -P "$TMP/mB" && pwd -P) " ]; then ok "teeth B: --full lost → case 4 would go RED"; else no "teeth B: mutant still forwards --full (args=[$(tr '\n' ' ' < "$TMP/args")])"; fi
   fi
-
-  # Tooth B: neutralize _vtch_warn_rc so WARN-line extraction error passes silently → test 8 goes red.
-  echo "-- teeth B: neutralize _vtch_warn_rc; extraction exit-2 must pass silently → test 8 goes red --"
-  rm -f "$TMP/verify-tool-catalog-hook.sh"
-  mutant_vtch_b="$TMP/mutant-hook-vtch-b.sh"
-  if mk_mut "teeth B: rc-zeroed" "$SUT" "$mutant_vtch_b" 's/_vtch_warn_rc=\$?/_vtch_warn_rc=0/'; then
-    write_stub 0 "$(printf 'Summary: 1 distinct tool(s) logged in INSTALLED-TOOLS.md · 0 cataloged · 1 not cataloged.')"
-    cp "$TMP/stub-out.txt" "$TMP/stub-out-vtch8.txt"
-    printf '#!/usr/bin/env bash\ncat "%s"\nexit 0\n' "$TMP/stub-out-vtch8.txt" \
-      > "$TMP/verify-tool-catalog.sh"
-    cp "$mutant_vtch_b" "$TMP/verify-tool-catalog-hook.sh"
-    out_vtch8m="$(PATH="$_stub_vtch8:$PATH" bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; MRC_B=$?
-    # The mutant still prints the Summary-derived notice; only the extraction-failure notice must vanish, and it must not crash.
-    if [ "$MRC_B" = 0 ] && ! <<<"$out_vtch8m" grep -qiE "WARN-line extraction failed|grep exit|$CRASH_RE"; then
-      ok "teeth B: rc-zeroed mutant passes silently — extraction guard has teeth"
-    else
-      no "teeth B: mutant rc=$MRC_B out=[$out_vtch8m] — want rc 0 and no extraction-failure notice (still emitted, or crashed)"
-    fi
+  # C: sweep mode changed to gate → the degraded envelope vanishes (stdout empty) → case 6.
+  if mk_mut "teeth C: sweep → gate" "$SUT" "$TMP/mutC.sh" 's/rsdd_exec_hook sweep /rsdd_exec_hook gate /'; then
+    stage_hook "$TMP/mC" "$TMP/mutC.sh"
+    OUT="$(RSDD_BIN="$TMP/does-not-exist" bash "$TMP/mC/verify-tool-catalog-hook.sh" 2>/dev/null)"
+    if [ -z "$OUT" ]; then ok "teeth C: gate degraded mode → empty stdout, case 6 would go RED"; else no "teeth C: mutant still emits [$OUT]"; fi
+  fi
+  # D: wrong command (the check instead of the hook) → the real run prints the plain report, not an envelope → case 9.
+  if mk_mut "teeth D: wrong command" "$SUT" "$TMP/mutD.sh" 's/verify tool-catalog-hook /verify tool-catalog /'; then
+    e2e_kit e2e-mutd "typst" -; cp "$TMP/mutD.sh" "$TMP/e2e-mutd/verify-tool-catalog-hook.sh"
+    OUT="$(RSDD_BIN="$REAL_BIN" bash "$TMP/e2e-mutd/verify-tool-catalog-hook.sh" 2>&1)"
+    if ! jq -e . >/dev/null 2>&1 <<<"$OUT"; then ok "teeth D: wrong command → plain report, no envelope → case 9 would go RED"; else no "teeth D: mutant still emits an envelope"; fi
+  fi
+  # E: the missing-lib guard stripped → no announcement → checked here directly.
+  if mk_mut "teeth E: guard removed" "$SUT" "$TMP/mutE.sh" 's/ 2>\/dev\/null || { printf .*exit 0; }//'; then
+    mkdir -p "$TMP/mE"; cp "$TMP/mutE.sh" "$TMP/mE/verify-tool-catalog-hook.sh"
+    OUT="$(bash "$TMP/mE/verify-tool-catalog-hook.sh" 2>/dev/null)"
+    if [ -z "$OUT" ]; then ok "teeth E: unguarded hook is silent when the lib is missing → the guard has teeth"; else no "teeth E: mutant still announces [$OUT]"; fi
   fi
 fi
 
