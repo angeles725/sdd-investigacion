@@ -116,3 +116,21 @@ Forecast: about 250 changed lines for T1, about 500 for T2.
   directory. Three of the files have an exact count in `modularity-debt.txt` (`internal/sweep/retros.go` 634,
   `internal/verify/registry.go` 674, `internal/verify/skilldrift.go` 539): a changed line count lowers their line
   in the same commit. Route of T1: delegated to one writer, by the kit contract (two or more non-trivial files).
+- L5 Conditions of session 1 on the resolver's warnings, 2026-11-06, verbatim: "#2770 PR (a), the resolver's
+  warnings: approved, and it stays in this PR: a set-but-invalid RESEARCH_SDD_KIT that falls through to another kit
+  silently is exactly the family we remove. Conditions: the warning goes to stderr only, never into stdout and
+  never into a hook's JSON; the exit code of each command is unchanged by it; every bash suite of those commands
+  that asserts an empty stderr or a byte-exact stderr is in the list you run; and say in the body what `sweep all`
+  prints when the variable is invalid (it runs eight children: one warning per child is acceptable if you state
+  it, a silent zero is not). Pin one case per site as you planned."
+- L6 Review of the first delivery of T1 (commits 318d2bf0 and 2df2f853, rebased on main 4494fb02), 2026-11-06. The
+  edit surface was respected. The writer's reading corrects L4: seven sites keep the kit root and five keep the
+  toolbelt directory (reconcile, stage, stage-issues, budget session, java-fidelity). Four corrections, sent as
+  one batch: (1) the harness of the site tests is copied in seven packages, about 120 lines each: it becomes one
+  shared package, `internal/testkit/kitsite`; (2) three listed files grew (`internal/sweep/retros.go` 634 to 640,
+  over 400, where the list forbids growth; `internal/budget/session.go` 391 to 395;
+  `internal/corroborate/fidelity/fidelity.go` 306 to 308): the kit lookup moves to a small file in each package,
+  so the three counts go down; (3) `corroborate java-fidelity` still dropped the warning: it resolves once per run
+  and prints the line once; (4) the hook mode of the four sweeps skipped the warning: it goes to the process's
+  stderr, outside the context the hook hands the model. Not in this pull request, sent to session 1 to rank:
+  `verify registry-hook` already merged the warning into its context before this change.
