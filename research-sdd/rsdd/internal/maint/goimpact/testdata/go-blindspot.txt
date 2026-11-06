@@ -20,6 +20,7 @@ research-sdd/toolbelt/tests/kit-pr-pipeline.test.sh D
 research-sdd/toolbelt/tests/kit-rdd-drive.test.sh D
 research-sdd/toolbelt/tests/kit-rdd-start.test.sh D
 research-sdd/toolbelt/tests/kit-size-check.test.sh D
+research-sdd/toolbelt/tests/kit-writer-check.test.sh D
 research-sdd/toolbelt/tests/migrate-backlogs.test.sh D
 research-sdd/toolbelt/tests/pcap-flows.test.sh D
 research-sdd/toolbelt/tests/qnx6-read.test.sh D
@@ -66,5 +67,7 @@ research-sdd/toolbelt/tests/verify-skill-drift-hook.test.sh D
 research-sdd/toolbelt/tests/verify-skill-drift.test.sh D
 research-sdd/toolbelt/tests/verify-state-inplace-blocked.test.sh D
 research-sdd/toolbelt/tests/verify-state.test.sh D
+research-sdd/toolbelt/tests/verify-tool-catalog-hook.test.sh D
+research-sdd/toolbelt/tests/verify-tool-catalog.test.sh D
 research-sdd/toolbelt/tests/zip-metadata.test.sh D
 research-sdd/toolbelt/tests/zip-stored.test.sh D
