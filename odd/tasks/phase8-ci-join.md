@@ -41,7 +41,8 @@ flow-form job or zero jobs) and three guards over the real workflow files:
   `wf-real-pr-check.yml`; each reported `same`, `drifted` or `absent` (three controls: equal, one byte changed,
   file missing).
 - in `internal/gate`: `TestDefaultRequiredChecksAreRealJobs`: each default required name is the check name of a
-  non-matrix job with no job-level `if:` in a workflow that has a `pull_request` event.
+  non-matrix job whose job-level `if:` is absent or exactly `always()` (any other condition can skip it) in a
+  workflow that has a `pull_request` event.
 Every finding has a table case built from a mutated copy of the source (the guard must bite).
 
 S5 — slice 8.2a, `internal/maint/cishard` (pure, stdin to stdout, never runs `go test`):
@@ -50,25 +51,37 @@ S5 — slice 8.2a, `internal/maint/cishard` (pure, stdin to stdout, never runs `
   package without a weight weighs 6 s and is named on stderr; an absent or empty durations file is a typed
   `DEGRADED` note and the position-mod-N assignment; an invalid line is a typed `INVALID`, exit 1; the plans of the
   N shards are a disjoint and complete cover for every N from 1 to 32; an empty package list is exit 1, never an
-  empty plan presented as a pass.
+  empty plan presented as a pass, and a shard whose own share is empty (N greater than the package count) prints
+  `EMPTY SHARD` and exits 1, as the bash runner does.
 - `rsdd maint ci-shard manifest --shard I/N --exit RC --planned FILE`: reads `go test -json` on stdin and writes
   `# shard I/N suites=K exit=RC` then `<import path> PASS|FAIL|SKIP` per planned package (the format
   `shard-join.sh` reads). A planned package with no final package-level event is `FAIL`; an empty stream forces
   `exit=1`; a package in the stream that was not planned is a finding. The package-level action of a build failure
-  and of a crashed test binary is pinned by a recorded fixture, not assumed.
+  and of a crashed test binary is pinned by a recorded fixture (the Go version that produced it is recorded beside
+  it), not assumed. `--exit RC` is the status of `make` itself, taken after the JSON stream was written to a file,
+  never the status of a pipeline; `exit=0` with a `FAIL` row, or a non-zero `exit` with every row `PASS`, is a
+  finding. An `Action` value the writer does not know is counted and reported (`unknown actions: N — [names]`),
+  never ignored. Test-level skips are counted from the stream and printed as `Go tests skipped: N — [pkg: n]`
+  (report-only in this slice: a package whose tests all skip is a package-level pass, which `--strict-skip` cannot
+  see).
 - `Makefile`: `PKGS ?= ./...` used by `test`, default unchanged.
 
 S6 — slice 8.2b, the wiring (the minimum that unblocks deletion PRs). In `.github/workflows/toolbelt-tests.yml`: a
 matrix job `toolbelt-go-shard` (no `name:` line; `GO_SHARD_COUNT: "2"` asserted against `strategy.job-total`) that
-builds `rsdd` once, lists the packages that have tests, plans its share, runs
-`make test PKGS="$plan" TESTFLAGS="-json -count=1"`, writes the manifest and uploads it as `go-shard-manifest-I`
+builds `rsdd` once, lists the packages that have tests (the lister reads `TestGoFiles` AND `XTestGoFiles`), plans
+its share, runs `make test PKGS="$plan" TESTFLAGS="-json -count=1"` under the default tag set only (a second tag set
+would need the manifest key to become package plus tag set), writes the manifest and uploads it as `go-shard-manifest-I`
 (`if: always()`, `if-no-files-found: error`; the prefix is NOT `shard-manifest-`, which the bash join's download
 pattern would match). The join job `toolbelt-tests` gets `needs: [toolbelt-shard, toolbelt-go-shard]`, computes the
-expected package list ITSELF from its own checkout (never from the shards; an empty list is a failure), runs the bash
+expected package list ITSELF from its own checkout (never from the shards; the step fails on an empty list with
+its own check, and a case pins that `shard-join.sh --expected` with an empty file and zero manifests fails), runs the bash
 join unchanged, then `shard-join.sh --expected go-expected.txt --shards "$GO_SHARD_COUNT" --strict-skip` over the Go
 manifests, and its last step fails unless both `needs.*.result` are `success`. Same commit: the fixture copy
-`wf-real-toolbelt-tests.yml`, the guard tables of S4, a seed `research-sdd/rsdd/ci/go-test-durations.txt`, and the
-shard row of `CLAUDE.md`. `rsdd-go-test`, `rsdd-go-bridge` and `rsdd-go` stay separate checks, unchanged.
+`wf-real-toolbelt-tests.yml`, the guard tables of S4, a seed `research-sdd/rsdd/ci/go-test-durations.txt`, the
+shard row of `CLAUDE.md`, and a lister guard: the lister's output is compared with a plain walk of the directories
+that hold `_test.go` files outside `testdata`, and every difference is named with its reason (a package whose test
+files are all behind a build constraint or a platform suffix), so shard and join cannot agree on a list that silently
+dropped a package. `rsdd-go-test`, `rsdd-go-bridge` and `rsdd-go` stay separate checks, unchanged.
 
 S7 — slice 8.3, `shellcheck`: the lint step builds an explicit list from `research-sdd/toolbelt`,
 `research-sdd/install` and `research-sdd/templates` (`*.sh`, excluding `*/testdata/*`), prints `shellcheck: N files`,
@@ -133,3 +146,13 @@ and in the `ciVerdict` comment claimed an exempted name's skip is fine, but the 
 no run at all (a skipped required run on a docs-only PR is refused); the reason-code continuation named a path
 filter as a cause of `ci_skipped`, which is a cause of `ci_missing`. A second app reporting a required name as
 skipped refuses the merge (pinned by the case "one app skipped, one success").
+
+L6 (2026-11-06, session 10's read for ways the join passes without having looked; all eight points accepted, S4, S5
+and S6 rewritten above): (A) the default-required guard contradicted the join's own `if: always()`; (B) an expected
+list computed the same way by shard and join agrees on whatever the lister drops: measured at 0a8c107a, 81
+directories hold `_test.go` files, 3 hold only external-package tests (core/envelope, core/reasons,
+testkit/execfile) and 4 have every test file behind a build constraint or platform suffix (core/fsx, core/git,
+corroborate/ghidra, install); (C) the tag set a shard runs must be stated; (D) the recorded exit must be make's own
+status, never a pipeline's; (E) test-level skips were invisible to the join; (F) an empty share of one shard; (G)
+unknown stream actions; (H) who enforces the empty expected list. The ceiling on skipped tests waits for the
+only-shrink check (session 10).
