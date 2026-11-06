@@ -18,9 +18,9 @@ func TestFrozenGoldens(t *testing.T) {
 		t.Fatal(err)
 	}
 	needsSandbox := map[string]bool{"mixed": true, "sources": true, "matchers": true, "newline": true, "utf8": true, "over": true, "partialmix": true, "fresh": true}
-	frozen, err := filepath.Glob(filepath.Join(fixturesRel, "_frozen", "*.out"))
+	frozen, err := filepath.Glob(filepath.Join(fixturesDir(t), "_frozen", "*.out"))
 	if err != nil || len(frozen) == 0 {
-		t.Fatalf("no frozen goldens under %s (a golden directory with no case FAILS): %v", fixturesRel, err)
+		t.Fatalf("no frozen goldens under %s (a golden directory with no case FAILS): %v", fixturesDir(t), err)
 	}
 	for _, g := range frozen {
 		name := strings.TrimSuffix(filepath.Base(g), ".out")

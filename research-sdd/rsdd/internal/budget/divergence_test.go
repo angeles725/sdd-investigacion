@@ -1,7 +1,7 @@
 package budget
 
 import (
-	"path/filepath"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 	"strings"
 	"testing"
 )
@@ -92,10 +92,7 @@ func TestDivergencePiToolbeltFallback(t *testing.T) {
 		t.Fatalf("baseline run failed: %q", with.stdout)
 	}
 	// run through the command table WITHOUT --toolbelt, the way `rsdd budget session` is run directly
-	realKit, err := filepath.Abs("../../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	realKit := kitroot.Dir(t)
 	run := func(extra ...string) observed {
 		var o observed
 		e := sb.piEnv(extra...)

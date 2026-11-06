@@ -2,6 +2,7 @@ package budget
 
 import (
 	"bytes"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,10 +17,7 @@ import (
 func runHelper(t *testing.T, env []string, dir string, exts ...string) string {
 	t.Helper()
 	needTS(t)
-	helper, err := filepath.Abs("../../../toolbelt/lib/session-budget-pi.mjs")
-	if err != nil {
-		t.Fatal(err)
-	}
+	helper := filepath.Join(kitroot.Dir(t), "toolbelt", "lib", "session-budget-pi.mjs")
 	cmd := exec.Command("node", append([]string{helper, dir}, exts...)...)
 	cmd.Stdin = strings.NewReader("N\n")
 	cmd.Env = append(append(os.Environ(), "NODE_OPTIONS="+testNodeOptions), env...)
@@ -55,7 +53,7 @@ func TestHelperAlone(t *testing.T) {
 		t.Errorf("every extension gets exactly one T or E and the output ends with Z 5:\n%s", r)
 	}
 
-	fx := filepath.Join(fixturesRel, "pi-routes", ".pi", "extensions")
+	fx := filepath.Join(fixturesDir(t), "pi-routes", ".pi", "extensions")
 	r = runHelper(t, nil, dir, filepath.Join(fx, "msg.ts"), filepath.Join(fx, "sysprompt.ts"), filepath.Join(fx, "mutate.ts"))
 	if !has(r, `^S\tmsg.ts\tmessage:note\t300\tok$`) {
 		t.Errorf("a returned message's content is counted as a section:\n%s", r)
@@ -64,12 +62,12 @@ func TestHelperAlone(t *testing.T) {
 		t.Errorf("a returned systemPrompt and an event.systemPrompt edit are typed U, never a 0-char success:\n%s", r)
 	}
 
-	r = runHelper(t, []string{"RSDD_BUDGET_PI_WAIT_MS=500"}, dir, filepath.Join(fixturesRel, "pi-hang", ".pi", "extensions", "hang.ts"), filepath.Join(fixturesRel, "pi-card", ".pi", "extensions", "card.ts"))
+	r = runHelper(t, []string{"RSDD_BUDGET_PI_WAIT_MS=500"}, dir, filepath.Join(fixturesDir(t), "pi-hang", ".pi", "extensions", "hang.ts"), filepath.Join(fixturesDir(t), "pi-card", ".pi", "extensions", "card.ts"))
 	if !has(r, `^E\thang.ts\tbefore_agent_start failed: timed out after 500ms`) || !has(r, `^S\tcard.ts\tcard-section\t2500\tok`) || !strings.HasSuffix(r, "Z\t2\n") {
 		t.Errorf("a hanging handler yields ITS OWN E record after the per-handler wait; the next extension is still measured:\n%s", r)
 	}
 
-	sub := filepath.Join(fixturesRel, "pi-sub", ".pi", "extensions")
+	sub := filepath.Join(fixturesDir(t), "pi-sub", ".pi", "extensions")
 	r = runHelper(t, nil, sub, filepath.Join(sub, "index.ts"), filepath.Join(sub, "tools", "index.ts"))
 	if !has(r, `^S\tindex.ts\tidx-root\t10`) || !has(r, `^S\ttools/index.ts\tidx-tools\t20`) {
 		t.Errorf("extension names are paths below .pi/extensions:\n%s", r)

@@ -226,7 +226,7 @@ func TestDifferentialPiMeasurements(t *testing.T) {
 		canary2 := filepath.Join(sb.root, "canary-forge")
 		node, _ := exec.LookPath("node")
 		shimDir := filepath.Join(sb.root, "shim-forge-node")
-		src := readFile(t, filepath.Join(fixturesRel, "_shims", "forge-node.sh"))
+		src := readFile(t, filepath.Join(fixturesDir(t), "_shims", "forge-node.sh"))
 		sb.shim(shimDir, "node", src)
 		o = pi("forged node", []string{"RSDD_TEST_CANARY=" + canary2, "RSDD_TEST_REALNODE=" + node, "PATH=" + shimDir + ":" + os.Getenv("PATH")}, sb.target("pi-none"))
 		if _, err := os.Stat(canary2); err == nil {

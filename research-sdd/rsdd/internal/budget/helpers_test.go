@@ -2,6 +2,7 @@ package budget
 
 import (
 	"bytes"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +20,11 @@ import (
 // line, and FAIL under RSDD_REQUIRE_BWRAP=1 (CI). The pi cases need node with TypeScript type stripping
 // (RSDD_REQUIRE_NODE_TS=1 turns the skip into a failure). A missing bash fails: a skipped oracle proves nothing.
 
-const fixturesRel = "../../../toolbelt/tests/fixtures/verify-session-budget"
+// fixturesDir is the kit's frozen budget fixtures, reached through kitroot (RSDD_TEST_RESEARCH_SDD in a module-only copy, kit issue #2592).
+func fixturesDir(tb testing.TB) string {
+	tb.Helper()
+	return filepath.Join(kitroot.Dir(tb), "toolbelt", "tests", "fixtures", "verify-session-budget")
+}
 
 type observed struct {
 	stdout, stderr string
@@ -114,17 +119,11 @@ func newSbx(t *testing.T) *sbx {
 	if err := os.WriteFile(sb.script, legacy, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	reallib, err := filepath.Abs("../../../toolbelt/lib")
-	if err != nil {
-		t.Fatal(err)
-	}
+	reallib := filepath.Join(kitroot.Dir(t), "toolbelt", "lib")
 	if err := os.Symlink(reallib, filepath.Join(sb.toolbelt, "lib")); err != nil {
 		t.Fatal(err)
 	}
-	fixSrc, err := filepath.Abs(fixturesRel)
-	if err != nil {
-		t.Fatal(err)
-	}
+	fixSrc := fixturesDir(t)
 	sb.cp(fixSrc+"/.", sb.fix)
 	return sb
 }
@@ -322,10 +321,7 @@ func (sb *sbx) piEnv(extra ...string) []string {
 		sb.shim(filepath.Join(kit, "toolbelt"), h+".sh",
 			"#!/usr/bin/env bash\nprintf '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"%s\"}}' \"$(sleep \"${RSDD_STUB_SLEEP:-0}\"; head -c \"${RSDD_STUB_N:-100}\" /dev/zero | tr \"\\0\" k)\"\n")
 	}
-	real, err := filepath.Abs("../../../install/pi/research-sdd-hooks.ts")
-	if err != nil {
-		sb.t.Fatal(err)
-	}
+	real := filepath.Join(kitroot.Dir(sb.t), "install", "pi", "research-sdd-hooks.ts")
 	if _, err := os.Stat(real); err != nil {
 		sb.t.Fatalf("the real kit extension is required: %v", err)
 	}
