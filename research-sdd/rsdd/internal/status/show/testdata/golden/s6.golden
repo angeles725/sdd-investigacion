@@ -8199,6 +8199,672 @@ blocks_since_retro: 0
 --- calls
 verify: <ROOT>/corpus
 --- end calls
+=== s8a-L152-outline-nine-of-nine-with-escaped-pipes
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : 0 claimed · 0 on disk
+  pending backlog : high=0 medium=0 low=0
+  stop-control    : investigable=? · requires-execution=? · blocked=0
+  outline         : 9/9 covered · drafted=0 · pending=0
+  contradictions  : (no ledger)
+  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+  next step       : STOP | outline fully covered (9/9)
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# Table Reader Parity — Outline Fixture
+> Document-cycle state: nine Outline rows, each a variant of GFM-escaped pipes in the middle and last cells.
+<!-- research-state.v1 -->
+schema: research-state.v1
+method: document-cycle
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 0
+<!-- /research-state.v1 -->
+
+## Coverage
+- **Covered blocks**: 0
+- **Coverage metric**: — (blank)
+
+## Outline (the work-list)
+
+| # | Outline item | Genre | Block | Status |
+|---|---|---|---|---|
+| 1 | item\|a | g | | covered |
+| 2 | item\\|a | g | | covered |
+| 3 | item\\\|a | g | | covered |
+| 4 | i | g\|x | | covered |
+| 5 | i | g\\|x | | covered |
+| 6 | i | g\\\|x | | covered |
+| 7 | i | g | | covered \| x |
+| 8 | i | g | | covered \\| x |
+| 9 | i | g | | covered \\\| x |
+
+## Gap-backlog
+
+## Iteration history
+
+| # | Date | Item | Block | Delegated | New gaps uncovered |
+|---|---|---|---|---|---|
+
+## Blocked gaps
+
+## Stop control
+--- end
+--- calls
+verify: <ROOT>/corpus
+--- end calls
+=== s8a-L479-476-reopen-form-is-absent-from-the-window-forms
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : unreadable window — 1 of last 3 rows unrecognised (forms: BAD-ITER-form)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+  next step       : NEXT | high | the gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+
+## Iteration history
+
+| # | New gaps uncovered |
+|---|---|
+| 1 | 0 |
+| 2 | BAD-ITER-form |
+| 3 | 0 |
+| — | REOPEN-form |
+--- end
+--- calls
+verify: <ROOT>/corpus
+--- end calls
+=== s8a-L5870-CQ-BSD-TZ-z-timestamp-age-under-a-non-utc-tz
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: 2025-12-31T23:55:00Z  (age: 5 min)
+  next step       : NEXT | high | the root gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+last_iteration_ts: 2025-12-31T23:55:00Z
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- calls
+verify: <ROOT>/corpus
+--- end calls
+=== s8a-L5984-W2-unwritable-tmpdir-never-written
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+  next step       : NEXT | high | the gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE.md
+--- tree
+--- file corpus/FOCUSES.md mode=0644
+| Focus | Status | State | Block prefix | Blocks |
+|---|---|---|---|---|
+| (root) | open | `RESEARCH-STATE.md` |  |  |
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- calls
+verify: <ROOT>/corpus
+--- end calls
+=== s8a-L970-split-layout-default-report-next-step
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: alpha ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=0 medium=0 low=0
+  stop-control    : investigable=0 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (2 active focuses, 0 with a queue)
+  next step       : NEXT | high | open beta gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/alpha/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | done gap | web | covered |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/beta/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | open beta gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- calls
+verify: <ROOT>/corpus/alpha
+--- end calls
+=== s8a-vis-10-empty-remote-url-is-degraded-and-gh-not-called
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+degraded: remote-visibility: origin not a github owner/repo — visibility unverified
+  reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
+  next step       : NEXT | high | the gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/.git/HEAD mode=0644
+ref: refs/heads/main
+--- file corpus/.git/config mode=0644
+[core]
+	repositoryformatversion = 0
+[remote "origin"]
+	url = 
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file spec/gh.out mode=0644
+PUBLIC
+--- end
+--- calls
+verify: <ROOT>/corpus
+--- end calls
+=== s8a-vis-6-public-remote-first-of-three
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+WARN public-remote: a is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
+  next step       : NEXT | high | the gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/.git/HEAD mode=0644
+ref: refs/heads/main
+--- file corpus/.git/config mode=0644
+[core]
+	repositoryformatversion = 0
+[remote "a"]
+	url = https://github.com/o/PUB.git
+[remote "b"]
+	url = https://github.com/o/b.git
+[remote "c"]
+	url = https://github.com/o/c.git
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file spec/gh.o_PUB.out mode=0644
+PUBLIC
+--- file spec/gh.out mode=0644
+PRIVATE
+--- end
+--- calls
+gh: repo view o/PUB --json visibility --jq .visibility
+gh: repo view o/b --json visibility --jq .visibility
+gh: repo view o/c --json visibility --jq .visibility
+verify: <ROOT>/corpus
+--- end calls
+=== s8a-vis-6-public-remote-last-of-three
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+WARN public-remote: c is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
+  next step       : NEXT | high | the gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/.git/HEAD mode=0644
+ref: refs/heads/main
+--- file corpus/.git/config mode=0644
+[core]
+	repositoryformatversion = 0
+[remote "a"]
+	url = https://github.com/o/a.git
+[remote "b"]
+	url = https://github.com/o/b.git
+[remote "c"]
+	url = https://github.com/o/PUB.git
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file spec/gh.o_PUB.out mode=0644
+PUBLIC
+--- file spec/gh.out mode=0644
+PRIVATE
+--- end
+--- calls
+gh: repo view o/a --json visibility --jq .visibility
+gh: repo view o/b --json visibility --jq .visibility
+gh: repo view o/PUB --json visibility --jq .visibility
+verify: <ROOT>/corpus
+--- end calls
+=== s8a-vis-6-public-remote-middle-of-three
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+WARN public-remote: b is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
+  next step       : NEXT | high | the gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/.git/HEAD mode=0644
+ref: refs/heads/main
+--- file corpus/.git/config mode=0644
+[core]
+	repositoryformatversion = 0
+[remote "a"]
+	url = https://github.com/o/a.git
+[remote "b"]
+	url = https://github.com/o/PUB.git
+[remote "c"]
+	url = https://github.com/o/c.git
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file spec/gh.o_PUB.out mode=0644
+PUBLIC
+--- file spec/gh.out mode=0644
+PRIVATE
+--- end
+--- calls
+gh: repo view o/a --json visibility --jq .visibility
+gh: repo view o/PUB --json visibility --jq .visibility
+gh: repo view o/c --json visibility --jq .visibility
+verify: <ROOT>/corpus
+--- end calls
+=== s8a-vis-6-single-public-remote
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+WARN public-remote: only is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
+  next step       : NEXT | high | the gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/.git/HEAD mode=0644
+ref: refs/heads/main
+--- file corpus/.git/config mode=0644
+[core]
+	repositoryformatversion = 0
+[remote "only"]
+	url = https://github.com/o/PUB.git
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file spec/gh.o_PUB.out mode=0644
+PUBLIC
+--- file spec/gh.out mode=0644
+PRIVATE
+--- end
+--- calls
+gh: repo view o/PUB --json visibility --jq .visibility
+verify: <ROOT>/corpus
+--- end calls
+=== s8a-vis-9-https-token-only
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
+  next step       : NEXT | high | the gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/.git/HEAD mode=0644
+ref: refs/heads/main
+--- file corpus/.git/config mode=0644
+[core]
+	repositoryformatversion = 0
+[remote "origin"]
+	url = https://SECRETTOKEN@github.com/o/r
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file spec/gh.out mode=0644
+PUBLIC
+--- end
+--- calls
+gh: repo view o/r --json visibility --jq .visibility
+verify: <ROOT>/corpus
+--- end calls
 === v-answer-is-upper-cased
 run 1: <ROOT>/corpus
 rc: 0

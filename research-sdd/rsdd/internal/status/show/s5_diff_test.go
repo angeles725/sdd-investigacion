@@ -48,7 +48,8 @@ const (
 d="$S5_LOG"; n=1; while [ -e "$d/gh.$n" ]; do n=$((n+1)); done
 printf '%s\n' "$@" > "$d/gh.$n"
 [ -f "$S5_SPEC/gh.sleep" ] && exec sleep "$(cat "$S5_SPEC/gh.sleep")"
-[ -f "$S5_SPEC/gh.out" ] && cat "$S5_SPEC/gh.out"
+o="$S5_SPEC/gh.${3//\//_}.out"; [ -f "$o" ] || o="$S5_SPEC/gh.out" # gh.<owner>_<repo>.out answers one repo of a visibility probe
+[ -f "$o" ] && cat "$o"
 [ -f "$S5_SPEC/gh.err" ] && cat "$S5_SPEC/gh.err" >&2
 exit "$(cat "$S5_SPEC/gh.rc" 2>/dev/null || echo 0)"
 `

@@ -22,7 +22,7 @@ import (
 // The subprocesses are authored fakes, one set for both sides: a gh on PATH and the toolbelt's verify-state.sh.
 // Each logs its argv and answers from the world's spec/ directory:
 //
-//	spec/gh.{out,rc,sleep}      the visibility probe (sleep: the call outlives its bound)
+//	spec/gh.{out,rc,sleep}      the visibility probe (sleep: the call outlives its bound); gh.<owner>_<repo>.out answers one repo
 //	spec/v.{out,err,rc}         verify-state (the consistency footer)
 //
 // The clock of a run is fixed on both sides: _RSDD_NOW_EPOCH (the script's own hook) is 2026-01-01T00:00:00Z.
@@ -88,7 +88,10 @@ func (r *s6Replay) probe(_ gh.Options, repo string) (gh.Visibility, error) {
 	if _, ok := r.spec("gh.sleep"); ok {
 		return gh.Visibility{State: gh.StateTimeout, RC: 124}, nil
 	}
-	raw, _ := r.raw("gh.out")
+	raw, ok := r.raw("gh." + strings.ReplaceAll(repo, "/", "_") + ".out") // one repo answers on its own
+	if !ok {
+		raw, _ = r.raw("gh.out")
+	}
 	out := strings.TrimRight(raw, "\n")
 	if rc := r.rc("gh"); rc != 0 {
 		return gh.Visibility{State: gh.StateError, RC: rc, Raw: strings.ToUpper(out)}, nil

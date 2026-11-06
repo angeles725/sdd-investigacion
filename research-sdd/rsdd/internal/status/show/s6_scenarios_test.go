@@ -49,6 +49,7 @@ func s6Scenarios() []s6Scenario {
 	scs = append(scs, s6Visibility()...)
 	scs = append(scs, s6NextStep()...)
 	scs = append(scs, s6Footer()...)
+	scs = append(scs, s8aReportScenarios()...) // the UNMAPPED cases of the bash suites (S8a)
 	return scs
 }
 
