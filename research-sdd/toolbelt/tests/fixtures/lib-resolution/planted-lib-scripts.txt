@@ -13,6 +13,7 @@ coverage-map.sh
 decompile-java.sh
 detect-tools.sh
 ensure-remote.sh
+fetch-doc.sh
 install/research-sdd-install.sh
 java-fidelity-experiment.sh
 lint-block.sh

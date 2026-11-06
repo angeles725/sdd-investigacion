@@ -1,0 +1,314 @@
+{
+ "doc-backslash-url": {
+  "out": "OK: http://h/a\\test\\back.pdf -\u003e \u003cR\u003e/target/sources/datasheets/bs.pdf  (sha256 c0ffea36bf5f45f4…, registered in SOURCES.md)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/bs.pdf | datasheets | http://h/a\\test\\back.pdf | \u003cDATE\u003e | c0ffea36bf5f45f4ebb5951c168d3b9a76a1bd2857492203e7d2c1dce8b4d20b | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/bs.pdf\tstub body for http://h/a\\test\\back.pdf\\n"
+ },
+ "doc-basic": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 6abc69b78691de44…, registered in SOURCES.md)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 6abc69b78691de443d4aee4a0869553c0913b3cd81e2d5c4d72d9cc011fd8286 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://h/a.pdf\\n"
+ },
+ "doc-curl-and-wget-fail": {
+  "out": "",
+  "err": "curl: (stub) simulated download transfer failure\nwget: (stub) simulated wget failure\nfetch-doc: wget fallback ALSO failed for http://h/a.pdf; nothing registered\n",
+  "rc": 1,
+  "tree": "target/sources/\ntarget/sources/datasheets/"
+ },
+ "doc-curl-empty-body": {
+  "out": "",
+  "err": "fetch-doc: empty body: http://h/a.pdf\n",
+  "rc": 1,
+  "tree": "target/sources/\ntarget/sources/datasheets/"
+ },
+ "doc-curl-fails-wget-registers-typed-url": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 37c367bbd7a1eed9…, registered in SOURCES.md)\n",
+  "err": "curl: (stub) simulated download transfer failure\nfetch-doc: registered requested URL (wget fallback; effective URL unknown)\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 37c367bbd7a1eed923311f5a19337c85f3bc81b81d3894ccd1054209e4467e02 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub wget body\\n"
+ },
+ "doc-curl-only-failing": {
+  "out": "",
+  "err": "curl: (stub) simulated download transfer failure\nfetch-doc: curl failed and wget is not installed for http://h/a.pdf; nothing registered\n",
+  "rc": 1,
+  "tree": "target/sources/\ntarget/sources/datasheets/"
+ },
+ "doc-exists-refused": {
+  "out": "",
+  "err": "fetch-doc: REFUSED: destination already exists: \u003cR\u003e/target/sources/datasheets/a.pdf — re-run with --replace to keep the old bytes under a versioned name; nothing fetched\n",
+  "rc": 4,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://old | \u003cDATE\u003e | edeab5492b13a828cbe81aac13f2adec5b64be093faba2809d466cfbd74c6558 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tREGISTERED\\n"
+ },
+ "doc-name-from-url-without-query": {
+  "out": "OK: http://h/p/x.pdf?dl=1\u0026v=2 -\u003e \u003cR\u003e/target/sources/datasheets/x.pdf  (sha256 d701bcacad69327b…, registered in SOURCES.md)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/x.pdf | datasheets | http://h/p/x.pdf?dl=1\u0026v=2 | \u003cDATE\u003e | d701bcacad69327b7e4a637921f1c355a2ab563f4a6e0a4b0eca5106b96105b8 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/x.pdf\tstub body for http://h/p/x.pdf?dl=1\u0026v=2\\n"
+ },
+ "doc-named-in-manuals": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/manuals/custom.pdf  (sha256 6abc69b78691de44…, registered in SOURCES.md)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| manuals/custom.pdf | manuals | http://h/a.pdf | \u003cDATE\u003e | 6abc69b78691de443d4aee4a0869553c0913b3cd81e2d5c4d72d9cc011fd8286 | |\\n\ntarget/sources/manuals/\ntarget/sources/manuals/custom.pdf\tstub body for http://h/a.pdf\\n"
+ },
+ "doc-no-downloader": {
+  "out": "",
+  "err": "fetch-doc: DEGRADED: neither curl nor wget is installed — cannot download; nothing registered\n",
+  "rc": 3,
+  "tree": ""
+ },
+ "doc-partial-download-keeps-registered-file": {
+  "out": "",
+  "err": "curl: (stub) simulated mid-transfer failure\nwget: (stub) simulated wget failure\nfetch-doc: wget fallback ALSO failed for http://h/a.pdf; nothing registered\n",
+  "rc": 1,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://old | \u003cDATE\u003e | edeab5492b13a828cbe81aac13f2adec5b64be093faba2809d466cfbd74c6558 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tREGISTERED\\n"
+ },
+ "doc-pdf-hint": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 20eb182f0a1f1856…, registered in SOURCES.md)\n",
+  "err": "hint: PDF saved. For page-anchored citations (§5), run: extract-pdf.sh \"\u003cR\u003e/target/sources/datasheets/a.pdf\"  (a flat pdftotext dump has no page anchors and must not be cited).\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 20eb182f0a1f185600eae82b060caf825055ecf38794b6a3c74340316b36a49b | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\t%PDF-1.4 stub\\n"
+ },
+ "doc-redirect-connect-fail-skips-get": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 6abc69b78691de44…, registered in SOURCES.md)\n",
+  "err": "curl: (stub) simulated connect-stage failure\nfetch-doc: redirect probe failed for http://h/a.pdf; keeping http://h/a.pdf\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 6abc69b78691de443d4aee4a0869553c0913b3cd81e2d5c4d72d9cc011fd8286 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://h/a.pdf\\n"
+ },
+ "doc-redirect-head-405-then-get-301": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 bf82edc620a25187…, registered in SOURCES.md)\n",
+  "err": "fetch-doc: registered http://h/b.pdf (permanent redirect from http://h/a.pdf)\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/b.pdf | \u003cDATE\u003e | bf82edc620a251870cc76b1afc5a580dfaba7756cfa9d59dd7877bbc5ee9ee24 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://h/b.pdf\\n"
+ },
+ "doc-redirect-head-hang-retries-get": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 6abc69b78691de44…, registered in SOURCES.md)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 6abc69b78691de443d4aee4a0869553c0913b3cd81e2d5c4d72d9cc011fd8286 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://h/a.pdf\\n"
+ },
+ "doc-redirect-hop-cap": {
+  "out": "OK: http://h/c0 -\u003e \u003cR\u003e/target/sources/datasheets/c0  (sha256 71ad3a3e39511dcf…, registered in SOURCES.md)\n",
+  "err": "fetch-doc: hop cap (10) reached; keeping http://h/c10\nfetch-doc: registered http://h/c10 (permanent redirect from http://h/c0)\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/c0 | datasheets | http://h/c10 | \u003cDATE\u003e | 71ad3a3e39511dcf950ce565e043164e61661a0c40b5b44ead79defe29394503 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/c0\tstub body for http://h/c12\\n"
+ },
+ "doc-redirect-non-http-scheme-refused": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 b3ebfd9810b415c3…, registered in SOURCES.md)\n",
+  "err": "fetch-doc: refused non-http(s) redirect scheme (file:///etc/passwd); keeping http://h/a.pdf\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | b3ebfd9810b415c31319d97f2509b66a73b18d7ebb49c970ac2ea78999911897 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for file:///etc/passwd\\n"
+ },
+ "doc-redirect-permanent": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 91f6f622e4930303…, registered in SOURCES.md)\n",
+  "err": "fetch-doc: registered http://h/c.pdf (permanent redirect from http://h/a.pdf)\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/c.pdf | \u003cDATE\u003e | 91f6f622e4930303984fc7f01bc2ef39c1106aa1ef947bb77db6e1d789455dbb | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://h/c.pdf\\n"
+ },
+ "doc-redirect-pipe-in-location": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 6cba1c9ab1134197…, registered in SOURCES.md)\n",
+  "err": "fetch-doc: registered http://h/x%7Cy.pdf (permanent redirect from http://h/a.pdf)\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/x%7Cy.pdf | \u003cDATE\u003e | 6cba1c9ab1134197862cf2ed951567a10c1e9049913d2479debc9f55b4856686 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://h/x%7Cy.pdf\\n"
+ },
+ "doc-redirect-probe-fails": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 6abc69b78691de44…, registered in SOURCES.md)\n",
+  "err": "curl: (stub) simulated probe network failure\ncurl: (stub) simulated probe network failure\nfetch-doc: redirect probe failed for http://h/a.pdf; keeping http://h/a.pdf\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 6abc69b78691de443d4aee4a0869553c0913b3cd81e2d5c4d72d9cc011fd8286 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://h/a.pdf\\n"
+ },
+ "doc-redirect-temporary-keeps-typed-url": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 bc9197a0f7076e09…, registered in SOURCES.md)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | bc9197a0f7076e09fe192aae3e052244ac4ae099c9430c7cb61e034ed2a87e21 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://cdn/signed?sig=1\\n"
+ },
+ "doc-registry-with-trailing-prose": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 6abc69b78691de44…, registered in SOURCES.md)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/old.pdf | datasheets | http://o | \u003cDATE\u003e | abc | |\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 6abc69b78691de443d4aee4a0869553c0913b3cd81e2d5c4d72d9cc011fd8286 | |\\n\\n## Structure\\n\\n```\\nsources/\\n```\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://h/a.pdf\\n"
+ },
+ "doc-replace-flag-after-mode": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 6abc69b78691de44…, registered in SOURCES.md)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 6abc69b78691de443d4aee4a0869553c0913b3cd81e2d5c4d72d9cc011fd8286 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://h/a.pdf\\n"
+ },
+ "doc-replace-identical-registered": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (identical bytes already registered; no new row)\n",
+  "err": "fetch-doc: identical bytes already registered for datasheets/a.pdf; nothing replaced, no new row\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://old | \u003cDATE\u003e | e4426b0f9b874d2680311b3931a30e9e2667f2b512bb1194d3ec798404e3f4ba | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tSAME\\n"
+ },
+ "doc-replace-identical-unregistered": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 e4426b0f9b874d26…, registered in SOURCES.md)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | e4426b0f9b874d2680311b3931a30e9e2667f2b512bb1194d3ec798404e3f4ba | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tSAME\\n"
+ },
+ "doc-replace-new-bytes": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 c9b11add8b5b1e09…, registered in SOURCES.md)\n",
+  "err": "fetch-doc: replaced \u003cR\u003e/target/sources/datasheets/a.pdf; old bytes kept as a.144b85c70a19.pdf\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.144b85c70a19.pdf | datasheets | http://old | \u003cDATE\u003e | 144b85c70a192b8c9e428e83cf57eae38bb98495b59a7c6e2108fd0f18b908a1 | |\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | c9b11add8b5b1e093c68236b14d0680c5da11b79c1cc549627974732c342f60f | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.144b85c70a19.pdf\tOLD\\n\ntarget/sources/datasheets/a.pdf\tNEW-BYTES\\n"
+ },
+ "doc-replace-other-row-sha": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 2199892883674193…, registered in SOURCES.md)\n",
+  "err": "fetch-doc: WARNING: 1 other row(s) for datasheets/a.pdf carry a different sha256 than the archived bytes and were left untouched\nfetch-doc: replaced \u003cR\u003e/target/sources/datasheets/a.pdf; old bytes kept as a.144b85c70a19.pdf\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.144b85c70a19.pdf | datasheets | http://old | \u003cDATE\u003e | 144b85c70a192b8c9e428e83cf57eae38bb98495b59a7c6e2108fd0f18b908a1 | |\\n| datasheets/a.pdf | datasheets | http://legacy | \u003cDATE\u003e | legacysha | |\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 21998928836741932680bb7ef8fb3fe2d8709b5afdf896752642d10595f9a610 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.144b85c70a19.pdf\tOLD\\n\ntarget/sources/datasheets/a.pdf\tNEW\\n"
+ },
+ "doc-replace-versioned-name-taken": {
+  "out": "",
+  "err": "fetch-doc: REFUSED: versioned name already holds DIFFERENT bytes: \u003cR\u003e/target/sources/datasheets/a.144b85c70a19.pdf — the current bytes are kept\n",
+  "rc": 1,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://old | \u003cDATE\u003e | 144b85c70a192b8c9e428e83cf57eae38bb98495b59a7c6e2108fd0f18b908a1 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.144b85c70a19.pdf\tDIFFERENT\ntarget/sources/datasheets/a.pdf\tOLD\\n"
+ },
+ "doc-replace-without-extension": {
+  "out": "OK: http://h/README -\u003e \u003cR\u003e/target/sources/datasheets/README  (sha256 2199892883674193…, registered in SOURCES.md)\n",
+  "err": "fetch-doc: replaced \u003cR\u003e/target/sources/datasheets/README; old bytes kept as README.144b85c70a19\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/README.144b85c70a19 | datasheets | http://old | \u003cDATE\u003e | 144b85c70a192b8c9e428e83cf57eae38bb98495b59a7c6e2108fd0f18b908a1 | |\\n| datasheets/README | datasheets | http://h/README | \u003cDATE\u003e | 21998928836741932680bb7ef8fb3fe2d8709b5afdf896752642d10595f9a610 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/README\tNEW\\n\ntarget/sources/datasheets/README.144b85c70a19\tOLD\\n"
+ },
+ "doc-stale-part-sweep": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 6abc69b78691de44…, registered in SOURCES.md)\n",
+  "err": "fetch-doc: removed stale part file from dead pid 2147483646: dead.pdf.fetchdoc-part.2147483646\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/kept.fetchdoc-part.2147483645 | datasheets | http://o | \u003cDATE\u003e | sha | |\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 6abc69b78691de443d4aee4a0869553c0913b3cd81e2d5c4d72d9cc011fd8286 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub body for http://h/a.pdf\\n\ntarget/sources/datasheets/kept.fetchdoc-part.2147483645\tregistered\ntarget/sources/datasheets/live.pdf.fetchdoc-part.1\tin progress\ntarget/sources/datasheets/odd.fetchdoc-part.12x\tnot a pid"
+ },
+ "doc-symlink-destination": {
+  "out": "",
+  "err": "fetch-doc: REFUSED: destination is a symlink: \u003cR\u003e/target/sources/datasheets/a.pdf — remove it or choose another name; nothing fetched\n",
+  "rc": 5,
+  "tree": "target/sources/\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\t-\u003e /nonexistent/elsewhere"
+ },
+ "doc-symlink-destination-with-replace": {
+  "out": "",
+  "err": "fetch-doc: REFUSED: destination is a symlink: \u003cR\u003e/target/sources/datasheets/a.pdf — remove it or choose another name; nothing fetched\n",
+  "rc": 5,
+  "tree": "target/sources/\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\t-\u003e /nonexistent/elsewhere"
+ },
+ "doc-wget-empty-body": {
+  "out": "",
+  "err": "curl: (stub) simulated download transfer failure\nfetch-doc: empty body: http://h/a.pdf (wget fallback); nothing registered\n",
+  "rc": 1,
+  "tree": "target/sources/\ntarget/sources/datasheets/"
+ },
+ "doc-wget-only": {
+  "out": "OK: http://h/a.pdf -\u003e \u003cR\u003e/target/sources/datasheets/a.pdf  (sha256 37c367bbd7a1eed9…, registered in SOURCES.md)\n",
+  "err": "fetch-doc: registered requested URL (wget fallback; effective URL unknown)\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| datasheets/a.pdf | datasheets | http://h/a.pdf | \u003cDATE\u003e | 37c367bbd7a1eed923311f5a19337c85f3bc81b81d3894ccd1054209e4467e02 | |\\n\ntarget/sources/datasheets/\ntarget/sources/datasheets/a.pdf\tstub wget body\\n"
+ },
+ "ocr-ignores-replace": {
+  "out": "TEXT:page1\nTEXT:page2\n",
+  "err": "",
+  "rc": 0,
+  "tree": ""
+ },
+ "ocr-pdftoppm-fails": {
+  "out": "",
+  "err": "pdftoppm failed\n",
+  "rc": 3,
+  "tree": ""
+ },
+ "ocr-two-pages": {
+  "out": "TEXT:page1\nTEXT:page2\n",
+  "err": "",
+  "rc": 0,
+  "tree": ""
+ },
+ "ocr-without-pdftoppm": {
+  "out": "",
+  "err": "pdftoppm failed\n",
+  "rc": 3,
+  "tree": ""
+ },
+ "ocr-without-tesseract": {
+  "out": "",
+  "err": "tesseract not installed\n",
+  "rc": 3,
+  "tree": ""
+ },
+ "unknown-mode": {
+  "out": "",
+  "err": "unknown mode: fetch (doc|web|ocr)\n",
+  "rc": 2,
+  "tree": ""
+ },
+ "unknown-mode-flag-shaped": {
+  "out": "",
+  "err": "unknown mode: --bogus (doc|web|ocr)\n",
+  "rc": 2,
+  "tree": ""
+ },
+ "web-basic": {
+  "out": "OK: http://h/forum/t?id=1 -\u003e \u003cR\u003e/target/sources/web-snapshots/h_forum_t_id_1.md  (snapshot markdown, registered)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| web-snapshots/h_forum_t_id_1.md | web-snapshot | http://h/forum/t?id=1 | \u003cDATE\u003e | 61ba2d274b1d0151644c5c82f9ab6a7f2a40f3baa7f13388952addb55579ed75 | |\\n\ntarget/sources/web-snapshots/\ntarget/sources/web-snapshots/h_forum_t_id_1.md\tSTUB BODY FOR HTTP://H/FORUM/T?ID=1\\n"
+ },
+ "web-curl-fails-wget-fallback": {
+  "out": "OK: http://h/page -\u003e \u003cR\u003e/target/sources/web-snapshots/h_page.md  (snapshot markdown, registered)\n",
+  "err": "curl: (stub) simulated download transfer failure\nfetch-doc: registered requested URL (wget fallback; effective URL unknown)\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| web-snapshots/h_page.md | web-snapshot | http://h/page | \u003cDATE\u003e | 37c367bbd7a1eed923311f5a19337c85f3bc81b81d3894ccd1054209e4467e02 | |\\n\ntarget/sources/web-snapshots/\ntarget/sources/web-snapshots/h_page.md\tstub wget body\\n"
+ },
+ "web-empty-body": {
+  "out": "",
+  "err": "fetch-doc: empty body: http://h/page\n",
+  "rc": 1,
+  "tree": "target/sources/\ntarget/sources/web-snapshots/"
+ },
+ "web-exists-refused": {
+  "out": "",
+  "err": "fetch-doc: REFUSED: destination already exists: \u003cR\u003e/target/sources/web-snapshots/h_page.md — re-run with --replace to keep the old bytes under a versioned name; nothing fetched\n",
+  "rc": 4,
+  "tree": "target/sources/\ntarget/sources/web-snapshots/\ntarget/sources/web-snapshots/h_page.md\tOLD"
+ },
+ "web-long-url-hash-name": {
+  "out": "OK: http://h/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/page.html -\u003e \u003cR\u003e/target/sources/web-snapshots/h_seg_seg_seg_seg_seg_seg_seg_seg_seg_seg_seg__eg_seg_seg_page.html-d016cb072372.md  (snapshot markdown, registered)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| web-snapshots/h_seg_seg_seg_seg_seg_seg_seg_seg_seg_seg_seg__eg_seg_seg_page.html-d016cb072372.md | web-snapshot | http://h/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/page.html | \u003cDATE\u003e | 6cfaf7f4d9ae5ee9dbc06fffe36565be41f3bed6f314272f432a691c9023da3c | |\\n\ntarget/sources/web-snapshots/\ntarget/sources/web-snapshots/h_seg_seg_seg_seg_seg_seg_seg_seg_seg_seg_seg__eg_seg_seg_page.html-d016cb072372.md\tstub body for http://h/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/seg/page.html\\n"
+ },
+ "web-no-downloader": {
+  "out": "",
+  "err": "fetch-doc: DEGRADED: neither curl nor wget is installed — cannot download; nothing registered\n",
+  "rc": 3,
+  "tree": ""
+ },
+ "web-pandoc-fails-copies": {
+  "out": "OK: http://h/page -\u003e \u003cR\u003e/target/sources/web-snapshots/h_page.md  (snapshot markdown, registered)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| web-snapshots/h_page.md | web-snapshot | http://h/page | \u003cDATE\u003e | 2307b4309a69d7e04d70fc22e33091d09d0d9e4c266879454048a6ac56de91fb | |\\n\ntarget/sources/web-snapshots/\ntarget/sources/web-snapshots/h_page.md\tstub body for http://h/page\\n"
+ },
+ "web-permanent-redirect-registered": {
+  "out": "OK: http://h/old -\u003e \u003cR\u003e/target/sources/web-snapshots/h_old.md  (snapshot markdown, registered)\n",
+  "err": "fetch-doc: registered http://h/new (permanent redirect from http://h/old)\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| web-snapshots/h_old.md | web-snapshot | http://h/new | \u003cDATE\u003e | 43696dda1b8bfa22ebb6d14f906643f2bb0efdea999f4e0a5ccef49901fe6afe | |\\n\ntarget/sources/web-snapshots/\ntarget/sources/web-snapshots/h_old.md\tstub body for http://h/new\\n"
+ },
+ "web-replace-identical": {
+  "out": "OK: http://h/page -\u003e \u003cR\u003e/target/sources/web-snapshots/h_page.md  (identical snapshot already registered; no new row)\n",
+  "err": "fetch-doc: identical bytes already registered for web-snapshots/h_page.md; nothing replaced, no new row\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| web-snapshots/h_page.md | web-snapshot | http://h/page | \u003cDATE\u003e | e4426b0f9b874d2680311b3931a30e9e2667f2b512bb1194d3ec798404e3f4ba | |\\n\ntarget/sources/web-snapshots/\ntarget/sources/web-snapshots/h_page.md\tSAME\\n"
+ },
+ "web-replace-new-bytes": {
+  "out": "OK: http://h/page -\u003e \u003cR\u003e/target/sources/web-snapshots/h_page.md  (snapshot markdown, registered)\n",
+  "err": "fetch-doc: replaced \u003cR\u003e/target/sources/web-snapshots/h_page.md; old bytes kept as h_page.144b85c70a19.md\n",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| web-snapshots/h_page.144b85c70a19.md | web-snapshot | http://h/page | \u003cDATE\u003e | 144b85c70a192b8c9e428e83cf57eae38bb98495b59a7c6e2108fd0f18b908a1 | |\\n| web-snapshots/h_page.md | web-snapshot | http://h/page | \u003cDATE\u003e | 21998928836741932680bb7ef8fb3fe2d8709b5afdf896752642d10595f9a610 | |\\n\ntarget/sources/web-snapshots/\ntarget/sources/web-snapshots/h_page.144b85c70a19.md\tOLD\\n\ntarget/sources/web-snapshots/h_page.md\tNEW\\n"
+ },
+ "web-without-pandoc-copies": {
+  "out": "OK: http://h/page -\u003e \u003cR\u003e/target/sources/web-snapshots/h_page.md  (snapshot markdown, registered)\n",
+  "err": "",
+  "rc": 0,
+  "tree": "target/sources/\ntarget/sources/SOURCES.md\t# External sources preserved\\n\\n| File | Type | Origin (URL) | Date (UTC) | sha256 | Citing blocks |\\n|---|---|---|---|---|---|\\n| web-snapshots/h_page.md | web-snapshot | http://h/page | \u003cDATE\u003e | 2307b4309a69d7e04d70fc22e33091d09d0d9e4c266879454048a6ac56de91fb | |\\n\ntarget/sources/web-snapshots/\ntarget/sources/web-snapshots/h_page.md\tstub body for http://h/page\\n"
+ }
+}

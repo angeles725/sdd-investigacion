@@ -10,7 +10,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -56,7 +57,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=sub/RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -102,7 +104,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
   	FAIL: indented
@@ -154,7 +157,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -207,7 +211,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
   FAIL: bad args
@@ -258,7 +263,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
   FAIL: a
@@ -315,7 +321,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
   FAIL: x
@@ -366,7 +373,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -412,7 +420,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
   FAIL: stale mirror
@@ -463,7 +472,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
   ok x
@@ -516,7 +526,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
   ok  firstWARN: from stderr
@@ -567,7 +578,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
   a FAILURE here
@@ -620,7 +632,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
   summary: 12 passed, 0 failed
@@ -669,7 +682,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -720,7 +734,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -770,7 +785,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -816,7 +832,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -866,7 +883,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -916,7 +934,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -967,7 +986,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1017,7 +1037,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1067,7 +1088,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1121,7 +1143,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1167,7 +1190,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1225,7 +1249,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1280,7 +1305,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1332,7 +1358,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1386,7 +1413,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1450,7 +1478,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1496,7 +1525,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1560,7 +1590,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1625,7 +1656,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1688,7 +1720,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1751,7 +1784,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1802,7 +1836,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1848,7 +1883,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1894,7 +1930,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1940,7 +1977,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=sub/RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -1986,7 +2024,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=a/b/RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2032,7 +2071,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2083,7 +2123,8 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=1
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0)
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2132,7 +2173,8 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=2
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0)
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2183,7 +2225,8 @@ rc: 0
   stop-control    : investigable=4 · requires-execution=? · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0)
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2211,7 +2254,8 @@ rc: 0
   stop-control    : investigable=4 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1 a
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2262,7 +2306,8 @@ rc: 0
   stop-control    : investigable=2 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | low | L1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2309,7 +2354,8 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0)
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2355,7 +2401,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | low | L1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2403,7 +2450,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2449,7 +2497,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2495,7 +2544,8 @@ rc: 0
   stop-control    : investigable=2 · requires-execution=3 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0)
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2524,7 +2574,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2571,7 +2622,8 @@ rc: 0
   re-typed in table : 2 — row(s) carry the literal 're-typed' Status — use 'blocked (requires-<what>)' (METHODOLOGY §8b); counted in no bucket
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0)
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2620,7 +2672,8 @@ rc: 0
   re-typed in table : 1 — row(s) carry the literal 're-typed' Status — use 'blocked (requires-<what>)' (METHODOLOGY §8b); counted in no bucket
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | low | L1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2668,7 +2721,8 @@ degraded: blocked_open: blocked_open_count rc 2 — blocked/investigable/next st
   stop-control    : investigable=DEGRADED · requires-execution=? · blocked=DEGRADED
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : DEGRADED (blocked-rows derivation unreadable for RESEARCH-STATE.md — a next gap or a paused-focus count derived from it would be inflated)
   --- consistency (verify-state.sh) ---
@@ -2694,7 +2748,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2740,7 +2795,8 @@ rc: 0
   stop-control    : investigable=? · requires-execution=? · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2768,7 +2824,8 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0)
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2815,7 +2872,7 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (2 active focuses, 0 with a queue)
   next step       : STOP | read-only-investigable exhausted (0)
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2886,7 +2943,8 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0) [backlog-unreadable: 1 rows]
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -2934,12 +2992,13 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0) [backlog-unreadable: 1 rows]
   --- consistency (verify-state.sh) ---
 --- stderr
-INFO: skipped act (focus-status: stopped in FOCUSES.md)
 WARN: FOCUSES.md has no row for RESEARCH-STATE.md
+INFO: skipped act (focus-status: stopped in FOCUSES.md)
 --- tree
 --- file corpus/FOCUSES.md mode=0644
 | focus | status |
@@ -3011,7 +3070,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=1
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | medium | G2 second
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -3050,630 +3110,6 @@ blocks_since_retro: 0
 --- calls
 verify: <ROOT>/corpus
 --- end calls
-=== n-doc-bootstrap-is-final
-run 1: <ROOT>/corpus
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=0 medium=0 low=0
-  stop-control    : investigable=0 · requires-execution=0 · blocked=0
-  outline         : S6-STANDIN
-  contradictions  : (no ledger)
-  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : BOOTSTRAP | seed the ## Outline first
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 0
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | covered |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 0
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-doc-no-heading-keeps-the-gap-walk
-run 1: <ROOT>/corpus
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=1 medium=0 low=0
-  stop-control    : investigable=1 · requires-execution=0 · blocked=0
-  outline         : (no ## Outline section — gap-centric verdicts kept)
-  contradictions  : (no ledger)
-  saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : NEXT | high | the root gap
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 1
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | pending |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 1
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-doc-no-heading-keeps-the-saturation-line
-run 1: <ROOT>/corpus
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=1 medium=0 low=0
-  stop-control    : investigable=1 · requires-execution=0 · blocked=0
-  outline         : (no ## Outline section — gap-centric verdicts kept)
-  contradictions  : (no ledger)
-  saturation      : insufficient history (1 iterations)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : NEXT | high | H
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 1
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | H | web | pending |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 1
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
-
-## Iteration history
-
-| Iter | Date | New gaps | Notes |
-|---|---|---|---|
-| 1 | 2026-01-01 | 0 | n |
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-doc-no-heading-says-so
-run 1: <ROOT>/corpus
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=1 medium=0 low=0
-  stop-control    : investigable=1 · requires-execution=0 · blocked=0
-  outline         : (no ## Outline section — gap-centric verdicts kept)
-  contradictions  : (no ledger)
-  saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : NEXT | high | the root gap
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 1
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | pending |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 1
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-doc-none-prints-no-outline-line
-run 1: <ROOT>/corpus
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=1 medium=0 low=0
-  stop-control    : investigable=1 · requires-execution=0 · blocked=0
-  contradictions  : (no ledger)
-  saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : NEXT | high | the root gap
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 1
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | pending |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 1
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-doc-outline-line-and-next
-run 1: <ROOT>/corpus
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=1 medium=0 low=0
-  stop-control    : investigable=1 · requires-execution=0 · blocked=0
-  outline         : S6-STANDIN
-  contradictions  : (no ledger)
-  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : NEXT | outline #2 | Intro
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 1
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | pending |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 1
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-doc-outline-next-is-final
-run 1: <ROOT>/corpus
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=1 medium=0 low=0
-  stop-control    : investigable=1 · requires-execution=0 · blocked=0
-  outline         : S6-STANDIN
-  contradictions  : (no ledger)
-  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : NEXT | outline #2 | Intro
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 1
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | pending |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 1
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-doc-outline-replaces-the-saturation-line
-run 1: <ROOT>/corpus
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=1 medium=0 low=0
-  stop-control    : investigable=1 · requires-execution=0 · blocked=0
-  outline         : S6-STANDIN
-  contradictions  : (no ledger)
-  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : BOOTSTRAP | stand-in
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 1
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | H | web | pending |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 1
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
-
-## Iteration history
-
-| Iter | Date | New gaps | Notes |
-|---|---|---|---|
-| 1 | 2026-01-01 | 0 | n |
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-doc-stop-replaces-the-gap-stop
-run 1: <ROOT>/corpus
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=0 medium=0 low=0
-  stop-control    : investigable=0 · requires-execution=0 · blocked=0
-  outline         : S6-STANDIN
-  contradictions  : (no ledger)
-  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : STOP | outline fully covered (3/3)
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 0
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | covered |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 0
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-doc-stop-replaces-the-root-flag-stop
-run 1: <ROOT>/corpus --root
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=0 medium=0 low=0
-  stop-control    : investigable=0 · requires-execution=0 · blocked=0
-  outline         : S6-STANDIN
-  contradictions  : (no ledger)
-  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : STOP | x
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE-act.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 0
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the act gap | web | covered |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 0
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 0
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | covered |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 0
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-doc-stop-yields-to-the-gap-next
-run 1: <ROOT>/corpus
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=1 medium=0 low=0
-  stop-control    : investigable=1 · requires-execution=0 · blocked=0
-  outline         : S6-STANDIN
-  contradictions  : (no ledger)
-  saturation      : n/a (method: document-cycle — gap saturation does not apply; the ## Outline decides)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
-  next step       : NEXT | high | the root gap
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 1
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | pending |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 1
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
-=== n-focus-flag-campaign-stand-in-sees-the-slug
-run 1: <ROOT>/corpus --focus act
-rc: 0
---- stdout
-== research-sdd-status: corpus  ·  corpus: (flat) ==
-  Stop hook       : absent-settings (checked: <ROOT>/corpus)
-  coverage metric : <none>
-  covered blocks  : <none> claimed · 0 on disk
-  pending backlog : high=0 medium=0 low=0
-  stop-control    : investigable=0 · requires-execution=0 · blocked=0
-  contradictions  : (no ledger)
-  saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE-act.md focus=act
-  next step       : NEXT | high | the root gap
-  --- consistency (verify-state.sh) ---
---- stderr
---- tree
---- file corpus/RESEARCH-STATE-act.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 0
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the act gap | web | covered |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 0
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 1
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | pending |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 1
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
-verify: <ROOT>/corpus
---- end calls
 === n-focus-flag-reports-that-focus-and-walks-all
 run 1: <ROOT>/corpus --focus act
 rc: 0
@@ -3686,7 +3122,80 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE-act.md focus=act
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+  next step       : NEXT | high | the root gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE-act.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the act gap | web | covered |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- end
+--- calls
+verify: <ROOT>/corpus
+--- end calls
+=== n-focus-flag-reports-the-campaign-of-that-focus
+run 1: <ROOT>/corpus --focus act
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=0 medium=0 low=0
+  stop-control    : investigable=0 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -3818,7 +3327,8 @@ degraded: blocked_open: blocked_open_count rc 2 — blocked/investigable/next st
   stop-control    : investigable=DEGRADED · requires-execution=? · blocked=DEGRADED
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : DEGRADED (blocked-rows derivation unreadable for RESEARCH-STATE.md — a next gap or a paused-focus count derived from it would be inflated)
   --- consistency (verify-state.sh) ---
@@ -3828,6 +3338,53 @@ research-sdd-status: blocked_open derivation degraded (blocked_open_count rc 2 o
 grep: <ROOT>/corpus/RESEARCH-STATE.md: Permission denied
 --- tree
 --- file corpus/RESEARCH-STATE.md mode=0000 (unreadable)
+--- end
+--- calls
+verify: <ROOT>/corpus
+--- end calls
+=== n-no-document-cycle-prints-no-outline-line
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
+  next step       : NEXT | high | the root gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
 --- end
 --- calls
 verify: <ROOT>/corpus
@@ -3844,12 +3401,13 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | no active focus (1 declared stopped/paused in FOCUSES.md with open gaps)
   --- consistency (verify-state.sh) ---
 --- stderr
-INFO: skipped act (focus-status: paused in FOCUSES.md)
 WARN: FOCUSES.md has no row for RESEARCH-STATE.md
+INFO: skipped act (focus-status: paused in FOCUSES.md)
 --- tree
 --- file corpus/FOCUSES.md mode=0644
 | focus | status |
@@ -3921,12 +3479,13 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | no active focus (1 declared stopped/paused in FOCUSES.md with open gaps)
   --- consistency (verify-state.sh) ---
 --- stderr
-INFO: skipped act (focus-status: stopped in FOCUSES.md)
 WARN: FOCUSES.md has no row for RESEARCH-STATE.md
+INFO: skipped act (focus-status: stopped in FOCUSES.md)
 --- tree
 --- file corpus/FOCUSES.md mode=0644
 | focus | status |
@@ -3998,11 +3557,12 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (2 active focuses, 0 with a queue)
   next step       : NEXT | high | the act gap
   --- consistency (verify-state.sh) ---
 --- stderr
 WARN: FOCUSES.md row act: unreadable/nonconforming status token [open]
+WARN: FOCUSES.md has no row for RESEARCH-STATE.md
 --- tree
 --- file corpus/FOCUSES.md mode=0644
 | focus | status |
@@ -4074,7 +3634,7 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (2 active focuses, 0 with a queue)
   next step       : NEXT | high | the act gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4145,7 +3705,7 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (2 active focuses, 0 with a queue)
   next step       : NEXT | high | the act gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4216,7 +3776,8 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0)
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4262,7 +3823,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4308,7 +3870,7 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (2 active focuses, 0 with a queue)
   next step       : NEXT | high | the act gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4379,12 +3941,13 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
-INFO: skipped act (focus-status: stopped in FOCUSES.md)
 WARN: FOCUSES.md has no row for RESEARCH-STATE.md
+INFO: skipped act (focus-status: stopped in FOCUSES.md)
 --- tree
 --- file corpus/FOCUSES.md mode=0644
 | focus | status |
@@ -4456,13 +4019,14 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0) [backlog-unreadable: unverified]
   --- consistency (verify-state.sh) ---
 --- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE.md
 INFO: skipped act (focus-status: stopped in FOCUSES.md)
 WARN: cannot read state file <ROOT>/corpus/RESEARCH-STATE-act.md
-WARN: FOCUSES.md has no row for RESEARCH-STATE.md
 --- tree
 --- file corpus/FOCUSES.md mode=0644
 | focus | status |
@@ -4510,12 +4074,13 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | read-only-investigable exhausted (0)
   --- consistency (verify-state.sh) ---
 --- stderr
-INFO: skipped act (focus-status: stopped in FOCUSES.md)
 WARN: FOCUSES.md has no row for RESEARCH-STATE.md
+INFO: skipped act (focus-status: stopped in FOCUSES.md)
 --- tree
 --- file corpus/FOCUSES.md mode=0644
 | focus | status |
@@ -4587,7 +4152,8 @@ rc: 0
   stop-control    : investigable=3 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1 high gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4635,13 +4201,14 @@ rc: 0
   stop-control    : investigable=0 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : STOP | no active focus (2 declared stopped/paused in FOCUSES.md with open gaps)
   --- consistency (verify-state.sh) ---
 --- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE.md
 INFO: skipped act (focus-status: stopped in FOCUSES.md)
 INFO: skipped b (focus-status: paused in FOCUSES.md)
-WARN: FOCUSES.md has no row for RESEARCH-STATE.md
 --- tree
 --- file corpus/FOCUSES.md mode=0644
 | focus | status |
@@ -4739,7 +4306,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4785,7 +4353,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4831,7 +4400,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4877,7 +4447,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4925,7 +4496,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -4973,7 +4545,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5021,7 +4594,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5069,7 +4643,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (1 iterations)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]  · latest unnumbered row seeded 5 gaps — not yet an iteration
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5122,7 +4697,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (1 iterations)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5175,7 +4751,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : unreadable window — 1 of last 3 rows unrecognised (forms: **3**)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5229,7 +4806,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5283,7 +4861,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : unreadable window — 1 of last 3 rows unrecognised (forms: zz)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5337,7 +4916,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (3 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5391,7 +4971,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : unreadable window — 1 of last 3 rows unrecognised (forms: (empty))
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5445,7 +5026,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5499,7 +5081,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (3 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5553,7 +5136,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : unreadable window — 2 of last 3 rows unrecognised (forms: B754-G1/G2,IC1–IC4 seeded)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5607,7 +5191,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (12 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5661,7 +5246,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (3 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5715,7 +5301,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (0 iterations)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5766,7 +5353,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (0 iterations)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5817,7 +5405,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5871,7 +5460,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (0 iterations)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5919,7 +5509,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -5975,7 +5566,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6030,7 +5622,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (0 iterations)  [3 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6084,7 +5677,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6138,7 +5732,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (2 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6192,7 +5787,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6246,7 +5842,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (3000000 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6300,7 +5897,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (1 iterations)  [2 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]  · latest unnumbered row seeded 7 gaps — not yet an iteration
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6354,7 +5952,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (1 iterations)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]  · latest unnumbered row seeded 4 gaps — not yet an iteration
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6407,7 +6006,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (1 iterations)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6460,7 +6060,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (1 iterations)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6513,7 +6114,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (6 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6567,7 +6169,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (3 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6621,7 +6224,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : no New-gaps column (header:  Iter | Date | Notes )
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6673,7 +6277,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : no New-gaps column (header:  Iter | x | Date | Notes )
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6725,7 +6330,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6771,7 +6377,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6827,7 +6434,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6881,7 +6489,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6935,7 +6544,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (2 new gaps in last 3 iter)  [WARN: 1 of 4 rows unreadable (forms: prose)]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -6990,7 +6600,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)  [WARN: 3 of 6 rows unreadable (forms: x,y)]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7047,7 +6658,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (1 iterations)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7099,7 +6711,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (0 iterations)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7156,7 +6769,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (1 iterations)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7209,7 +6823,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (1 iterations)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7262,7 +6877,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : unreadable window — 1 of last 3 rows unrecognised (forms: (empty))
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7316,7 +6932,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7370,7 +6987,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (2 iterations)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7424,7 +7042,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (4 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7478,7 +7097,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7533,7 +7153,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (5 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7587,7 +7208,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7641,7 +7263,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)  [2 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7697,7 +7320,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (0 iterations)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7749,7 +7373,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (4 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7803,7 +7428,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7857,7 +7483,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : insufficient history (2 iterations)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7910,7 +7537,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)  [WARN: 2 of 6 rows unreadable (forms: aa,bb)]  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -7967,7 +7595,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)  [WARN: 2 of 5 rows unreadable (forms: i1,s)]  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8023,7 +7652,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : unreadable window — 1 of last 3 rows unrecognised (forms: zz)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8078,7 +7708,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : unreadable window — 1 of last 3 rows unrecognised (forms: prose)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8134,7 +7765,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : unreadable window — 1 of last 2 rows unrecognised (forms: zz)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8187,7 +7819,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8241,7 +7874,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps  [WARN: 1 of 4 rows unreadable (forms: prose)]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8296,7 +7930,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)  [WARN: 1 of 6 rows unreadable (forms: x)]  [2 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8353,7 +7988,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : active (1 new gaps in last 3 iter)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8409,7 +8045,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : unreadable window — 2 of last 3 rows unrecognised (forms: a)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8463,7 +8100,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : unreadable window — 3 of last 3 rows unrecognised (forms: a,b)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8517,7 +8155,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : SATURATED (review) — last 3 iterations netted 0 new gaps
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | the root gap
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -8572,7 +8211,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -8629,7 +8269,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -8688,7 +8329,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: unrecognised gh answer [PUBLIC REPO] for remote origin — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -8746,7 +8388,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -8803,7 +8446,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: origin not a github owner/repo — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -8860,7 +8504,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -8917,7 +8562,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: unrecognised gh answer [] for remote origin — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -8974,7 +8620,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: gh not found — cannot verify the visibility of remote origin
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -9033,7 +8680,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -9090,7 +8738,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: gh not found — cannot verify the visibility of remote origin
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -9147,7 +8796,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: gh failed (rc=1) for remote origin — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -9206,7 +8856,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: gh failed (rc=4) for remote origin — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -9266,7 +8917,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: gh not found — cannot verify the visibility of remote origin
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -9323,7 +8975,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: gh not found — cannot verify the visibility of remote origin
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -9380,7 +9033,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: gh not found — cannot verify the visibility of remote origin
 degraded: remote-visibility: gh not found — cannot verify the visibility of remote upstream
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
@@ -9440,7 +9094,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: gh timed out for remote origin — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -9499,7 +9154,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: gh timed out for remote origin — visibility unverified
 degraded: remote-visibility: skipped after timeout for remote upstream — visibility unverified
 degraded: remote-visibility: skipped after timeout for remote zeta — visibility unverified
@@ -9564,7 +9220,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -9614,7 +9271,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -9662,7 +9320,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -9719,7 +9378,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -9772,7 +9432,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: origin not a github owner/repo — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -9829,7 +9490,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: origin not a github owner/repo — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -9886,7 +9548,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: origin not a github owner/repo — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -9943,7 +9606,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -10000,7 +9664,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -10057,7 +9722,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -10113,7 +9779,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: origin not a github owner/repo — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -10170,7 +9837,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -10218,7 +9886,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -10275,7 +9944,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: origin not a github owner/repo — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -10332,7 +10002,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -10389,7 +10060,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: origin not a github owner/repo — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -10446,7 +10118,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -10502,7 +10175,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -10559,7 +10233,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -10616,7 +10291,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: ghost not a github owner/repo — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -10671,7 +10347,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: a is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
 WARN public-remote: b is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
@@ -10732,7 +10409,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -10789,7 +10467,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -10846,7 +10525,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: a is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
 degraded: remote-visibility: b not a github owner/repo — visibility unverified
 WARN public-remote: c is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
@@ -10911,7 +10591,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 degraded: remote-visibility: unrecognised gh answer [SOMETHING ELSE] for remote origin — visibility unverified
   reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in <TOOLBELT>/reason-codes.v1.md
   next step       : NEXT | high | H1
@@ -10969,7 +10650,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
 WARN public-remote: origin is PUBLIC — METHODOLOGY §15: a corpus remote is NEVER public; audit tracked files (ls-files) for decompiled/proprietary paths before any push. Visibility is the owner's call; this check never changes it.
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
@@ -11026,7 +10708,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 1 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11075,7 +10758,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 1 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11123,7 +10807,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 1 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11175,7 +10860,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (none)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11227,7 +10913,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 1 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11279,7 +10966,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 1 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11327,7 +11015,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 2 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11381,7 +11070,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11433,7 +11123,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11485,7 +11176,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11537,7 +11229,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (none)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11583,7 +11276,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (none)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11630,7 +11324,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (none)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11681,7 +11376,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 1 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11733,7 +11429,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (no ledger)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11779,7 +11476,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 1 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11829,7 +11527,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 3 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11883,7 +11582,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (none)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11936,7 +11636,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (none)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -11988,7 +11689,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (none)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -12040,7 +11742,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 1 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -12103,7 +11806,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : 3 open
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
@@ -12163,7 +11867,8 @@ rc: 0
   stop-control    : investigable=1 · requires-execution=0 · blocked=0
   contradictions  : (none)
   saturation      : (no iteration history)
-  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  campaign        : none (1 active focus, 0 with a queue)
+  last_iteration_ts: absent
   next step       : NEXT | high | H1
   --- consistency (verify-state.sh) ---
 --- stderr
