@@ -6,8 +6,8 @@ var scriptRoots = []string{"research-sdd/toolbelt/", "research-sdd/templates/", 
 // scriptExts are the extensions the plan counts as scripts.
 var scriptExts = map[string]bool{".sh": true, ".py": true, ".mjs": true, ".cjs": true, ".js": true, ".ts": true, ".java": true}
 
-// exclusion is one thing removed from the script list. A file is counted under the first exclusion it meets, so
-// the counts add up to the number of files removed.
+// exclusion is one thing removed from the script list. A file is counted under one exclusion only, so the counts
+// add up to the number of files removed (claimOrder says which one wins).
 type exclusion struct {
 	label string
 	kind  predKind
@@ -19,3 +19,8 @@ var exclusions = []exclusion{
 	{"`fixtures` directory", dirSegment, "fixtures"},
 	{"`node_modules`", dirSegment, "node_modules"},
 }
+
+// claimOrder is the order in which exclusions claim a file, as indexes into exclusions: a file in a `fixtures`
+// directory is counted there even when its name contains `.test.`, the order of the class table (a fixtures
+// directory comes before the test rule) and the order of the reading of L6 in odd/tasks/maint-consumers.md.
+var claimOrder = []int{1, 0, 2}

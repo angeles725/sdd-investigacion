@@ -63,8 +63,8 @@ func underRoots(f string) bool {
 func extOf(f string) string { return path.Ext(f) }
 
 func firstExclusion(f string) int {
-	for i, e := range exclusions {
-		if e.kind.holds(f, e.value) {
+	for _, i := range claimOrder {
+		if exclusions[i].kind.holds(f, exclusions[i].value) {
 			return i
 		}
 	}

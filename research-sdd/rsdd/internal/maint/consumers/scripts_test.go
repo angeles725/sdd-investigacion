@@ -59,11 +59,21 @@ func TestEachExclusionIsCountedWithItsFiles(t *testing.T) {
 	})
 	f.commit()
 	got := f.run()
-	const want = "excluded from the script list: `.test.` in the name 3, `fixtures` directory 3, `node_modules` 1"
+	const want = "excluded from the script list: `.test.` in the name 2, `fixtures` directory 4, `node_modules` 1"
 	if l := line(got.out, "excluded from the script list: "); l != want {
 		t.Fatalf("%q", l)
 	}
 	if l := line(got.out, "scripts: "); l != "scripts: 2 (sh 2)" {
+		t.Fatalf("%q", l)
+	}
+}
+
+func TestFixturesClaimTheFileBeforeTheTestRule(t *testing.T) {
+	f := newFixture(t)
+	f.files(map[string]string{"research-sdd/toolbelt/live.sh": "x", "research-sdd/toolbelt/fixtures/only.test.sh": "x"})
+	f.commit()
+	const want = "excluded from the script list: `.test.` in the name 0, `fixtures` directory 1, `node_modules` 0"
+	if l := line(f.run().out, "excluded from the script list: "); l != want {
 		t.Fatalf("%q", l)
 	}
 }
