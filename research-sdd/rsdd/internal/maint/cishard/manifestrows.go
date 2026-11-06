@@ -14,10 +14,14 @@ type manifestOut struct {
 }
 
 // rowFor maps a package's final package-level action to its manifest row. A planned package with no final event is
-// FAIL: a run that never reported cannot be a pass.
-func rowFor(final string) string {
+// FAIL: a run that never reported cannot be a pass. A package-level pass whose top-level tests all skipped (at least one
+// skip, no pass, no fail) is SKIP: it ran nothing, so it must not read PASS.
+func rowFor(final string, tops topCounts) string {
 	switch final {
 	case "pass":
+		if tops.skip > 0 && tops.pass == 0 && tops.fail == 0 {
+			return "SKIP"
+		}
 		return "PASS"
 	case "skip":
 		return "SKIP"
@@ -36,7 +40,7 @@ func buildManifest(spec shardSpec, rc int, planned []string, st streamInfo) mani
 	passes, skips := 0, 0
 	for _, p := range planned {
 		final, ok := st.final[p]
-		row := rowFor(final)
+		row := rowFor(final, st.tops[p])
 		if !ok && st.events > 0 {
 			nofinal = append(nofinal, p)
 		}

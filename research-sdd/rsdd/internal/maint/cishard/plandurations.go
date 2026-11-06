@@ -34,11 +34,11 @@ func parseDurations(data []byte, known map[string]bool) durations {
 	d := durations{weights: map[string]int{}}
 	seen := map[string]bool{}
 	for i, raw := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(raw)
+		line := trimBlank(raw)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		f := strings.Fields(line)
+		f := fieldsBlank(line)
 		n := i + 1
 		if len(f) == 1 {
 			d.invalid = append(d.invalid, fmt.Sprintf("line %d: %q has no seconds", n, f[0]))

@@ -235,9 +235,10 @@ func TestManifestUnknownActions(t *testing.T) {
 }
 
 func TestManifestCountsTestSkips(t *testing.T) {
-	stream := ev("skip", "b", "T1") + ev("skip", "a", "T1") + ev("skip", "a", "T2") + ev("pass", "a", "") + ev("pass", "b", "") + ev("skip", "a", "T1/sub")
+	stream := ev("skip", "b", "T1") + ev("skip", "a", "T1") + ev("skip", "a", "T2") + ev("pass", "a", "T3") + ev("pass", "a", "") + ev("pass", "b", "") + ev("skip", "a", "T1/sub")
 	r := manifestRun(t, "a\nb\n", stream, "1/1", "0")
-	if r.rc != 0 || !has(r.err, "Go tests skipped: 4 — [a: 3, b: 1]\n") || !has(r.out, "a PASS\nb PASS\n") {
+	// a has a passing test beside its skips (PASS, still counted); b skipped its only test (SKIP)
+	if r.rc != 0 || !has(r.err, "Go tests skipped: 4 — [a: 3, b: 1]\n") || !has(r.out, "a PASS\nb SKIP\n") {
 		t.Errorf("%+v", r)
 	}
 }

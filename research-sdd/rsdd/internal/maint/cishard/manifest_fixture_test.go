@@ -62,7 +62,7 @@ func TestRecordedStreamsThroughTheCommand(t *testing.T) {
 	// one invocation for the five packages (the recorded all.json), --exit as make saw it
 	r := manifestRun(t, planned, fixture(t, "all"), "1/1", "1")
 	want := "# shard 1/1 suites=5 exit=1\n" +
-		fixturePrefix + "allskip PASS\n" + fixturePrefix + "buildfail FAIL\n" + fixturePrefix + "crash FAIL\n" +
+		fixturePrefix + "allskip SKIP\n" + fixturePrefix + "buildfail FAIL\n" + fixturePrefix + "crash FAIL\n" +
 		fixturePrefix + "failing FAIL\n" + fixturePrefix + "passes PASS\n"
 	if r.rc != 0 || r.out != want {
 		t.Fatalf("%+v", r)

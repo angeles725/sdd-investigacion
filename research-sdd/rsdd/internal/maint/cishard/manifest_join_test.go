@@ -100,6 +100,17 @@ func TestManifestsAreReadByShardJoin(t *testing.T) {
 		t.Errorf("unplanned package: rc %d\n%s", rc, out)
 	}
 
+	// a package whose tests ALL skipped is a package-level pass in the stream, but a SKIP row: accepted by the real join,
+	// refused under --strict-skip
+	allSkipped := passStream(share[2][1:]) + ev("start", share[2][0], "") + ev("skip", share[2][0], "TestA") + ev("pass", share[2][0], "")
+	m2allskip := shardManifest(t, dir, 2, share[2], allSkipped, "0")
+	if out, rc := join(t, expected, nil, m1, m2allskip); rc != 0 {
+		t.Errorf("all-skipped package: rc %d\n%s", rc, out)
+	}
+	if out, rc := join(t, expected, []string{"--strict-skip"}, m1, m2allskip); rc != 1 || !strings.Contains(out, "JOIN: SKIPPED SUITE: "+share[2][0]+" (--strict-skip)") {
+		t.Errorf("all-skipped package with --strict-skip: rc %d\n%s", rc, out)
+	}
+
 	// a package-level skip is a SKIP row: reported, and a finding only under --strict-skip
 	skipStream := passStream(share[2][1:]) + ev("skip", share[2][0], "")
 	m2skip := shardManifest(t, dir, 2, share[2], skipStream, "0")

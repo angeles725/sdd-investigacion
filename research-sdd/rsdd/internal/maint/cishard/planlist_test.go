@@ -1,7 +1,9 @@
 package cishard
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +37,24 @@ func TestParsePackagesStates(t *testing.T) {
 		got, issue := parsePackages([]byte(c.in))
 		if issue == nil || issue.state != c.state || issue.detail == "" || got != nil {
 			t.Errorf("%s: %v %+v", c.name, got, issue)
+		}
+	}
+}
+
+// Only ASCII space, tab and CR pad a line. Any other Unicode space (U+00A0, U+0085, U+2003), at the edge or inside, is
+// refused: a path holding one must never read as a clean path.
+func TestParsePackagesRefusesUnicodeSpace(t *testing.T) {
+	for _, sp := range []string{" ", "\u0085", " "} {
+		for _, c := range []struct{ name, in, tok string }{
+			{"inner", "a\nb" + sp + "c\n", "b" + sp + "c"},
+			{"leading", "a\n" + sp + "b\n", sp + "b"},
+			{"trailing, last line without newline", "a\nb" + sp, "b" + sp},
+			{"single", sp, sp},
+		} {
+			_, issue := parsePackages([]byte(c.in))
+			if issue == nil || issue.state != "invalid" || !strings.HasSuffix(issue.detail, fmt.Sprintf("%q holds whitespace", c.tok)) {
+				t.Errorf("%q %s: %+v", sp, c.name, issue)
+			}
 		}
 	}
 }

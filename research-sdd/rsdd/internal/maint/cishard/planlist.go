@@ -3,6 +3,7 @@ package cishard
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // listIssue is a package list that cannot be planned: its typed state and the detail line.
@@ -19,11 +20,13 @@ func parsePackages(data []byte) ([]string, *listIssue) {
 	var pkgs []string
 	first := map[string]int{}
 	for i, raw := range strings.Split(string(data), "\n") {
-		p := strings.TrimSpace(raw)
+		// only ASCII space, tab and CR pad a line (a CRLF list is tolerated); any other Unicode space, at the edge or
+		// inside, stays in the token and is refused below, so U+00A0 never reads as a clean path
+		p := strings.Trim(raw, blank+"\r")
 		if p == "" {
 			continue
 		}
-		if strings.ContainsAny(p, " \t") {
+		if strings.IndexFunc(p, unicode.IsSpace) >= 0 {
 			return nil, &listIssue{"invalid", fmt.Sprintf("line %d: %q holds whitespace", i+1, p)}
 		}
 		if at, dup := first[p]; dup {
