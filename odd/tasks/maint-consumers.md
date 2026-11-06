@@ -267,3 +267,37 @@ the reading of L6); T4 is recorded in this document and in the last pull request
   Sent to session 1 to rule for the second pull request: a line naming live scripts whose basename the matcher
   cannot match, an option that prints the script list, and a line declaring the files under the three
   directories that are not scripts, by extension. The exclusion rules stay as accepted in L6.
+- L10 Correction batch for L9, 2026-11-06 15:04Z, commits `9b719a10` (core/git) and `138767a9` (consumers, documents).
+  Written by one writer, checked by session 10: the diff stays inside the allowed surface (20 files, 457 added, 51
+  deleted); pre-push passes at `138767a9` (gofmt, vet in both builds, staticcheck, both cross builds, file sizes).
+  - `internal/core/git`: `Runner.RunWithStderr(dir, args...) (stdout, stderr, err)`; `Run` calls it and returns what it
+    returned before. `WithoutSelectors(env)` in the new `env.go` drops `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR` and
+    `GIT_INDEX_FILE`, keeps the last entry of a repeated name and never returns nil (a nil environment would make the
+    child inherit the caller's). The three private copies are not edited (lesson L123 of the campaign queue names their
+    owners).
+  - The blocker, observed by session 10 on a fresh fixture: with the directory unreadable the command prints
+    `consumers: degraded` on stdout, `DEGRADED: git ls-files wrote to stderr, so the file list may be incomplete:
+    warning: could not open directory 'research-sdd/toolbelt/sub/': Permission denied (and 0 more stderr lines); nothing
+    was counted` on stderr, exit code 3, and no `files:` or `scripts:` line. Before: `files: 2 listed`, exit 0.
+  - `GIT_DIR` and `GIT_WORK_TREE` of another repository no longer override `--repo` (observed: the counts are those of
+    `--repo`). A `--repo` that is missing or a file is `consumers: absent-input: --repo <path> is not a directory
+    (missing, a file, or unreachable)`, exit 1, nothing on stdout (observed). A git that times out or passes the output
+    cap has its own `consumers: error:` line, exit 1 (writer's tests, through a wrapper git and lowered bounds).
+  - Real tree at `138767a9`, writer's run: `files: 5704 listed`, `scripts: 143 (sh 133, java 4, mjs 3, js 1, py 1, ts 1)`,
+    `ambiguous basenames: none`, excluded 189 / 63 / 0, exit 0, empty stderr.
+  - NOT done at this head, in this order, before the pull request may merge: (1) mutation at CI scope on
+    `internal/core/git` and `internal/maint/consumers` (no run since the batch: the close order of 15:00Z allowed no new
+    run); (2) the review assessment on the range, with the Risk line re-read, since shared core code changed (additive);
+    (3) the pull request body: it still describes `5ff6737c` (the matcher line of RED evidence, the three timed-out
+    mutants, the numbers, the states) and needs the seven RED lines of this batch; (4) session 4's recheck, limited to
+    the blocker and the batch items.
+  - Open point for (3): two printed limit lines describe name matching ("names without the extension are not matched",
+    "a match is a whole-name occurrence in text"), which this head does not do since `266f00c8`. They either move to the
+    second pull request with the matcher or stay with a sentence saying they describe the next change. Decide before
+    merging; the registry row repeats the same wording.
+  - Session 1's ruling for the second pull request (same day): it adds `unmatchable names: N` with the names, printing
+    `0` when there are none (required); `--scripts`, one per line, sorted bytewise; and one line declaring the non-script
+    files under the three directories with the count per extension. If the three pass the review budget, the last two
+    become a third pull request and the body states the split. Session 4 cross-reads it too. The classes change is on
+    the remote as `park/s10-consumers-classes-2758` (`0dd51973`, built on `5ff6737c`): restore `match.go` and
+    `match_test.go` from `5ff6737c` and rebase it on the merged first pull request.
