@@ -512,7 +512,7 @@ if [ "$_rc43y" -eq 0 ] && [ "$(origin_of "$d43y/sources/SOURCES.md" 'r43y\.pdf')
   ok "doc: #1285 — wget-only path skips redirect resolution and registers the requested URL (effective URL unknown)"
 else no "R43y: rc=$_rc43y origin='$(origin_of "$d43y/sources/SOURCES.md" 'r43y\.pdf')' err='$(cat "$TMP/err43y.txt")'"; fi
 
-skip "R44w: a pandoc plus cp that die mid-write: cp is no longer a dependency (the fallback copy is in process); atomic placement is pinned by internal/sources/place tests and the differential web pandoc-fail scenarios"
+skip "R44w: a pandoc plus cp that die mid-write: cp is no longer a dependency (the fallback copy is in process); a failed conversion over a registered snapshot is fetchdoc TestFailedWebConversionLeavesTheRegisteredSnapshotIntact"
 skip "R48b: the English pdftoppm failure message lives in the Go source, exercised by the differential OCR scenarios (pdftoppm-fail)"
 skip "R60: a TERM during install+register is deferred (slow sha256sum stub): the hash is computed in process now; the window is fetchdoc TestSignalAfterTheInstallPointIsIgnoredSoRowAndBytesAgree"
 skip "R66: TERM during mktemp leaks no temp file: the Go command runs no mktemp; TMPDIR stays clean after a cancel in fetchdoc TestSignalMidConversionKillsPandocAndInstallsNothing"
