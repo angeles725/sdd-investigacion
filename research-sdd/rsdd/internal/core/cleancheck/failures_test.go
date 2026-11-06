@@ -2,6 +2,7 @@ package cleancheck
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -98,5 +99,40 @@ func TestUnreadableDirUnderEvidenceDegradesTheScan(t *testing.T) {
 	}
 	if !hasPrefix(r, "CLEAN-CHECK: degraded") {
 		t.Error("the summary must say degraded:\n" + w.dump(r))
+	}
+}
+
+// A target that can be listed but not entered is refused, as `cd -P` refuses it: nothing below it is claimed.
+func TestUnenterableTargetRefuses(t *testing.T) {
+	w := newWorld(t)
+	keep(w, "")
+	lockMode(t, w.repo, 0o600)
+	r := w.check()
+	if r.Exit != 2 || r.Verdict != Refused || r.Summary != "" {
+		t.Fatal(w.dump(r))
+	}
+	if !has(r, "clean-check: ERROR: cannot enter target: "+w.repo) {
+		t.Error("the refusal line is missing:\n" + w.dump(r))
+	}
+	if hasPrefix(r, "GARBAGE") || hasPrefix(r, "CLEAN-CHECK:") {
+		t.Error("nothing may be claimed about a target that was not entered:\n" + w.dump(r))
+	}
+}
+
+// A keep-list that is a regular file but cannot be read is a refusal, never "no keep-list".
+func TestUnreadableKeepListRefuses(t *testing.T) {
+	w := newWorld(t)
+	keep(w, "sources/\n")
+	path := filepath.Join(w.repo, ".research-sdd", "keep.txt")
+	lockMode(t, path, 0)
+	r := w.check()
+	if r.Exit != 2 || r.Verdict != Refused || r.Summary != "" {
+		t.Fatal(w.dump(r))
+	}
+	if !has(r, "clean-check: ERROR: keep-list is not a readable file: "+path) {
+		t.Error("the refusal line is missing:\n" + w.dump(r))
+	}
+	if hasPrefix(r, "ABSENT-KEEPLIST") || hasPrefix(r, "CLEAN-CHECK:") {
+		t.Error("an unreadable keep-list must not read as absent or clean:\n" + w.dump(r))
 	}
 }

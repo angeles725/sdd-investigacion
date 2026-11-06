@@ -13,7 +13,7 @@ type run struct {
 	ctx context.Context
 	o   Options
 	res Result
-	env []string // the environment of git: Options.Env without the repository selectors
+	env []string // the environment of git: Options.Env without the repository selectors, GIT_OPTIONAL_LOCKS=0
 
 	target, targetP        string // --target as given, and its physical path
 	tmp, tmpP              string // the tmp directory as printed (one trailing slash stripped), and its physical path

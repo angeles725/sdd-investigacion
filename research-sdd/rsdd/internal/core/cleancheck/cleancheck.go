@@ -2,6 +2,7 @@ package cleancheck
 
 import (
 	"context"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -49,7 +50,7 @@ func (r *run) requirements() bool {
 	if r.o.Now == nil {
 		return r.refuse("Options.Now is required (the command layer supplies the clock)")
 	}
-	if !strings.HasPrefix(r.o.Cwd, "/") {
+	if !filepath.IsAbs(r.o.Cwd) {
 		return r.refuse("Options.Cwd must be an absolute path (a relative one would be resolved against the process): '" + r.o.Cwd + "'")
 	}
 	if r.ctx == nil {

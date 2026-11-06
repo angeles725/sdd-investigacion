@@ -8,7 +8,8 @@ import "time"
 //
 // What a run reads from the process, and when: the owner uid through os.Getuid, only when neither UID, the
 // CLEAN_CHECK_UID variable of Env nor Self supplies one; the file system (the target, the tmp directory, the
-// scratchpad) and the git children it starts, which receive Env as their whole environment; and the real clock for the
+// scratchpad) and the git children it starts, which receive Env (without the repository selectors, with
+// GIT_OPTIONAL_LOCKS=0) as their whole environment; and the real clock for the
 // deadline of the context. It never reads the process environment or working directory.
 type Options struct {
 	Target     string // --target; empty means Cwd

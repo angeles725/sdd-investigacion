@@ -9,7 +9,12 @@ import (
 // selectors are the variables that would point git at a repository other than --target.
 var selectors = map[string]bool{"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_COMMON_DIR": true, "GIT_INDEX_FILE": true}
 
-// gitEnvironment is env without the repository selectors; the last value of a repeated name wins, as exec reads it.
+// optionalLocks keeps every git call of this read-only check from refreshing an index or taking an optional lock in
+// the target, whatever subcommand a later change adds (the caller's own value is replaced).
+const optionalLocks = "GIT_OPTIONAL_LOCKS"
+
+// gitEnvironment is env without the repository selectors and with GIT_OPTIONAL_LOCKS=0; the last value of a repeated
+// name wins, as exec reads it.
 func gitEnvironment(env []string) []string {
 	last := map[string]int{}
 	for i, kv := range env {
@@ -20,12 +25,12 @@ func gitEnvironment(env []string) []string {
 	var out []string
 	for i, kv := range env {
 		k, _, ok := strings.Cut(kv, "=")
-		if ok && (selectors[k] || last[k] != i) {
+		if ok && (selectors[k] || k == optionalLocks || last[k] != i) {
 			continue
 		}
 		out = append(out, kv)
 	}
-	return out
+	return append(out, optionalLocks+"=0")
 }
 
 // envValue is the value of key in env (the last one), and whether it is set.

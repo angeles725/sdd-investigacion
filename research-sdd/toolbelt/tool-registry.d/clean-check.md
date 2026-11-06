@@ -14,7 +14,7 @@ environment and reads none of them itself, so the same environment gives the sam
 `Check` call (`TestBareCheckBehavesLikeTheBareCommand`). The two ages are `cleancheck.Age` values: unset means the defaults (24 h and 14 d,
 declared once in the engine), `cleancheck.AgeOf(0)` is the explicit `0` the script accepted (every owned `tmp.*` entry, every matching
 backup is already stale). The only reads from the process are the owner uid (`os.Getuid`, only when `UID`, `CLEAN_CHECK_UID` and `Self` are all
-empty), the file system and the `git` children (whose whole environment is `Options.Env`). The context bounds the run: cancellation or a deadline
+empty), the file system and the `git` children (whose whole environment is `Options.Env` without the repository selectors `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, and with `GIT_OPTIONAL_LOCKS=0`, so no call refreshes an index in the target). The context bounds the run: cancellation or a deadline
 stops the walks at the next entry and a running git is stopped when the context has a deadline (its timeout is cut to it, process
 group included); a context that can only be cancelled ends the wait at once but cannot stop the child (`core/proc` has no cancel), which then
 ends at its own ten-minute ceiling. The `Result` is typed: `Verdict` (`Clean`, `Findings`, `Refused`, `Degraded`, `TimedOut`), `Exit` (0, 1, 2,

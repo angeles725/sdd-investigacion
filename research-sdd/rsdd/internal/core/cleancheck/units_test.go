@@ -65,13 +65,14 @@ func TestMentions(t *testing.T) {
 }
 
 func TestGitEnvironment(t *testing.T) {
-	in := []string{"A=1", "GIT_DIR=/x", "B=2", "GIT_WORK_TREE=/y", "GIT_COMMON_DIR=/z", "GIT_INDEX_FILE=/i", "A=3", "GIT_AUTHOR_NAME=n", "noequals", "C="}
-	want := []string{"B=2", "A=3", "GIT_AUTHOR_NAME=n", "noequals", "C="}
+	in := []string{"A=1", "GIT_DIR=/x", "B=2", "GIT_WORK_TREE=/y", "GIT_COMMON_DIR=/z", "GIT_INDEX_FILE=/i", "A=3", "GIT_AUTHOR_NAME=n", "noequals", "C=", "GIT_OPTIONAL_LOCKS=1"}
+	// The caller's GIT_OPTIONAL_LOCKS is replaced: no git call of a read-only check may refresh an index.
+	want := []string{"B=2", "A=3", "GIT_AUTHOR_NAME=n", "noequals", "C=", "GIT_OPTIONAL_LOCKS=0"}
 	if got := gitEnvironment(in); !reflect.DeepEqual(got, want) {
 		t.Errorf("gitEnvironment = %q, want %q", got, want)
 	}
-	if got := gitEnvironment(nil); got != nil {
-		t.Errorf("%q", got)
+	if got, want := gitEnvironment(nil), []string{"GIT_OPTIONAL_LOCKS=0"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("gitEnvironment(nil) = %q, want %q", got, want)
 	}
 }
 
