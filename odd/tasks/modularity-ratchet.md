@@ -64,7 +64,7 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
 - [x] T3 (S1, S4, S9) correction after the review (L12) · route: inline · commit: 604a16a1 · observed:
   six tests red before the change, package tests under both tag sets, 18 hand mutants killed, dry run 106 runnable
   and 0 not covered, pre-push checks
-- [x] T4 (S4) a duplicate after a misplaced line is named (L13) · route: inline · commit: the one after 604a16a1 ·
+- [x] T4 (S4) a duplicate after a misplaced line is named (L13, L14) · route: inline · commits: 85e917af and the one after it ·
   observed: one test red before the change, package tests under both tag sets, 21 hand mutants killed, dry run 104
   runnable and 0 not covered, pre-push checks
 
@@ -163,3 +163,10 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   where a symlink cannot be created; on Linux as a non-root user neither path is taken. Teeth after the change: 21
   hand mutants through `go test -overlay`, all killed (among them duplicates checked only for a line out of
   order, the review's own case); dry run 104 runnable, 0 not covered.
+- L14 Third review, 2026-11-06. Native review of 85e917af against 604a16a1 (lens reliability): approved and
+  acknowledged, two advisories, both applied. (1) L13 had turned the scan test's symlink set-up failure into a log
+  line; that hid every set-up failure, not only a platform without symlinks, so it stops the test again (the
+  module's tests run on Linux only). (2) `cmp.Less` removed the equivalent `>=` mutant but also the killable ones
+  from the recurring mutation run; the comparison is now `strings.Compare(prev, path) == -1`, which has no boundary
+  mutant and keeps a negation and a sign mutant the run can kill. Behaviour is unchanged.
+

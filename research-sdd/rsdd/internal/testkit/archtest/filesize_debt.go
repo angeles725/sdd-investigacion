@@ -1,7 +1,6 @@
 package archtest
 
 import (
-	"cmp"
 	"fmt"
 	"strconv"
 	"strings"
@@ -62,8 +61,10 @@ func placeProblem(prev, path string, seen map[string]bool) (problem string, keep
 	if seen[path] {
 		return "duplicate path " + path, false
 	}
-	// prev was read, so a path equal to it is a duplicate and never reaches this comparison.
-	if cmp.Less(prev, path) {
+	// prev was read, so a path equal to it is a duplicate and never reaches this comparison. It is written
+	// with Compare and not with ">": no test could tell ">" from ">=" here, so the mutation run would report a
+	// mutant nobody can kill, while this form keeps two it can.
+	if strings.Compare(prev, path) == -1 {
 		return "", true
 	}
 	return fmt.Sprintf("%s is not after %s (unsorted)", path, prev), true

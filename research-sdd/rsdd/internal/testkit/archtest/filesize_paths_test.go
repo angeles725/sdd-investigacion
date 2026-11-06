@@ -22,7 +22,7 @@ func TestScanSkipsPathsTheGoToolIgnores(t *testing.T) {
 	}, "")
 	// What Emacs leaves beside an unsaved buffer: a dangling symlink whose name ends in .go.
 	if err := os.Symlink("nowhere", filepath.Join(root, "pkg", ".#lock.go")); err != nil {
-		t.Logf("no symlink here, the lock-file case is not exercised: %v", err)
+		t.Fatal(err)
 	}
 	r, err := CheckFileSizes(root, dp)
 	if err != nil {
