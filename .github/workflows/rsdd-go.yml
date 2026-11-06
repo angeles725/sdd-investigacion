@@ -3,18 +3,16 @@ name: rsdd-go
 on:
   push:
     branches: [main]
+    # The whole kit, not only the Go module: Go tests read LIVE kit files (toolbelt scripts and libs, registries,
+    # docs) as their differential oracle, so a kit-only change can turn the module red. A narrower list would
+    # need an enumerator of those reads that nobody maintains; the bridge suite and lib/mutant.sh are inside it.
     paths:
-      - "research-sdd/rsdd/**"
+      - "research-sdd/**"
       - ".github/workflows/rsdd-go.yml"
-      # The Go bridge suite (kit issue #2488) and the mutation helper it sources.
-      - "research-sdd/toolbelt/tests/rsdd-go.test.sh"
-      - "research-sdd/toolbelt/tests/lib/mutant.sh"
   pull_request:
     paths:
-      - "research-sdd/rsdd/**"
+      - "research-sdd/**"
       - ".github/workflows/rsdd-go.yml"
-      - "research-sdd/toolbelt/tests/rsdd-go.test.sh"
-      - "research-sdd/toolbelt/tests/lib/mutant.sh"
   # Nightly whole-module run of the bridge suite (whole-module gremlins; RSDD_TEETH_BASE is empty on schedule/dispatch).
   # The toolbelt nightly used to cover this through its core tier; the suite is now `dedicated` (suite-tiers.txt).
   schedule:
