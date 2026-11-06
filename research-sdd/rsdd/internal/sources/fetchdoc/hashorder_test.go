@@ -3,6 +3,7 @@ package fetchdoc
 import (
 	"errors"
 	"os"
+	"syscall"
 	"testing"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/srcregistry"
@@ -56,5 +57,33 @@ func TestHashIsTakenOnTheStagedFile(t *testing.T) {
 	b, _ := os.ReadFile(w.path("sources/datasheets/a.pdf"))
 	if !srcregistry.HasRow(md, "datasheets/a.pdf", srcregistry.SHA256Hex(b)) {
 		t.Errorf("the row does not carry the sha256 of the installed bytes:\n%s", md)
+	}
+}
+
+// A signal that arrives while the staged file is hashed is still honoured: signals are ignored only from the
+// install on, and nothing has been placed yet, so the run stops with the signal's status and leaves no file.
+func TestSignalDuringTheHashStopsTheRunWithNothingPlaced(t *testing.T) {
+	for _, mode := range [][]string{{"doc", "http://h/a.pdf"}, {"web", "http://h/page"}} {
+		t.Run(mode[0], func(t *testing.T) {
+			w := newWorld(t, "curl", "wget", "pandoc")
+			w.setEnv("STUB_ROUTES=")
+			sigs := make(chan os.Signal, 1)
+			w.hash = func(p string) (string, error) {
+				sigs <- syscall.SIGINT
+				return srcregistry.FileSHA256(p)
+			}
+			got := w.goRunSig(sigs, 4242, append(mode, w.dir)...)
+			if got.rc != exitInterrupted {
+				t.Errorf("exit %d, want %d; err=%q", got.rc, exitInterrupted, got.err)
+			}
+			for _, p := range []string{"sources/datasheets/a.pdf", "sources/web-snapshots/h_page.md", "sources/SOURCES.md"} {
+				if exists(w.path(p)) {
+					t.Errorf("%s was placed although the run was interrupted while hashing", p)
+				}
+			}
+			if p := partFiles(w); len(p) != 0 {
+				t.Errorf("part files left: %v", p)
+			}
+		})
 	}
 }
