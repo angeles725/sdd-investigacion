@@ -4575,6 +4575,45 @@ call 1: <ROOT>/corpus
 rc: 0
 out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 3\n   envelope        : covered_blocks=0/0 · investigable_open=3/3 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=3 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
 --- end verify
+=== queue-open-deferred-with-an-escaped-pipe-is-known
+run 1: <ROOT>/corpus --next --queue
+rc: 0
+--- stdout
+NEXT | high | G1
+--- stderr
+INFO: queue-exhausted [root]: next_session_queue (1 ids: 0 done, 1 deferred, 0 blocked, 0 in-progress, 0 unknown) has no pending gap — priority order used
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# Q5
+
+next_session_queue: G8
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | ID | Gap | Artifact | Status |
+|---|---|---|---|---|
+| high | G1 | first gap | web | pending |
+| deferred | G8 | parked \| thing | web | parked |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+--- end
+--- verify
+call 1: <ROOT>/corpus
+rc: 0
+out: "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <ROOT>/corpus) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <ROOT>/corpus) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/1 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope deferred_open missing while 1 deferred backlog gap(s) found — seed it: --sync-state\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=1 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n"
+--- end verify
 === queue-pending-in-blocked-section-skipped
 run 1: <ROOT>/corpus --next --queue
 rc: 0
