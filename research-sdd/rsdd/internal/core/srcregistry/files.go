@@ -62,7 +62,7 @@ func Append(sdir, row string) error {
 	if md == nil {
 		md = []byte(Header)
 	}
-	return write(filepath.Join(sdir, SourcesFile), InsertRow(md, row), mode)
+	return fsx.WriteAtomicMode(filepath.Join(sdir, SourcesFile), InsertRow(md, row), mode)
 }
 
 // Retarget is RetargetFile on SOURCES.md of sdir; a missing document is not an error (others is 0).
@@ -73,7 +73,7 @@ func Retarget(sdir, oldFile, newFile, sha string) (others int, err error) {
 		return 0, err
 	}
 	out, others := RetargetFile(md, oldFile, newFile, sha)
-	return others, write(path, out, mode)
+	return others, fsx.WriteAtomicMode(path, out, mode)
 }
 
 // Has is HasRow on SOURCES.md of sdir; a missing document has no row.
@@ -99,24 +99,4 @@ func read(path string) ([]byte, os.FileMode, error) {
 		mode = fi.Mode().Perm()
 	}
 	return md, mode, nil
-}
-
-// write replaces path with b through a sibling temporary file, so a failure leaves the old document intact.
-func write(path string, b []byte, mode os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".sources-md-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	_, werr := tmp.Write(b)
-	cerr := tmp.Close()
-	if err := errors.Join(werr, cerr, os.Chmod(name, mode)); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	return nil
 }

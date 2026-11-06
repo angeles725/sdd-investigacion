@@ -13,28 +13,37 @@ func TestInsertRowAfterATableThatIsTheFirstLine(t *testing.T) {
 	}
 }
 
-func TestWriteReplacesAtomicallyAndReportsARenameFailure(t *testing.T) {
+func TestAppendKeepsTheModeLeavesNoTempAndReportsAWriteFailure(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "SOURCES.md")
-	if err := write(path, []byte("new\n"), 0o640); err != nil {
+	path := filepath.Join(dir, SourcesFile)
+	if err := os.WriteFile(path, []byte(Header), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(path); string(b) != "new\n" {
-		t.Errorf("wrote %q", b)
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	row := FormatRow("a.pdf", "datasheet", "http://h/a", "2026-01-02T03:04:05Z", SHA256Hex([]byte("a")))
+	if err := Append(dir, row); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); !HasRow(b, "a.pdf", "") {
+		t.Errorf("the row is missing:\n%s", b)
 	}
 	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o640 {
-		t.Errorf("mode %v", fi.Mode().Perm())
+		t.Errorf("mode %v, want the existing 0640", fi.Mode().Perm())
 	}
-	// a non-empty directory in the way: the rename fails, the error is returned and no temporary file is left
-	blocked := filepath.Join(dir, "blocked")
-	if err := os.MkdirAll(filepath.Join(blocked, "x"), 0o755); err != nil {
+	if ents, _ := os.ReadDir(dir); len(ents) != 1 {
+		t.Errorf("stray files next to SOURCES.md: %v", ents)
+	}
+	// the write cannot start (its temp path is a directory): the error is returned and the document is intact
+	before, _ := os.ReadFile(path)
+	if err := os.Mkdir(filepath.Join(dir, "."+SourcesFile+".tmp"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := write(blocked, []byte("z"), 0o644); err == nil {
-		t.Error("a rename onto a non-empty directory reported success")
+	if err := Append(dir, FormatRow("b.pdf", "datasheet", "http://h/b", "2026-01-02T03:04:05Z", SHA256Hex([]byte("b")))); err == nil {
+		t.Error("a write that cannot start reported success")
 	}
-	left, _ := filepath.Glob(filepath.Join(dir, ".sources-md-*"))
-	if len(left) != 0 {
-		t.Errorf("temporary files left: %v", left)
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Errorf("the document changed on a failed write:\n%s", after)
 	}
 }
