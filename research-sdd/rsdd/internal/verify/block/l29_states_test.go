@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -121,6 +120,18 @@ func TestEveryTypedStatePinned(t *testing.T) {
 		}
 		elsewhere++
 	}
+	for key := range pinnedElsewhere {
+		used := false
+		for _, st := range states {
+			used = used || strings.Contains(st.format, key)
+		}
+		if !used {
+			t.Errorf("pinnedElsewhere key %q matches no typed state: remove it", key)
+		}
+		if _, ok := tests[pinnedElsewhere[key]]; !ok {
+			t.Errorf("pinnedElsewhere key %q names %s, which is not a Test function of this package", key, pinnedElsewhere[key])
+		}
+	}
 	named := map[string]bool{}
 	for _, test := range pinnedElsewhere {
 		if _, ok := tests[test]; ok {
@@ -137,25 +148,32 @@ func TestEveryTypedStatePinned(t *testing.T) {
 	}
 }
 
-// testSources maps every Test function of the package to its source text.
+// testSources maps every Test function of the package to the text of the string literals in its body: a fragment
+// left in a comment does not count as an assertion.
 func testSources(t *testing.T) map[string]string {
 	t.Helper()
 	files, _ := filepath.Glob("*_test.go")
 	out := map[string]string{}
 	for _, f := range files {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fset := token.NewFileSet()
-		af, err := parser.ParseFile(fset, f, b, 0)
+		af, err := parser.ParseFile(token.NewFileSet(), f, nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, d := range af.Decls {
-			if fn, ok := d.(*ast.FuncDecl); ok && strings.HasPrefix(fn.Name.Name, "Test") {
-				out[fn.Name.Name] = string(b[fset.Position(fn.Pos()).Offset:fset.Position(fn.End()).Offset])
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || !strings.HasPrefix(fn.Name.Name, "Test") {
+				continue
 			}
+			var b strings.Builder
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					if v, err := strconv.Unquote(lit.Value); err == nil {
+						b.WriteString(v + "\n")
+					}
+				}
+				return true
+			})
+			out[fn.Name.Name] = b.String()
 		}
 	}
 	return out
