@@ -29,7 +29,7 @@ func (s State) String() string {
 // EventPaths returns the `paths:` entries of event in the workflow source src.
 func EventPaths(src, event string) ([]string, State) {
 	on, ok := child(significant(strings.Split(src, "\n")), "on")
-	if !ok || on.inline != "" || indentOf(on) != 0 {
+	if !ok || on.inline != "" {
 		return nil, Unrecognised
 	}
 	ev, ok := child(on.body, event)
@@ -73,12 +73,9 @@ func Missing(have, want []string) []string {
 }
 
 type node struct {
-	at     int      // the key's indent
 	inline string   // the text after "key:" on the key's own line
 	body   []string // the significant lines nested under the key
 }
-
-func indentOf(n node) int { return n.at }
 
 // child finds `key:` among the shallowest keys of lines and returns what is nested under it.
 func child(lines []string, key string) (node, bool) {
@@ -94,10 +91,10 @@ func child(lines []string, key string) (node, bool) {
 		if !ok {
 			continue
 		}
-		n := node{at: top, inline: strings.TrimSpace(rest)}
+		n := node{inline: strings.TrimSpace(rest)}
 		for _, b := range lines[i+1:] {
-			if indent(b) < top || (indent(b) == top && !strings.HasPrefix(strings.TrimSpace(b), "- ")) {
-				break
+			if indent(b) <= top && !strings.HasPrefix(strings.TrimSpace(b), "- ") {
+				break // the next key at this level or above; a list item may sit at the key's own indent
 			}
 			n.body = append(n.body, b)
 		}
@@ -110,9 +107,7 @@ func child(lines []string, key string) (node, bool) {
 func significant(lines []string) []string {
 	var out []string
 	for _, l := range lines {
-		if i := strings.Index(l, " #"); i >= 0 {
-			l = l[:i]
-		}
+		l, _, _ = strings.Cut(l, " #")
 		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") {
 			out = append(out, strings.TrimRight(l, " \t\r"))
 		}
@@ -138,8 +133,10 @@ func flowList(s string) ([]string, State) {
 func unquote(s string) string {
 	s = strings.TrimSpace(s)
 	for _, q := range []string{`"`, `'`} {
-		if len(s) >= 2 && strings.HasPrefix(s, q) && strings.HasSuffix(s, q) {
-			return s[1 : len(s)-1]
+		if inner, ok := strings.CutPrefix(s, q); ok {
+			if inner, ok = strings.CutSuffix(inner, q); ok {
+				return inner
+			}
 		}
 	}
 	return s
