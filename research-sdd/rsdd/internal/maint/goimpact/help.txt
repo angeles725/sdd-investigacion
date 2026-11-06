@@ -4,23 +4,32 @@ Map changed files (repo-relative, e.g. research-sdd/rsdd/internal/retro/stageiss
 files that reach the rsdd commands built from them. The Go module under DIR/research-sdd/rsdd is parsed from
 source (go/parser only); nothing is built. One block per FILE, in input order, tab-separated:
 
-  NONE    FILE  go-test-only        a _test.go or testdata file, or a package no command imports
-  SHIM    FILE  BASH  GROUP NAME    one line per bash file that reaches a command built from FILE
-  UNREACHED FILE GROUP NAME       a command in the closure that no bash file calls (informational)
-  NONE    FILE  no-bash-caller       the closure has commands but none has a bash caller
-  CLOSURE FILE  PACKAGES COMMANDS   closure size, last line of a SHIM block
-  FULL    FILE  REASON              not placed: go.mod, go.sum, Makefile, cmd/**, internal/cli/**,
-                                    internal/commands/**, a path outside the module, a parse error, an
-                                    unresolved command literal, an
-                                    unclassifiable bash caller (including a file that names RSDD_BIN
-                                    outside a recognised call), an unclassified module file (a non-Go file
-                                    that is not testdata; teeth-debt.txt included), testdata named by bash,
-                                    or a closure wider
-                                    than --wide
+  NONE      FILE go-test-only      a _test.go or testdata file, or a package not built into the binary
+  SHIM      FILE BASH GROUP NAME   one line per bash file that reaches a command built from FILE
+  UNREACHED FILE GROUP NAME        a command in the closure that no bash file calls (informational)
+  BLIND     FILE BASH CLASS        a Go blind-spot bash file, added for every change built into the binary;
+                                   CLASS is C, D, unplaceable or empty-reach; never makes FILE FULL
+  NONE      FILE no-bash-caller    commands in the closure, none called by bash, and no BLIND line
+  NONE      FILE no-command        built into the binary, defines no command, and no BLIND line
+  CLOSURE   FILE PACKAGES COMMANDS closure size, last line of a block
+  FULL      FILE REASON            not placed: go.mod, go.sum, Makefile, teeth-debt.txt, cmd/**, internal/cli/**,
+                                   internal/commands/**, a path outside the module, an unclassified module
+                                   file (a non-Go file that is not testdata), testdata named by bash, a parse
+                                   error, an unresolved command literal, or a closure wider than --wide
+                                   (counted in SHIM bash files; BLIND files are counted apart)
+
+After all blocks, one line counts every RSDD_BIN / RSDD_REAL_BIN mention class over the scanned bash tree:
+
+  CLASSES   A=n B=n C=n D=n unplaceable=n empty-reach=n blindspot-files=n
+
+(mentions for A to unplaceable; files for empty-reach and blindspot-files). A assignment/export/env prefix and
+B operand of [ ], [[ ]], test are not calls; C command position and D argument position are calls; a C or D
+mention whose next two words are not a registered group and name, and anything inside eval, a bash -c string or
+an executed here-doc, is a blind spot.
 
 options:
   --repo DIR   repository root (default: the working directory)
-  --wide N     FULL when a closure reaches more than N distinct bash files (default 12)
+  --wide N     FULL when a closure reaches more than N distinct SHIM bash files (default 12)
 
 Exit 0 when classification ran, 2 on a usage error or an unreadable module
 ("degraded: go-impact: <reason>" on stderr).

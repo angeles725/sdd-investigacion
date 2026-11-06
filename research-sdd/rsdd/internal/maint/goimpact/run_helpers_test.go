@@ -19,10 +19,23 @@ func run(args ...string) result {
 	return result{o.String(), e.String(), rc}
 }
 
-// lines splits stdout into trimmed lines.
+// lines splits stdout into lines, without the trailing CLASSES aggregate (see summary).
 func (r result) lines() []string {
-	if r.out == "" {
-		return nil
+	var out []string
+	for _, l := range strings.Split(strings.TrimSuffix(r.out, "\n"), "\n") {
+		if l != "" && !strings.HasPrefix(l, "CLASSES\t") {
+			out = append(out, l)
+		}
 	}
-	return strings.Split(strings.TrimSuffix(r.out, "\n"), "\n")
+	return out
+}
+
+// summary is the CLASSES line, or "".
+func (r result) summary() string {
+	for _, l := range strings.Split(r.out, "\n") {
+		if strings.HasPrefix(l, "CLASSES\t") {
+			return l
+		}
+	}
+	return ""
 }

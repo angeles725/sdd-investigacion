@@ -5,6 +5,9 @@ import "sort"
 // Registry is the package that assembles the command table; reaching it means reaching the binary.
 const Registry = "internal/commands"
 
+// BinaryPkg is the main package; a package whose reverse closure holds it is built into the binary.
+const BinaryPkg = "cmd/rsdd"
+
 // ReverseClosure returns dir plus every package that imports it, directly or transitively, over NON-TEST
 // import edges only, sorted. A package reached only through _test.go imports is not in the result.
 func (m *Module) ReverseClosure(dir string) []string {

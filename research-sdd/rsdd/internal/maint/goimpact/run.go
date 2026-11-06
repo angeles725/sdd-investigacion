@@ -71,6 +71,7 @@ func Run(args []string, s cli.Stdio) int {
 			out.WriteString(l + "\n")
 		}
 	}
+	out.WriteString(a.Summary() + "\n")
 	fmt.Fprint(s.Out, out.String())
 	return cli.ExitOK
 }

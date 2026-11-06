@@ -14,11 +14,16 @@
 //	"$RSDD_REAL_BIN" <group> <name>                the same, through the saved real binary
 //	rsdd <group> <name>  (also <path>/rsdd)        a literal invocation
 //
-// A single word after the executable that names an ungrouped command (`rsdd version`) resolves too. Only words
-// in COMMAND position count, so `[ -x "$RSDD_BIN" ]`, `real=$RSDD_BIN` and prose mentioning rsdd are not calls.
-// A call whose words cannot be resolved to a recovered command (variables, flags, an unknown pair) makes its
-// file `unclassifiable`, and any change that reaches a command is then FULL. So is a file that names RSDD_BIN in
-// code without resolving any call (a Go blind spot, C9); the exact list lives in testdata/unclassifiable.txt.
+// A single word after the executable that names an ungrouped command (`rsdd version`) resolves too.
+//
+// Every RSDD_BIN / RSDD_REAL_BIN mention in code is classified by the bash tokens (rule i'): A assignment,
+// export, declare, local, unset or env prefix, and B operand of [ ], [[ ]] or test, are not calls; C command
+// position and D argument position after another command word are calls; a mention inside eval, a `bash -c`
+// string or an executed here-doc is unplaceable. A C or D mention whose next two words are not a registered group
+// and name, and every unplaceable one, makes its file a Go BLIND SPOT, as does a file that mentions the binary
+// yet reaches no command at all (`empty-reach`). A blind-spot file is added to the selection of every change
+// built into the binary and never makes it FULL; the derived set is pinned by testdata/go-blindspot.txt. The wide
+// threshold counts SHIM bash files only: blind spots are one fixed list per run, counted apart.
 //
 // Non-Go files of the module have an explicit class (C10): go.mod, go.sum, Makefile and teeth-debt.txt are FULL;
 // anything under testdata/ is go-test-only unless a bash file names it (FULL); every other one is FULL as an

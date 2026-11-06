@@ -1,7 +1,6 @@
 package goimpact
 
 import (
-	"fmt"
 	"path"
 	"sort"
 	"strings"
@@ -16,7 +15,8 @@ type Analysis struct {
 	bash    []BashFile
 	wide    int
 	callers map[Command][]string // command -> sorted bash paths that reach it
-	unclass []string             // bash paths with an exec form no command explains, sorted
+	blind   []BashFile           // Go blind spots (not exempt), sorted by path
+	counts  Counts
 }
 
 // NewAnalysis indexes the callers of every command. wide is the FULL threshold in distinct bash files.
@@ -27,13 +27,17 @@ func NewAnalysis(m *Module, bash []BashFile, wide int) *Analysis {
 			a.callers[c.Cmd] = append(a.callers[c.Cmd], f.Path)
 		}
 		if f.Blind() != "" {
-			a.unclass = append(a.unclass, f.Path)
+			a.blind = append(a.blind, f)
 		}
 	}
+	a.counts = CountClasses(bash)
 	return a
 }
 
 func full(file, reason string) []string { return []string{"FULL\t" + file + "\t" + reason} }
+
+// Summary is the aggregate CLASSES line over the whole scanned bash tree.
+func (a *Analysis) Summary() string { return a.counts.Line() }
 
 // Classify returns the output lines for one repo-relative changed file. It never returns an empty slice.
 func (a *Analysis) Classify(file string) []string {
@@ -69,44 +73,6 @@ func (a *Analysis) Classify(file string) []string {
 		}
 	}
 	return a.reach(file, dir)
-}
-
-// reach turns a package's reverse closure into SHIM lines, or a typed FULL.
-func (a *Analysis) reach(file, dir string) []string {
-	closure := a.mod.ReverseClosure(dir)
-	cmds := a.mod.ClosureCommands(closure)
-	if len(cmds) == 0 {
-		for _, d := range closure {
-			if d == Registry {
-				return full(file, "reaches the registry but defines no command in its closure")
-			}
-		}
-		return []string{"NONE\t" + file + "\tgo-test-only"}
-	}
-	closureLine := fmt.Sprintf("CLOSURE\t%s\t%d\t%d", file, len(closure), len(cmds))
-	distinct := map[string]bool{}
-	var shims, unreached []string
-	for _, c := range cmds {
-		if len(a.callers[c]) == 0 { // C2: the enumerator sees every form, so no toolbelt suite reaches it
-			unreached = append(unreached, "UNREACHED\t"+file+"\t"+c.String())
-			continue
-		}
-		for _, b := range a.callers[c] {
-			distinct[b] = true
-			shims = append(shims, "SHIM\t"+file+"\t"+b+"\t"+c.String())
-		}
-	}
-	if len(a.unclass) > 0 {
-		return append(full(file, "unclassifiable bash caller: "+a.unclass[0]), closureLine)
-	}
-	if len(distinct) > a.wide {
-		return append(full(file, fmt.Sprintf("closure of %d bash files is wider than %d", len(distinct), a.wide)), closureLine)
-	}
-	out := append(shims, unreached...)
-	if len(shims) == 0 {
-		out = append(out, "NONE\t"+file+"\tno-bash-caller")
-	}
-	return append(out, closureLine)
 }
 
 // namedByBash returns the first bash file (by path) whose text names the testdata file or one of its

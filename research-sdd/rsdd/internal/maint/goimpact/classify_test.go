@@ -121,14 +121,53 @@ func TestOnlyUnreachedCommandsIsNoBashCaller(t *testing.T) {
 	}
 }
 
-func TestUnclassifiableCallerMakesReachingChangesFull(t *testing.T) {
+func TestBlindSpotIsAddedNeverFull(t *testing.T) {
 	root := repo(t, map[string]string{"research-sdd/toolbelt/v.sh": "\"$RSDD_BIN\" \"$grp\" \"$cmd\"\n"})
 	f := mod + "internal/alpha/alpha.go"
-	if r := run("--repo", root, f); !has(r.lines(), "FULL\t"+f+"\tunclassifiable bash caller: research-sdd/toolbelt/v.sh") {
+	r := run("--repo", root, f)
+	l := r.lines()
+	if !has(l, "BLIND\t"+f+"\tresearch-sdd/toolbelt/v.sh\tC") || !has(l, "SHIM\t"+f+"\tresearch-sdd/toolbelt/a.sh\tg one") || strings.Contains(r.out, "FULL") {
 		t.Errorf("%+v", r)
 	}
-	// a go-test-only file is unaffected
-	if r := run("--repo", root, mod+"internal/testonly/t.go"); !strings.HasPrefix(r.out, "NONE\t") {
+	// a go-test-only file reaches no binary: no BLIND line
+	if r := run("--repo", root, mod+"internal/testonly/t.go"); !has(r.lines(), "NONE\t"+mod+"internal/testonly/t.go\tgo-test-only") || strings.Contains(r.out, "BLIND") {
+		t.Errorf("%+v", r)
+	}
+}
+
+// Rule ii: any non-test file built into the binary gets the blind set, command package or not.
+func TestBlindSpotsReachEveryFileBuiltIntoTheBinary(t *testing.T) {
+	commands := mod + "internal/commands/commands.go"
+	extra := map[string]string{
+		mod + "internal/noc/n.go": "package noc\n",
+	}
+	extra[commands] = "package commands\n\nimport (\n\t_ \"example.test/rsdd/internal/noc\"\n\t\"example.test/rsdd/internal/alpha\"\n\t\"example.test/rsdd/internal/beta\"\n\t\"example.test/rsdd/internal/cli\"\n)\n\nvar _ = alpha.Command\nvar _ = beta.Commands\nvar V = cli.Command{Name: \"version\"}\n"
+	f := mod + "internal/noc/n.go"
+	if r := run("--repo", repo(t, extra), f); strings.Join(r.lines(), "|") != "NONE\t"+f+"\tno-command|CLOSURE\t"+f+"\t3\t0" {
+		t.Errorf("no blind spots: %+v", r)
+	}
+	extra["research-sdd/toolbelt/e.sh"] = "export RSDD_BIN=/x\n"
+	r := run("--repo", repo(t, extra), f)
+	if !has(r.lines(), "BLIND\t"+f+"\tresearch-sdd/toolbelt/e.sh\tempty-reach") || strings.Contains(r.out, "NONE") || strings.Contains(r.out, "FULL") {
+		t.Errorf("blind spots: %+v", r)
+	}
+}
+
+// The wide threshold counts the SHIM bash files only; blind spots are counted apart.
+func TestWideThresholdIgnoresBlindSpots(t *testing.T) {
+	root := repo(t, map[string]string{"research-sdd/toolbelt/v1.sh": "echo \"$RSDD_BIN\"\n", "research-sdd/toolbelt/v2.sh": "echo \"$RSDD_BIN\"\n", "research-sdd/toolbelt/v3.sh": "echo \"$RSDD_BIN\"\n"})
+	f := mod + "internal/alpha/alpha.go"
+	r := run("--repo", root, "--wide", "2", f)
+	if strings.Contains(r.out, "FULL") || strings.Count(r.out, "BLIND\t") != 3 {
+		t.Errorf("%+v", r)
+	}
+}
+
+func TestClassesLineIsPrintedOnceAfterTheFileBlocks(t *testing.T) {
+	r := run("--repo", repo(t, nil), mod+"internal/alpha/alpha.go", mod+"internal/testonly/t.go")
+	want := "CLASSES\tA=0\tB=0\tC=6\tD=0\tunplaceable=0\tempty-reach=0\tblindspot-files=0"
+	ls := strings.Split(strings.TrimSuffix(r.out, "\n"), "\n")
+	if r.summary() != want || ls[len(ls)-1] != want || strings.Count(r.out, "CLASSES") != 1 {
 		t.Errorf("%+v", r)
 	}
 }
