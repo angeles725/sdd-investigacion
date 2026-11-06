@@ -44,6 +44,54 @@ func registeredHooks(t *testing.T) []string {
 	return names
 }
 
+// cappedHooks are the registered hooks whose could-not-run context goes through FailureContext, by script name (the
+// script is a shim that runs the rsdd command named here).
+var cappedHooks = map[string]string{
+	"sweep-retros-hook":        "rsdd sweep retros --hook",
+	"sweep-audits-hook":        "rsdd sweep audits --hook",
+	"sweep-breakthroughs-hook": "rsdd sweep breakthroughs --hook",
+	"sweep-tools-hook":         "rsdd sweep tools --hook",
+	"verify-registry-hook":     "rsdd verify registry-hook",
+	"verify-kit-clean-hook":    "rsdd verify kit-clean-hook",
+	"verify-skill-drift-hook":  "rsdd verify skill-drift --hook",
+}
+
+// uncappedHooks are registered hooks that still print their whole could-not-run output: debt, each with its issue.
+// Its port removes the entry here and adds one to cappedHooks.
+var uncappedHooks = map[string]string{
+	"verify-tool-catalog-hook": "#2749: still bash (lib/hook-emit.sh does not trim)",
+}
+
+// Every registered hook is either capped or a named debt: a ninth hook, or a capped hook that goes back to bash,
+// turns this red instead of silently widening the session's worst case.
+func TestEveryRegisteredHookIsCappedOrNamedDebt(t *testing.T) {
+	reg := registeredHooks(t)
+	for _, h := range reg {
+		_, capped := cappedHooks[h]
+		_, debt := uncappedHooks[h]
+		if capped == debt {
+			t.Errorf("hook %s: capped %v, named debt %v (exactly one must hold)", h, capped, debt)
+		}
+	}
+	if len(reg) != len(cappedHooks)+len(uncappedHooks) {
+		t.Errorf("%d registered hooks, %d capped + %d debt: an entry names no registered hook", len(reg), len(cappedHooks), len(uncappedHooks))
+	}
+	for h, why := range uncappedHooks {
+		t.Logf("uncapped SessionStart hook %s (%s): the worst case below holds for the other %d hooks only", h, why, len(cappedHooks))
+	}
+	// Each capped shim really runs the command whose failure path is capped.
+	for h, cmd := range cappedHooks {
+		b, err := os.ReadFile(kitroot.Path(t, "toolbelt", h+".sh"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// the first word after rsdd_exec_hook is the hook kind, "sweep" for every SessionStart hook
+		if want := "rsdd_exec_hook sweep " + strings.TrimPrefix(cmd, "rsdd "); !strings.Contains(string(b), want) {
+			t.Errorf("%s.sh does not run %q", h, want)
+		}
+	}
+}
+
 // piSource is the pi extension that joins the hooks' contexts.
 func piSource(t *testing.T) string {
 	b, err := os.ReadFile(kitroot.Path(t, "install", "pi", "research-sdd-hooks.ts"))

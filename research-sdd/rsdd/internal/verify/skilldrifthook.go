@@ -191,6 +191,10 @@ func skillDriftHookBody(args []string, s cli.Stdio, b hookBudgets) int {
 	if extra != "" {
 		out = joinNL(out, extra)
 	}
+	if rc >= 2 { // the check could not run: its output is capped like every other could-not-run context (#2631)
+		hookenv.WriteSessionStart(s.Out, hookenv.FailureContext(msg, out, skillDriftRerun))
+		return cli.ExitOK
+	}
 	hookenv.WriteSessionStart(s.Out, msg+"\n"+out)
 	return cli.ExitOK
 }

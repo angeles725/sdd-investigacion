@@ -61,3 +61,12 @@ func TestSweepHookRerunCommandsExist(t *testing.T) {
 		}
 	}
 }
+
+// A census that ran but printed no Summary line is a broken instrument: its context is capped like a failure.
+func TestToolsHookNoSummaryIsCapped(t *testing.T) {
+	got, emit := toolsHookContext(strings.ReplaceAll(longFailure(), "Summary", "Summ"), 0)
+	if !emit || hookenv.Width(got) > hookenv.FailureCap || !strings.HasPrefix(got, toolsHookNoSummary+"\n") ||
+		!strings.HasSuffix(got, "\nsweep: the last line") {
+		t.Errorf("emit %v, width %d:\n%s", emit, hookenv.Width(got), got)
+	}
+}

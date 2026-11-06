@@ -62,7 +62,7 @@ func toolsHookContext(out string, rc int) (ctx string, emit bool) {
 	summary := linesWith(out, func(l string) bool { return strings.HasPrefix(l, "Summary:") })
 	// ANTI-SILENT-ZERO: a census that ran but printed no Summary line is a broken instrument, not a clean fleet.
 	if summary == "" {
-		return toolsHookNoSummary + "\n" + out, true
+		return hookenv.FailureContext(toolsHookNoSummary, out, toolsRerun), true // a broken instrument is capped too
 	}
 	unrecorded := "0"
 	if m := reUnrecorded.FindStringSubmatch(summary); m != nil {

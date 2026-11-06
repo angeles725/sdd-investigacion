@@ -72,3 +72,25 @@ func TestVerifyHookRerunCommandsExist(t *testing.T) {
 		}
 	}
 }
+
+// The skill-drift check that could not run (rc >= 2) is capped too, and keeps its last line (#2631).
+func TestSkillDriftCouldNotRunIsCapped(t *testing.T) {
+	t.Parallel()
+	w := hookWorld(t)
+	w.env["HOME"] = ""
+	w.installStub(`for i in $(seq 1 60); do echo "verify harness=h$i status=drift detail=a-long-enough-reason-to-fill-the-session-budget"; done; echo 'verify kit status=behind by 3'`)
+	out, errs, rc := w.runGoHook()
+	var env struct {
+		HookSpecificOutput struct{ AdditionalContext string }
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil || errs != "" || rc != 0 {
+		t.Fatalf("rc %d, stderr %q, stdout %q: %v", rc, errs, out, err)
+	}
+	ctx := env.HookSpecificOutput.AdditionalContext
+	if w := hookenv.Width(ctx); w > hookenv.FailureCap {
+		t.Errorf("width %d > cap %d", w, hookenv.FailureCap)
+	}
+	if !strings.HasPrefix(ctx, hdrCannot+"\n") || !strings.Contains(ctx, "`"+skillDriftRerun+"`") || !strings.Contains(ctx, "line(s) dropped") {
+		t.Errorf("context:\n%s", ctx)
+	}
+}
