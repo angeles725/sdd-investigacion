@@ -55,6 +55,12 @@ dependency):
   (`io.Copy` into a hash), pinned by `TestFileSumStreamsLargeFiles`.
 - **A git listing cut at the output cap is a refused scan** (`git ls-files failed or was truncated ...`, exit 2), the
   guarantee the script's RC marker gave; pinned by `TestOutputCapIsNotACompleteListing`.
+- **One probes walk, one message.** The script walked `sources/probes` twice (the manifests, then the preserved copies) and said so with two
+  lines, `manifest scan failed under ...` and `probes scan failed ...; preserved copies not evaluated`. The engine reads the manifests and hashes
+  the files in ONE walk (`readProbes`), so a failure prints only `clean-check: ERROR: manifest scan failed under <target>/sources/probes;
+  UNMANIFESTED-SCRIPT not evaluated` (exit 2) followed by the walker's `find: '<dir>': <reason>` line; a caller that grepped for the second text
+  must look for the first. As before, no scratchpad file is judged (neither UNMANIFESTED-SCRIPT nor a preserved copy) and no summary is printed
+  (`TestFailedProbesWalkRefusesAndEvaluatesNothing`).
 - **A symlinked `sources/probes` is not followed**, as `find <dir> -type f` did not (`TestSymlinkedProbesAreNotFollowed`).
 - **A symlinked `sources` is not followed either** (stricter than the script, which followed it): every component between the
   target and `probes` is checked with `lstat`, so a manifest or copy reached through a link, outside or inside the target,

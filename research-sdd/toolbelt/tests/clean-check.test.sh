@@ -193,21 +193,16 @@ run --target "$REPO" --tmp "$FT" --stale-hours 0
 run --target "$REPO" --tmp "$FT" --stale-hours 2
 { [ "$RC" = 0 ] && ! has "tmp.hour"; } && ok "--stale-hours 2 spares the same 1h-old entry" || no "stale 2" "(rc=$RC $OUT)"
 
-# ---- scan failures and the readdir race (shimmed git/find, first on PATH) ---------------------
-mkdir -p "$TMP/shim-git" "$TMP/shim-find" "$TMP/shim-race"
+# ---- scan failures (shimmed git, first on PATH) ---------------------
+mkdir -p "$TMP/shim-git"
 REALGIT="$(type -P git)"; REALFIND="$(type -P find)"
 printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = ls-files ] && { echo "shim-git-diagnostic: ls-files exploded" >&2; exit 1; }\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-git/git"
-printf '#!/bin/sh\necho "shim-find-diagnostic: find exploded" >&2\nexit 1\n' > "$TMP/shim-find/find"
 mkdir -p "$TMP/shim-sort" "$TMP/shim-revparse" "$TMP/shim-warn"
 printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = rev-parse ] && echo "warning: shim-warn unreadable attributes file" >&2\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-warn/git"
 chmod +x "$TMP/shim-warn/git"
 printf '#!/bin/sh\nexit 1\n' > "$TMP/shim-sort/sort"
 printf '#!/bin/sh\nif [ "$1" = -C ]; then cd "$2" || exit 1; shift 2; fi\n[ "$1" = rev-parse ] && { echo "fatal: detected dubious ownership in repository" >&2; exit 128; }\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim-revparse/git"
-chmod +x "$TMP/shim-sort/sort" "$TMP/shim-revparse/git"
-# shim-race models an entry vanishing mid-scan: find fails UNLESS it is given -ignore_readdir_race.
-# The flag is stripped before exec so the shim also works over a find that lacks it (BSD).
-printf '#!/bin/sh\nf=0; n=$#\nwhile [ "$n" -gt 0 ]; do a=$1; shift; n=$((n-1)); if [ "$a" = -ignore_readdir_race ]; then f=1; else set -- "$@" "$a"; fi; done\n[ "$f" = 1 ] || exit 1\nexec %s "$@"\n' "$REALFIND" > "$TMP/shim-race/find"
-chmod +x "$TMP/shim-git/git" "$TMP/shim-find/find" "$TMP/shim-race/find"
+chmod +x "$TMP/shim-sort/sort" "$TMP/shim-revparse/git" "$TMP/shim-git/git"
 fresh; printf 'x\n' > "$REPO/stray"
 OUT="$(PATH="$TMP/shim-git:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 2 ] && has "git ls-files failed"; } && ok "failing git ls-files -> exit 2, never a quiet clean" || no "git scan failure" "(rc=$RC $OUT)"
@@ -222,12 +217,8 @@ fresh; : > "$FT/tmp.old1"; : > "$FT/tmp.old2"; ago 48 "$FT/tmp.old1"; ago 48 "$F
 OUT="$(PATH="$TMP/shim-sort:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 skip "failing sort: retired, the sort is in process"
 fresh
-OUT="$(PATH="$TMP/shim-find:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-skip "failing find: TestDegradedStatesAreValues"
+skip "failing find: TestStaleTmpListingFailureRefuses (internal/core/cleancheck) — Go reads the directory itself, there is no find to fail"
 skip "find stderr diagnostic: stderr-passthrough scenarios (git) and TestFindErrorText"
-: > "$FT/tmp.old"; ago 48 "$FT/tmp.old"
-OUT="$(PATH="$TMP/shim-race:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-{ [ "$RC" = 1 ] && has "stale-tmp $FT/tmp.old"; } && ok "readdir race tolerated: scan runs with -ignore_readdir_race and completes" || no "readdir race" "(rc=$RC $OUT)"
 
 # ---- kit #1207 part 4: scratchpad artifacts a block mentions / scripts with no manifest row ------------
 # A file left in the session scratchpad that some block of the target mentions (by basename or path) is
@@ -306,22 +297,7 @@ CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
 { has "$SP/probe.log cited" && has "$SP/other.dat cited"; } && ok "#1207 boundary: sentence-final period and path:line mentions match" || no "period / path:line" "($OUT)"
 if has "$SP/probe.lo cited"; then no "#1207 boundary: probe.lo must not match probe.log" "($OUT)"; else ok "#1207 boundary: a prefix of a longer name does not match"; fi
 
-# live scratchpad: a file vanishing mid-walk must not abort the run (RDD round 3)
-mkdir -p "$TMP/shim-benign" "$TMP/shim-hard"
-# shim-benign: a find WITHOUT -ignore_readdir_race (BSD-like) whose scratchpad walk lists the files, then reports an
-# ENOENT for a vanished entry and exits 1. shim-hard: same but the error is a permission failure (must stay fatal).
-for _mode in benign hard; do
-  case "$_mode" in benign) _msg="find: './vanished.tmp': No such file or directory";; hard) _msg="find: './locked': Permission denied";; esac
-  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = -ignore_readdir_race ] && exit 1; done\ncase "$1" in "$CC_SHIM_DIR"*) %s "$@"; echo "%s" >&2; exit 1;; esac\nexec %s "$@"\n' "$REALFIND" "$_msg" "$REALFIND" > "$TMP/shim-$_mode/find"
-  chmod +x "$TMP/shim-$_mode/find"
-done
-cc_scratch "Result in probe_run.log"; printf 'x\n' > "$SP/probe_run.log"; printf 'x\n' > "$SP/other.txt"
-CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-race:$PATH" run --target "$REPO" --tmp "$FT"
-{ [ "$RC" = 1 ] && has "UNPRESERVED-ARTIFACT $SP/probe_run.log"; } && ok "#1207 live scratchpad: -ignore_readdir_race is passed to the scratchpad walk" || no "scratch race flag" "(rc=$RC $OUT)"
-CC_SHIM_DIR="$SP" CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-benign:$PATH" run --target "$REPO" --tmp "$FT"
-{ [ "$RC" = 1 ] && has "UNPRESERVED-ARTIFACT $SP/probe_run.log" && has "scratchpad: 2 file(s)"; } && ok "#1207 live scratchpad: ENOENT-only errors from a flagless find are benign" || no "scratch ENOENT fallback" "(rc=$RC $OUT)"
-CC_SHIM_DIR="$SP" CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-hard:$PATH" run --target "$REPO" --tmp "$FT"
-skip "#1207 live scratchpad hard error: unreadable-scratchpad scenarios (internal/core/cleancheck)"
+skip "#1207 live scratchpad: a file vanishing mid-walk, ENOENT-only errors, hard errors: scenario scratchpad-vanishing-subdirectory-is-fine, TestWalkTree (a root that vanished is benign) and the unreadable-scratchpad scenarios (internal/core/cleancheck)"
 
 # quoted / bracketed / unpadded-table citations (RDD round 2)
 for _form in '"x.sh"' "'x.sh'" '[x.sh]' '[label](x.sh)' '|x.sh|' '<x.sh>' '(x.sh)'; do
