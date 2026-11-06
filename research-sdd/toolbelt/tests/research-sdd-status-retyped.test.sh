@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Retired cases are pinned in Go: research-sdd/rsdd/internal/status/show/s6_scenarios_test.go (k-retyped-*) and s3_scenarios_test.go.
 # research-sdd-status-retyped.test.sh — re-typed row left in the main Gap-backlog table (kit issue #1638).
 #
 # METHODOLOGY §8b: a re-typed gap leaves the main table in the same edit (it moves to the Blocked-gaps

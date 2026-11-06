@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Retired cases are pinned in Go: research-sdd/rsdd/internal/status/show/s4_scenarios_test.go (stale-*, scoping) and scenarios_test.go (all-*).
 # research-sdd-status-focus-scope.test.sh — `--next --focus <slug>` scopes the STALE aggregation (kit #1543).
 #
 # Before: `--focus` selected the state file, but the STALE gate ran verify-state.sh over the WHOLE

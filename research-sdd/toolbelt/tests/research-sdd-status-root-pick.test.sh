@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Retired cases are pinned in Go: research-sdd/rsdd/internal/status/show/s8a_pick_test.go and scenarios_test.go.
 # research-sdd-status-root-pick.test.sh — status.sh's state-file pick prefers the un-suffixed root (kit #1818 slice 2).
 #
 # Before: with neither --focus nor --root, status.sh took `find ... | sort | head -1`; in a flat corpus
@@ -7,7 +8,8 @@
 # the same resolver archive / verify-state / verify-registry use. --root / --focus keep their behaviour.
 #
 # The pick itself (root first, --root, --focus, split layout, resolver failures) is pinned by the pick-*, focus-*, root-* scenarios of
-# `rsdd status show`; this suite keeps the fixture guard. Usage: research-sdd-status-root-pick.test.sh   Exit: 0 all held · 1 regression.
+# `rsdd status show` (internal/status/show: s8a_pick_test.go, s1 scenario tables); this suite keeps the fixture guard and one
+# behavioural check through the shim. Usage: research-sdd-status-root-pick.test.sh   Exit: 0 all held · 1 regression.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="${SUT:-$HERE/../research-sdd-status.sh}"
@@ -49,8 +51,9 @@ mk_state "$flat/RESEARCH-STATE-aaa.md" "aaa gap" medium
 first="$(printf '%s\n' "$flat"/RESEARCH-STATE*.md | LC_ALL=C sort | head -1)"
 [ "${first##*/}" = "RESEARCH-STATE-aaa.md" ] && ok "0 fixture: lexical-first is RESEARCH-STATE-aaa.md" || no "0 fixture: lexical-first is [$first]"
 
-got="$(nstep "$SUT" "$flat" --next)"
-[ -z "$got" ] && ok "2 (--next prints a verdict, not the report: helper sanity)" || no "2 helper sanity: [$got]"
+# 1 behavioural: the plain report (through the shim) describes the ROOT file (high=1), not the lexical-first focus file (medium=1)
+got="$(nstep "$SUT" "$flat")"
+[ "$got" = "high=1 medium=0 low=0" ] && ok "1 default pick reports the root's backlog (high=1), not the focus file's" || no "1 pick: [$got]"
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

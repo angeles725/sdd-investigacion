@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Retired cases are pinned in Go: research-sdd/rsdd/internal/status/show/s2_scenarios_test.go (deferred populations), s3_scenarios_test.go, s8a_sync_test.go.
 # research-sdd-status-deferred-populations.test.sh — every deferred-row reader counts ONE population (kit issue #2162).
 #
 # THE RULE: an OPEN backlog row whose priority cell is `deferred` is one population whether its table has 4 cells

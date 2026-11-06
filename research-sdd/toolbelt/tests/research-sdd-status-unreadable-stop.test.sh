@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Retired cases are pinned in Go: research-sdd/rsdd/internal/status/show/s4_scenarios_test.go (ur-*) and s5_scenarios_test.go (idg-unverified-*).
 # research-sdd-status-unreadable-stop.test.sh — a `--next` STOP must not claim a clean exhaustion while backlog rows
 # were UNREAD (kit issue #1959; maintainer decision on the issue: inline qualifier, non-terminal).
 #

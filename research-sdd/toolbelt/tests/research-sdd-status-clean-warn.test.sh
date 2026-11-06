@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Retired cases are pinned in Go: research-sdd/rsdd/internal/status/show/cleanwarn_test.go and s8a_*_test.go.
 # research-sdd-status-clean-warn.test.sh — terminal no-garbage WARN in `research-sdd-status.sh --next`
 # (kit issue #1277, slice 2). When --next resolves to an exhausted STOP, the status script runs clean-check.sh
 # over the target and echoes findings to STDERR as `WARN: clean-check: ...`. Report-only: stdout and exit code
@@ -40,11 +41,15 @@ mkcorpus() {
 ERR=""
 run() { "$@" >/dev/null 2>"$TMP/err"; ERR="$(cat "$TMP/err")"; }
 
-# 1 fixture: a clean exhausted STOP corpus (the rsdd status show tests pin the verdict and the INFO line)
-mkcorpus "$TMP/c1" 0
+# The clean/findings/unverifiable states, the keep-list and the timeout are pinned by internal/status/show
+# (cleanwarn_test.go, s6 scenario tables, s8a_*_test.go); this suite keeps the shim-level positive checks below.
+# 1 a clean exhausted STOP corpus: one INFO line on stderr, no WARN
+mkcorpus "$TMP/c1" 0; run bash "$SUT" "$TMP/c1" --next
+grep -q '^INFO: clean-check: clean' <<<"$ERR" && ! grep -q '^WARN: clean-check' <<<"$ERR" && ok "1 clean corpus: INFO line, no WARN" || no "1 clean [$ERR]"
 
 # 2 untracked garbage: loud WARN naming the file, verdict + exit unchanged, nothing written/deleted
 mkcorpus "$TMP/c2" 0; printf 'x\n' > "$TMP/c2/stray.json"; run bash "$SUT" "$TMP/c2" --next
+grep -q '^WARN: clean-check: .*stray.json' <<<"$ERR" && ok "2a stray garbage: WARN names the file" || no "2a [$ERR]"
 [ -f "$TMP/c2/stray.json" ] && ok "2c read-only: stray file untouched" || no "2c stray file deleted"
 mkdir -p "$TMP/c2/.research-sdd"; printf 'stray.json # fixture\n' > "$TMP/c2/.research-sdd/keep.txt"; run bash "$SUT" "$TMP/c2" --next
 grep -q 'GARBAGE untracked' <<<"$ERR" && no "2d keep-list did not silence [$ERR]" || ok "2d keep.txt entry silences the finding"

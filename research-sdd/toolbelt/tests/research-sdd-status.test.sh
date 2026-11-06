@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Retired cases (script-mutation teeth and the covered bash cases) are pinned in Go: research-sdd/rsdd/internal/status/show/s2..s7_scenarios_test.go, s8a_*_test.go, s8c_scenarios_test.go.
 # research-sdd-status.test.sh — RED-FIRST harness for research-sdd-status.sh --next resolution.
 #
 # The discriminating behaviour is DETERMINISTIC gap selection: highest-priority PENDING gap that is
@@ -61,74 +62,6 @@ expect_next() { local got; got="$(next "$1")"; [ "$got" = "$2" ] && ok "$3" || n
 # env_lines <covered> <gc> <kg> <io> <req> <bo> — the research-state.v1 envelope, for raw-printf fixtures
 # that don't use mkstate (which seeds its own). A valid envelope is required or --next returns STALE on the gate.
 env_lines(){ printf '<!-- research-state.v1 -->\nschema: research-state.v1\ncovered_blocks: %s\ngaps_closed: %s\nknown_gaps: %s\ninvestigable_open: %s\nrequires_execution_open: %s\nblocked_open: %s\n<!-- /research-state.v1 -->\n' "$@"; }
-
-# mk_kit <kit_dir> <stub_mode> — create a hermetic SUT copy with a stub reconcile-issues.sh.
-# Modes: untracked (returns one ^untracked: line), tracked (returns ^tracked:), degraded (exit 1).
-# The kit resolves $here to <kit_dir>, so the stub is picked up instead of the real script.
-# lib/retro-status.sh is included so the PERF pre-filter runs in all kit-based tests; retros
-# without an applied/dismissed marker pass through normally, so existing tests are unaffected.
-#
-# Wrapper design: research-sdd-status.sh is a thin wrapper that prepends $kdir/bin to PATH and
-# execs the real SUT (_sut.sh). This injects a hermetic stub gh so the batch prefetch in
-# issues_due_gate() does not hit the real GitHub or fail when gh is absent from the system PATH.
-# Stub gh: auth→exit 0, issue list→exit 0 (empty bodies). All reconcile stubs ignore --issues-cache
-# args and return their fixed output, so existing hermetic kit tests are unaffected.
-mk_kit() {
-  local kdir="$1" mode="$2"
-  mkdir -p "$kdir/lib" "$kdir/bin"
-  # Stub gh for the batch prefetch in issues_due_gate (never hits real GitHub)
-  printf '#!/usr/bin/env bash\ncase "$1" in auth) exit 0 ;; issue) exit 0 ;; *) exit 1 ;; esac\n' \
-    > "$kdir/bin/gh"
-  chmod +x "$kdir/bin/gh"
-  # Wrapper: injects $kdir/bin into PATH, then execs the real SUT as _sut.sh
-  cat > "$kdir/research-sdd-status.sh" <<MKKIT_WRAPPER_EOF
-#!/usr/bin/env bash
-export PATH="$kdir/bin:\$PATH"
-exec bash "$kdir/_sut.sh" "\$@"
-MKKIT_WRAPPER_EOF
-  chmod +x "$kdir/research-sdd-status.sh"
-  cp "$SUT" "$kdir/_sut.sh"
-  cp "$HERE/../verify-state.sh" "$kdir/verify-state.sh"
-  rsdd_stage_libs "$kdir"
-  case "$mode" in
-    untracked)
-      printf '#!/usr/bin/env bash\nprintf "untracked: row 1 delta-foo\\n"\nexit 0\n' \
-        > "$kdir/reconcile-issues.sh" ;;
-    tracked)
-      printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
-        > "$kdir/reconcile-issues.sh" ;;
-    degraded)
-      printf '#!/usr/bin/env bash\nprintf "degraded: gh not authenticated\\n" >&2\nexit 1\n' \
-        > "$kdir/reconcile-issues.sh" ;;
-    timeout_sleep_3)
-      # Stub sleeps 3s — longer than any _IDG_RECONCILE_TIMEOUT_SECS=1 test timeout; used for R4-SERIAL.
-      printf '#!/usr/bin/env bash\nsleep 3\nprintf "untracked: row 1 delta-foo\\n"\nexit 0\n' \
-        > "$kdir/reconcile-issues.sh" ;;
-    exit_1_empty)
-      # Stub exits 1 with no stderr output — operational failure, not timeout (124) or degraded gh.
-      # Used for T-IDG-E / teeth-IDG-opfail to verify any non-zero exit marks coverage unverified.
-      printf '#!/usr/bin/env bash\nexit 1\n' \
-        > "$kdir/reconcile-issues.sh" ;;
-    exit_137)
-      # Stub exits 137 (SIGKILL class) — used for T-IDG-F to verify signal-kill exit is also unverified.
-      printf '#!/usr/bin/env bash\nexit 137\n' \
-        > "$kdir/reconcile-issues.sh" ;;
-    recording_untracked)
-      # Stub logs the retro path (last positional arg) to $_IDG_RECORD_LOG; returns one untracked line.
-      # Used for T-IDG-PAYLOAD: count stub calls to verify early-exit stops probing after first retro.
-      # Uses ${@: -1} (last arg) because the gate now passes --issues-cache <file> before the retro path.
-      printf '#!/usr/bin/env bash\nprintf '"'"'%%s\n'"'"' "${@: -1}" >> "${_IDG_RECORD_LOG:-/dev/null}"\nprintf "untracked: row 1 delta-foo\\n"\nexit 0\n' \
-        > "$kdir/reconcile-issues.sh" ;;
-    cache_untracked_reverify_tracked)
-      # Returns "untracked" when called WITH --issues-cache (simulates batch cache saying untracked),
-      # returns "tracked" when called WITHOUT --issues-cache (per-retro re-verify finds it tracked).
-      # Used for T-IDG-BATCH-FALSE-NEG: batch false-negative (exit-0 truncated/empty body); the
-      # re-verify via narrowed per-retro gh probe finds the issue → gate must NOT emit false ISSUES-DUE.
-      printf '#!/usr/bin/env bash\n_has_cache=0\nfor _a in "$@"; do [ "$_a" = "--issues-cache" ] && _has_cache=1; done\nif [ "$_has_cache" = "1" ]; then\n  printf "untracked: row 1 delta-foo\\n"\nelse\n  printf "tracked: row 1 delta-foo\\n"\nfi\n' \
-        > "$kdir/reconcile-issues.sh" ;;
-  esac
-  chmod +x "$kdir/reconcile-issues.sh"
-}
 
 # mk_kit_real_reconcile <kit_dir> <gh_stub_dir> — kit with REAL reconcile-issues.sh and all its libs.
 # A stub gh is placed in gh_stub_dir: auth status→exit 0, issue list→empty result (untracked).
@@ -318,21 +251,6 @@ d="$TMP/headeronly"; mkstate "$d" 1 "high|g1|pending"
 rep="$(bash "$SUT" "$d" 2>/dev/null)"; bash "$SUT" "$d" >/dev/null 2>&1; rc=$?
 if grep -q 'contradictions  : (none)' <<<"$rep" && [ "$rc" = 0 ]; then ok "header-only ledger → (none), exit 0"
 else no "header-only ($(grep -i contradic <<<"$rep"), rc=$rc)"; fi
-
-# mkiter <dir> <inv> <"num|newgaps"...> — a minimal state WITH an ## Iteration history table.
-# Each arg becomes one data row; col 6 ("New gaps uncovered") = <newgaps>. A backlog pending gap is
-# included so verify-state stays consistent (NEXT), keeping the --next regression guards meaningful.
-mkiter() {
-  local dir="$1" inv="$2"; shift 2; mkdir -p "$dir"
-  { echo "# T"; echo; echo "## Gap-backlog"; echo
-    echo "| P | G | t | S |"; echo "|-|-|-|-|"; echo "| high | g1 | web | pending |"; echo
-    echo "## Iteration history"; echo
-    echo "| # | Date | Gap closed | Block | Delegated? · model tier | New gaps uncovered |"
-    echo "|---|---|---|---|---|---|"
-    for r in "$@"; do IFS='|' read -r num ng <<<"$r"; echo "| $num | 2026-01-01 | gap$num | B$num | no · inline | $ng |"; done
-    echo; echo "## Stop control"; echo "- **Open gaps — read-only investigable**: $inv"
-  } > "$dir/RESEARCH-STATE.md"
-}
 
 # 32d — settings.json unreadable (chmod 000) → unreadable. Skipped when running as root.
 if [ "$(id -u)" != "0" ]; then
@@ -530,7 +448,6 @@ fi
 # research-sdd/rsdd/internal/status/show (S8c, #2549). What stays below mutates nothing.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # SC-CROSS-CHECK guard (not a script mutation): verify-state must NOT fire SC-CROSS-CHECK when prose is absent.
-  # Guard deleted: prior sentinel searched $0 for a token defined in $0 — vacuous, cannot fail.
     # Build a matching fixture but intentionally omit the prose line (simulates broken printf '- ').
     d_sccc_tooth="$TMP/sc-cross-check-tooth"; mkdir -p "$d_sccc_tooth"
     { printf '# SC-CROSS-CHECK Tooth\n> intro\n'
@@ -563,10 +480,6 @@ ro_dir_is_readonly() {
 # T-RFT-NO-SHADOW (a bash `printf -v` into a caller variable named like an old local of _read_focuses_tok_into) was retired
 # with the body: the shadowing class does not exist in Go (kit issue #2549). The FOCUSES token itself, including the
 # per-(file, state) cache of _read_focuses_tok_into, stays pinned by the S2 differential (s2_diff_test.go __into_twice).
-
-
-
-
 
 # ==================== kit issue #1023: test follow-ups ====================
 # (the marker-based RFT extraction and the root-safe read-only TMPDIR guards live where those tests do;

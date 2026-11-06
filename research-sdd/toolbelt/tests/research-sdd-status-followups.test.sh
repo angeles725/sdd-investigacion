@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Retired cases are pinned in Go: research-sdd/rsdd/internal/status/show/s4_scenarios_test.go (stale-*, ff-*) and s6_scen_next_test.go (o-hook-*).
 # research-sdd-status-followups.test.sh — two report-shape follow-ups on research-sdd-status.sh.
 #
 #   kit #1544  `--next` STALE names WHICH file/check failed (first verify-state FAIL), not only "reconcile first".
