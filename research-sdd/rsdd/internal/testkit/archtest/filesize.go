@@ -22,7 +22,7 @@ type SizeResult struct {
 	Generated  int      // generated files exempted
 	Over       int      // production files over SoftLimit
 	Entries    int      // well-formed debt entries read
-	Lowerable  int      // entries whose recorded count is above the file's current count (still over SoftLimit)
+	Lowerable  int      // entries at HardLimit or less whose count is above the file's current count (still over SoftLimit)
 	Violations []string // exact, actionable messages, sorted
 }
 
@@ -41,9 +41,9 @@ func CheckFileSizes(root, debtPath string) (SizeResult, error) {
 	if err != nil {
 		return r, fmt.Errorf("archtest: cannot read debt file: %w", err)
 	}
-	entries, bad := parseDebt(string(data))
+	entries, bad, named := parseDebt(string(data))
 	r.Scanned, r.Generated, r.Entries = len(files), generated, len(entries)
-	r.Violations = append(bad, judge(files, entries, &r)...)
+	r.Violations = append(bad, judge(files, entries, named, &r)...)
 	sort.Strings(r.Violations)
 	return r, nil
 }
@@ -56,7 +56,7 @@ func scanProduction(root string) (map[string]int, int, error) {
 	generated := 0
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("archtest: cannot read %s: %w", path, err)
 		}
 		if d.IsDir() {
 			if path != root && skipDir(d.Name()) {

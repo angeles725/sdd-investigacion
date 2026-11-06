@@ -74,7 +74,8 @@ func TestUpdateWritesNothingWhenUnchangedAndKeepsMode(t *testing.T) {
 		t.Fatalf("changed=%v err=%v", changed, err)
 	}
 	after, _ := os.Stat(dp)
-	if !after.ModTime().Equal(before.ModTime()) {
+	// The same file, not an equal one: an atomic rewrite with the same bytes would be a new file.
+	if !os.SameFile(before, after) || !after.ModTime().Equal(before.ModTime()) {
 		t.Error("an unchanged debt file must not be rewritten")
 	}
 	if err := os.WriteFile(dp, []byte(debtLine("a.go", 400, "legacy")), 0o640); err != nil {

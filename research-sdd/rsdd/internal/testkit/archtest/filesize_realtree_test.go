@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,7 +26,9 @@ func TestFileSizesRealTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("scanned=%d generated=%d over%d=%d entries=%d lowerable=%d",
+	// Printed, not logged: a log line is dropped from a passing test unless -v is given, while this one is in
+	// the test output a -json or -v run keeps, where a lowerable count can be seen.
+	fmt.Printf("modularity: scanned=%d generated=%d over%d=%d entries=%d lowerable=%d\n",
 		r.Scanned, r.Generated, SoftLimit, r.Over, r.Entries, r.Lowerable)
 	for _, v := range r.Violations {
 		t.Error(v)

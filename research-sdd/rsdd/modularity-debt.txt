@@ -1,10 +1,10 @@
-# A production Go file over 200 lines needs an entry here. Its recorded count is a ceiling: the file may shrink freely, and may pass the count only up to 400 lines and only with its line raised in the same change.
-# Above 400 lines a file may not grow and nothing new is admitted: an "accepted" entry is never above 400, and "legacy" entries (the files recorded when this list was created) are never added. Delete a line once its file is at 200 or less.
+# A production Go file over 200 lines needs an entry here. A count of 400 or less is a ceiling: the file may shrink without touching this list, and may pass its count only up to 400 lines and only with its line raised in the same change.
+# A count over 400 is exact: the file may not grow, and when it shrinks its line is lowered in the same change. Nothing new is admitted above 400: an "accepted" entry is never above 400, and "legacy" entries (the files recorded when this list was created) are never added. A file that moves keeps its line under the new path: that is not a new entry. Delete a line once its file is at 200 or less.
 # Tests, testdata and the paths the go tool ignores (a name starting with "." or "_") are exempt, as are files with a "// Code generated ... DO NOT EDIT." line before the package clause.
 #
 # Format: <path> <lines> <legacy|accepted> <reason of at least 10 characters>, one entry per line, sorted by path (LC_ALL=C).
-# Update after shrinking files: RSDD_MODULARITY_UPDATE=1 go test -run TestFileSizesRealTree ./internal/testkit/archtest/
-# Known limit: this test sees only the tree, so it cannot stop a diff that adds a legacy entry or raises one above 400; reviewers enforce that.
+# Update after shrinking files: RSDD_MODULARITY_UPDATE=1 go test -run TestFileSizesRealTree ./internal/testkit/archtest/ (it lowers counts and deletes the line of a file that is gone; when a file moved, change the path by hand first).
+# Known limit: this test sees only the tree, so it cannot stop a diff that adds a legacy entry or raises one above 400; reviewers enforce that until the comparison with the merge base (rsdd maint only-shrink) exists.
 internal/bacnet/probe.go 201 legacy recorded when the ratchet was created (#2738)
 internal/budget/pi.go 339 legacy recorded when the ratchet was created (#2738)
 internal/budget/session.go 391 legacy recorded when the ratchet was created (#2738)

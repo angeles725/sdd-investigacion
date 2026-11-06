@@ -104,11 +104,11 @@ func TestThePrintedLineIsRefusedUntilItHasAReason(t *testing.T) {
 		t.Fatalf("violations = %q", r.Violations)
 	}
 	printed := r.Violations[0][strings.LastIndex(r.Violations[0], "\n")+1:]
-	if _, bad := parseDebt(printed + "\n"); len(bad) != 1 || bad[0] != badMsg(1, "replace <reason> with the reason this file is accepted") {
+	if _, bad, _ := parseDebt(printed + "\n"); len(bad) != 1 || bad[0] != badMsg(1, "replace <reason> with the reason this file is accepted") {
 		t.Errorf("pasted as printed: %q", bad)
 	}
 	edited := strings.Replace(printed, "<reason>", "split planned with the verify move", 1)
-	if es, bad := parseDebt(edited + "\n"); len(es) != 1 || len(bad) != 0 {
+	if es, bad, _ := parseDebt(edited + "\n"); len(es) != 1 || len(bad) != 0 {
 		t.Errorf("with a real reason: es=%v bad=%q", es, bad)
 	}
 }

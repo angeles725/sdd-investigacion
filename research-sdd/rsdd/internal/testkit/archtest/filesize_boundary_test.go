@@ -68,11 +68,11 @@ func TestUpdateBoundaries(t *testing.T) {
 }
 
 func TestFourFieldsMakeAnEntryAndThreeDoNot(t *testing.T) {
-	entries, bad := parseDebt("a.go 300 legacy abcdefghij\n")
+	entries, bad, _ := parseDebt("a.go 300 legacy abcdefghij\n")
 	if len(bad) != 0 || len(entries) != 1 || entries[0].Reason != "abcdefghij" {
 		t.Errorf("entries = %+v bad = %q, want one entry with a one-word reason", entries, bad)
 	}
-	if entries, bad := parseDebt("a.go 300 legacy\n"); len(bad) != 1 || len(entries) != 0 {
+	if entries, bad, _ := parseDebt("a.go 300 legacy\n"); len(bad) != 1 || len(entries) != 0 {
 		t.Errorf("entries = %+v bad = %q, want three fields refused", entries, bad)
 	}
 }

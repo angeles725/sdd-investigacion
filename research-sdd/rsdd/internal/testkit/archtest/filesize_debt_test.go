@@ -12,7 +12,7 @@ func badMsg(lineno int, what string) string {
 
 func TestParseDebtAcceptsEntriesCommentsAndBlanks(t *testing.T) {
 	text := "# header\n\na.go 300 legacy reason of ten\nb.go 250 accepted  spaced   reason text  \n"
-	es, bad := parseDebt(text)
+	es, bad, _ := parseDebt(text)
 	if len(bad) != 0 || len(es) != 2 {
 		t.Fatalf("es=%v bad=%v", es, bad)
 	}
@@ -22,11 +22,11 @@ func TestParseDebtAcceptsEntriesCommentsAndBlanks(t *testing.T) {
 }
 
 func TestReasonLengthBoundary(t *testing.T) {
-	_, bad9 := parseDebt("a.go 300 legacy 123456789\n")
+	_, bad9, _ := parseDebt("a.go 300 legacy 123456789\n")
 	if len(bad9) != 1 || bad9[0] != badMsg(1, "reason is shorter than 10 characters") {
 		t.Errorf("9 characters: %q", bad9)
 	}
-	es, bad10 := parseDebt("a.go 300 legacy 1234567890\n")
+	es, bad10, _ := parseDebt("a.go 300 legacy 1234567890\n")
 	if len(bad10) != 0 || len(es) != 1 {
 		t.Errorf("10 characters: es=%v bad=%v", es, bad10)
 	}
@@ -41,7 +41,7 @@ func TestMalformedLines(t *testing.T) {
 		{"unknown kind", "a.go 300 temporary long enough reason", `unknown kind "temporary"`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			es, bad := parseDebt("# c\n" + tt.line + "\n")
+			es, bad, _ := parseDebt("# c\n" + tt.line + "\n")
 			if len(es) != 0 || len(bad) != 1 || bad[0] != badMsg(2, tt.what) {
 				t.Errorf("es=%v bad=%q", es, bad)
 			}
@@ -62,19 +62,19 @@ func TestOrderingFirstMiddleLastAndSingle(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, bad := parseDebt(c.text)
+			_, bad, _ := parseDebt(c.text)
 			if len(bad) != 1 || !strings.HasPrefix(bad[0], fmt.Sprintf("modularity-debt.txt:%d: ", c.lineno)) || !strings.Contains(bad[0], "(unsorted)") {
 				t.Errorf("bad = %q", bad)
 			}
 		})
 	}
-	if es, bad := parseDebt(ok("only.go")); len(es) != 1 || len(bad) != 0 {
+	if es, bad, _ := parseDebt(ok("only.go")); len(es) != 1 || len(bad) != 0 {
 		t.Errorf("single entry: es=%v bad=%v", es, bad)
 	}
 }
 
 func TestDuplicatePathFails(t *testing.T) {
-	_, bad := parseDebt("a.go 300 legacy long enough reason\na.go 300 legacy long enough reason\n")
+	_, bad, _ := parseDebt("a.go 300 legacy long enough reason\na.go 300 legacy long enough reason\n")
 	if len(bad) != 1 || bad[0] != badMsg(2, "duplicate path a.go") {
 		t.Errorf("bad = %q", bad)
 	}

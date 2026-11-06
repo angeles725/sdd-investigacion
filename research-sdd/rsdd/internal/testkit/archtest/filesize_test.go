@@ -101,8 +101,8 @@ func TestScopeSkipsTestsAndTestdata(t *testing.T) {
 
 func TestZeroProductionFilesIsAnError(t *testing.T) {
 	root, dp := tree(t, map[string]string{"a_test.go": gen(3), "testdata/x.go": gen(3)}, "")
-	if _, err := CheckFileSizes(root, dp); err == nil {
-		t.Error("a tree with no production file must be an error, not a pass")
+	if _, err := CheckFileSizes(root, dp); err == nil || !strings.HasPrefix(err.Error(), "archtest: no production Go files under "+root+" ") {
+		t.Errorf("err = %v: a tree with no production file must be an error that says so, not a pass", err)
 	}
 }
 
@@ -129,8 +129,8 @@ func TestUnreadableSourceFileIsAnError(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, "b.go")); err != nil {
 		t.Skipf("cannot create a symlink here: %v", err)
 	}
-	if _, err := CheckFileSizes(root, dp); err == nil {
-		t.Error("an unreadable source file must be an error, not a smaller scan")
+	if _, err := CheckFileSizes(root, dp); err == nil || !strings.HasPrefix(err.Error(), "archtest: cannot read "+filepath.Join(root, "b.go")+": ") {
+		t.Errorf("err = %v: an unreadable source file must be an error that names it, not a smaller scan", err)
 	}
 	if _, err := UpdateDebt(root, dp); err == nil {
 		t.Error("update mode must refuse a tree it cannot read in full")

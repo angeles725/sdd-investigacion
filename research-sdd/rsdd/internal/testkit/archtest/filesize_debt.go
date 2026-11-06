@@ -25,13 +25,15 @@ type debtEntry struct {
 }
 
 // parseLine parses one debt-file line. isEntry is false for blank and comment
-// lines; problem is non-empty when an entry line is malformed.
+// lines; problem is non-empty when an entry line is malformed, and e then
+// carries only the path the line names.
 func parseLine(line string) (e debtEntry, isEntry bool, problem string) {
 	t := strings.TrimSpace(line)
 	if t == "" || strings.HasPrefix(t, "#") {
 		return e, false, ""
 	}
 	f := strings.Fields(t)
+	e.Path = f[0]
 	if len(f) < 4 {
 		return e, true, "malformed line, fewer than four fields"
 	}
@@ -70,10 +72,9 @@ func placeProblem(prev, path string, seen map[string]bool) (problem string, keep
 	return fmt.Sprintf("%s is not after %s (unsorted)", path, prev), true
 }
 
-// parseDebt returns the entries it read and a message for every bad line.
-func parseDebt(text string) ([]debtEntry, []string) {
-	var entries []debtEntry
-	var bad []string
+// parseDebt returns the entries it read, a message for every bad line, and the paths that malformed lines name.
+func parseDebt(text string) (entries []debtEntry, bad []string, named map[string]bool) {
+	named = map[string]bool{}
 	prev, seen := "", map[string]bool{}
 	for i, line := range strings.Split(text, "\n") {
 		e, isEntry, problem := parseLine(line)
@@ -81,7 +82,9 @@ func parseDebt(text string) ([]debtEntry, []string) {
 			continue
 		}
 		keep := false
-		if problem == "" {
+		if problem != "" {
+			named[e.Path] = true
+		} else {
 			problem, keep = placeProblem(prev, e.Path, seen)
 		}
 		if problem != "" {
@@ -94,5 +97,5 @@ func parseDebt(text string) ([]debtEntry, []string) {
 		entries = append(entries, e)
 		prev, seen[e.Path] = e.Path, true
 	}
-	return entries, bad
+	return entries, bad, named
 }

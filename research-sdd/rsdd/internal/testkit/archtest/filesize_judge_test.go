@@ -16,7 +16,7 @@ func debtLine(p string, n int, kind string) string {
 func TestUnlistedHardBoundary(t *testing.T) {
 	r := check(t, map[string]string{"s.go": gen(400), "h.go": gen(401)}, "")
 	want := []string{
-		"h.go: 401 lines, over 400. A new file over 400 lines cannot be listed: split it.",
+		"h.go: 401 lines, over 400. A new file over 400 lines cannot be listed: split it." + moveHintNew,
 		"s.go: 400 lines, over 200 and not listed. Split it, or add this line to modularity-debt.txt:\ns.go 400 accepted <reason>",
 	}
 	if !reflect.DeepEqual(r.Violations, want) || r.Over != 2 {
@@ -59,11 +59,13 @@ func TestGrewPastHardLimit(t *testing.T) {
 	}
 }
 
-func TestLegacyAboveHardMayShrinkButPassesAtRecorded(t *testing.T) {
+// A legacy file above the hard limit passes at its recorded count; once it shrinks, the count is lowered with it.
+func TestLegacyAboveHardPassesAtRecordedAndIsLoweredWhenItShrinks(t *testing.T) {
 	debt := debtLine("a.go", 500, "legacy") + debtLine("b.go", 500, "legacy")
 	r := check(t, map[string]string{"a.go": gen(500), "b.go": gen(450)}, debt)
-	if len(r.Violations) != 0 || r.Lowerable != 1 {
-		t.Errorf("got %+v", r)
+	want := "b.go: 450 lines, below its recorded 500. A count over 400 is exact, so the file cannot grow back unseen: change its line in modularity-debt.txt to:\nb.go 450 legacy " + reason
+	if len(r.Violations) != 1 || r.Violations[0] != want || r.Lowerable != 0 {
+		t.Errorf("got %+v, want only %q", r, want)
 	}
 }
 
@@ -80,8 +82,8 @@ func TestListedButNotProduction(t *testing.T) {
 	debt := debtLine("gone.go", 300, "legacy") + debtLine("x_test.go", 300, "legacy")
 	r := check(t, map[string]string{"x_test.go": gen(300), "ok.go": gen(1)}, debt)
 	want := []string{
-		"gone.go: listed but not a production Go file in this tree. Delete this line from modularity-debt.txt:\ngone.go 300 legacy " + reason,
-		"x_test.go: listed but not a production Go file in this tree. Delete this line from modularity-debt.txt:\nx_test.go 300 legacy " + reason,
+		"gone.go: listed but not a production Go file in this tree. Delete this line from modularity-debt.txt" + moveHintGone + "gone.go 300 legacy " + reason,
+		"x_test.go: listed but not a production Go file in this tree. Delete this line from modularity-debt.txt" + moveHintGone + "x_test.go 300 legacy " + reason,
 	}
 	if !reflect.DeepEqual(r.Violations, want) {
 		t.Errorf("violations = %q", r.Violations)
