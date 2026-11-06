@@ -1,0 +1,9 @@
+mkdir: cannot create directory '<ROOT>/home/.claude/skills': Permission denied
+research-sdd-install: [claude] mkdir failed for <ROOT>/home/.claude/skills/research-sdd
+mv: cannot move '<ROOT>/tmp/tmp.<RAND>' to '<ROOT>/home/.claude/CLAUDE.md': Permission denied
+research-sdd-install: write failed for <ROOT>/home/.claude/CLAUDE.md
+research-sdd-install: [claude] surfacing launcher failed (<ROOT>/home/.claude/CLAUDE.md)
+mkdir: cannot create directory '<ROOT>/home/.claude/agents': Permission denied
+research-sdd-install: [claude] mkdir failed for <ROOT>/home/.claude/agents
+mkdir: cannot create directory '<ROOT>/home/.claude/agents': Permission denied
+research-sdd-install: [claude] mkdir failed for <ROOT>/home/.claude/agents
