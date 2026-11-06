@@ -386,7 +386,8 @@ gk_fixture() {
   local f; for f in tracked.md ignored.bin untracked.md; do printf 'x\n' > "$1/research-sdd/docx/$f"; done
   # shellcheck disable=SC2016 # the fixture suite text is literal
   printf '%s\n' 'HERE=x' 'KIT="$(cd "$HERE/../.." && pwd)"' 'ls "$KIT/docx"' > "$1/fx/r.test.sh"
-  git -C "$1" init -q 2>/dev/null && git -C "$1" add research-sdd/.gitignore research-sdd/docx/tracked.md
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$1" init -q 2>/dev/null \
+    && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$1" add research-sdd/.gitignore research-sdd/docx/tracked.md
 }
 GK="$(mktemp -d)"; NG="$(mktemp -d)"
 if gk_fixture "$GK" && cp -R "$GK/research-sdd" "$NG/kit"; then
@@ -404,6 +405,12 @@ if gk_fixture "$GK" && cp -R "$GK/research-sdd" "$NG/kit"; then
   fi
 else
   harness_error "docs: cannot build the git fixture for #2761 (git init/add failed)"
+fi
+# A git read that fails is never an empty list: kit_files names the path for the caller's HARNESS ERROR.
+if [ "$(kit_files "$NG/kit" yes docx 2>/dev/null)" = "KIT-FILES-FAILED docx" ]; then
+  ok "docs: a failed git ls-files is reported as KIT-FILES-FAILED, not as an empty list"
+else
+  no "docs: a failed git ls-files outside a repo did not report KIT-FILES-FAILED"
 fi
 rm -rf "$GK" "$NG"
 
