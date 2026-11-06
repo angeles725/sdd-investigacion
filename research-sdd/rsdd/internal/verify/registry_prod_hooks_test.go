@@ -34,8 +34,14 @@ func TestProductionHooksAnswerFromHookwiring(t *testing.T) {
 	eq("wiring none", w, ok, "absent-settings")
 	s, ok := h.StopScriptState(filepath.Join(k.home, "w"))
 	eq("script w", s, ok, "present")
-	l, ok := h.StopLaunchState(filepath.Join(k.home, "w"))
-	eq("launch w", l, ok, "no-sessions")
+	// core/hookwiring answers "unknown" when the encoded project name would exceed 200 characters (launch.go
+	// maxEncodedName), which a long TMPDIR reaches (kit issue #2630): pin the state that applies to this sandbox.
+	wantLaunch, wdir := "no-sessions", filepath.Join(k.home, "w")
+	if len(wdir) > 200 {
+		wantLaunch = "unknown"
+	}
+	l, ok := h.StopLaunchState(wdir)
+	eq("launch w", l, ok, wantLaunch)
 	rows, ok := h.WiredExecReport(filepath.Join(k.home, "w"))
 	if !ok || len(rows) == 0 {
 		t.Fatalf("wired-exec rows = %+v ok=%v, want findings", rows, ok)

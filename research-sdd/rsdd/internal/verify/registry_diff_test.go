@@ -55,9 +55,9 @@ func (k *vrKit) installLegacy() {
 		if err != nil {
 			k.t.Fatalf("frozen legacy file missing: %v", err)
 		}
-		k.write("kit/toolbelt/"+f, string(b))
+		k.write("home/kit/toolbelt/"+f, string(b))
 	}
-	k.write("kit/toolbelt/verify-session-budget.sh", budgetStub)
+	k.write("home/kit/toolbelt/verify-session-budget.sh", budgetStub)
 }
 
 // legacyEnv is the environment of the legacy run and of the bash-backed hooks.
@@ -344,12 +344,12 @@ func registryScenarios() []scenario {
 		}},
 		{"kit-unregistered", func(k *vrKit) map[string]string {
 			k.blocks("alpha", 1)
-			k.write("kit/TARGETS.md", "| 1 | alpha | `"+k.home+"/alpha` | (1 md) | x | en |\n")
+			k.write("home/kit/TARGETS.md", "| 1 | alpha | `$RESEARCH_HOME/alpha` | (1 md) | x | en |\n")
 			return nil
 		}},
 		{"kit-parent", func(k *vrKit) map[string]string {
 			k.blocks("alpha", 1)
-			k.write("kit/TARGETS.md", "| 1 | alpha | `"+k.home+"/alpha` | (1 md) | x | en |\n| 2 | root | `"+k.root+"` | (0 md / nc) | x | en |\n")
+			k.write("home/kit/TARGETS.md", "| 1 | alpha | `$RESEARCH_HOME/alpha` | (1 md) | x | en |\n| 2 | root | `"+k.home+"` | (0 md / nc) | x | en |\n")
 			return nil
 		}},
 		{"rh-braces-and-slash", func(k *vrKit) map[string]string {

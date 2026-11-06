@@ -29,7 +29,10 @@ func newVRKit(t *testing.T) *vrKit {
 	if err != nil {
 		t.Fatal(err)
 	}
-	k := &vrKit{t: t, root: root, kit: filepath.Join(root, "kit"), home: filepath.Join(root, "home")}
+	// The kit lives under $RESEARCH_HOME and its own TARGETS.md row is `$RESEARCH_HOME/kit`, so the row stays short however
+	// long TMPDIR is (kit issue #2630: an absolute kit path made it an oversized row on a long TMPDIR).
+	home := filepath.Join(root, "home")
+	k := &vrKit{t: t, root: root, kit: filepath.Join(home, "kit"), home: home}
 	k.targetsMD = filepath.Join(k.kit, "TARGETS.md")
 	for _, d := range []string{filepath.Join(k.kit, "toolbelt"), k.home} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -64,7 +67,7 @@ func (k *vrKit) put(rel, content string) { k.write("home/"+rel, content) }
 func (k *vrKit) targets(body string) {
 	k.t.Helper()
 	body = strings.NewReplacer("@H@", "$RESEARCH_HOME", "@K@", k.kit, "@HOME@", k.home).Replace(body)
-	k.write("kit/TARGETS.md", body)
+	k.write("home/kit/TARGETS.md", body)
 }
 
 func (k *vrKit) env(extra map[string]string) map[string]string {
@@ -99,7 +102,7 @@ func (k *vrKit) run(env map[string]string, args ...string) vrResult {
 // vrTable is a standard TARGETS.md: a header, a separator and the given rows, the kit itself registered.
 func vrTable(rows ...string) string {
 	return "| # | Name | Path | Maturity | Artifact | Lang |\n|---|---|---|---|---|---|\n" +
-		strings.Join(rows, "\n") + "\n| 90 | kit | `@K@` | (1 md / nc) | x | en |\n"
+		strings.Join(rows, "\n") + "\n| 90 | kit | `@H@/kit` | (1 md / nc) | x | en |\n"
 }
 
 // vrRow is a master-table row for a $RESEARCH_HOME-relative path with the given maturity cell.

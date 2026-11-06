@@ -21,7 +21,7 @@ func TestRegistryResolvesTheKitWithoutTheFlag(t *testing.T) {
 	k := newVRKit(t)
 	k.blocks("alpha", 3)
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(3 blocks)")))
-	k.write("kit/toolbelt/verify-registry.sh", "#!/usr/bin/env bash\n")
+	k.write("home/kit/toolbelt/verify-registry.sh", "#!/usr/bin/env bash\n")
 	explicit := k.run(nil)
 	e := k.env(map[string]string{"RESEARCH_SDD_KIT": k.kit})
 	var out, errb bytes.Buffer
@@ -42,7 +42,7 @@ func TestRegistryHookTrailingKitFlagIsIgnored(t *testing.T) {
 	k := newVRKit(t)
 	k.blocks("alpha", 3)
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(3 blocks)")))
-	k.write("kit/toolbelt/verify-registry.sh", "#!/usr/bin/env bash\n")
+	k.write("home/kit/toolbelt/verify-registry.sh", "#!/usr/bin/env bash\n")
 	plain, _, _ := k.runHook(nil)
 	e := k.env(map[string]string{"RESEARCH_SDD_KIT": k.kit})
 	var out, errb bytes.Buffer

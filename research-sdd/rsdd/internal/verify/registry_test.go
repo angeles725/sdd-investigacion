@@ -475,7 +475,7 @@ func TestRegistryRowHygiene(t *testing.T) {
 	wantNot(t, r.stdout, "TARGETS row wordy")
 
 	// the last line without a newline is not read (`while read` drops it)
-	k.write("kit/TARGETS.md", strings.NewReplacer("@K@", k.kit).Replace(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")))+"| 8 | tail | `/x` | (1) | "+long+" | en |")
+	k.write("home/kit/TARGETS.md", strings.NewReplacer("@K@", k.kit).Replace(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")))+"| 8 | tail | `/x` | (1) | "+long+" | en |")
 	r = k.run(map[string]string{"RSDD_ROW_MAXLEN": "25"})
 	wantNot(t, r.stdout, "TARGETS row tail")
 }
@@ -484,12 +484,12 @@ func TestRegistryKitSelf(t *testing.T) {
 	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
-	k.write("kit/TARGETS.md", "| 1 | alpha | `"+k.home+"/alpha` | (1 md) | x | en |\n")
+	k.write("home/kit/TARGETS.md", "| 1 | alpha | `$RESEARCH_HOME/alpha` | (1 md) | x | en |\n")
 	r := k.run(nil)
 	want(t, r.stdout, "WARN  kit — kit repo is NOT in its own TARGETS.md; fleet instruments cannot supervise it. Add a row with the kit's path (kit-sup #6 gate).\n", "· 1 attention.")
 
-	// the kit's PARENT registered also counts
-	k.write("kit/TARGETS.md", "| 1 | alpha | `"+k.home+"/alpha` | (1 md) | x | en |\n| 2 | root | `"+k.root+"` | (0 md / nc) | x | en |\n")
+	// the kit's PARENT ($RESEARCH_HOME, where the sandbox kit lives) registered also counts
+	k.write("home/kit/TARGETS.md", "| 1 | alpha | `$RESEARCH_HOME/alpha` | (1 md) | x | en |\n| 2 | root | `"+k.home+"` | (0 md / nc) | x | en |\n")
 	r = k.run(nil)
 	wantNot(t, r.stdout, "kit repo is NOT")
 }
