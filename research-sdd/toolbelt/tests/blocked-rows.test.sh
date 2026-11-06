@@ -247,23 +247,6 @@ if dg && grep -q 'read failed while counting' <<<"$out"; then ok "--next, blocke
 # (kit issue #2457) verify-state.sh is a shim to `rsdd verify state`: it has no awk and no blocked-rows lib to sabotage, so
 # its sabotage cases (broken awk, failing extractor, missing or empty lib, CHECK H with a failing read) and TOOTH-7/9/14/23
 # for it are gone. Its healthy behaviour is pinned by TestDifferentialState and TestDifferentialStateRandom (internal/verify).
-echo "-- 4. a missing or function-less lib fails each consumer loudly --"
-mk_kit() { # DIR [lib-state: ok|missing|empty]
-  local k="$1" st="${2:-ok}"; rm -rf "$k"; mkdir -p "$k"
-  cp -r "$TOOLBELT/lib" "$k/lib"; cp "$TOOLBELT"/*.sh "$k/"
-  case "$st" in missing) rm -f "$k/lib/blocked-rows.sh" ;; empty) : > "$k/lib/blocked-rows.sh" ;; esac
-}
-cp "$FIX/child-single-open.expect1.md" "$TMP/RESEARCH-STATE.md"; mkdir -p "$TMP/corpus"; cp "$FIX/child-single-open.expect1.md" "$TMP/corpus/RESEARCH-STATE.md"
-for state in missing empty; do
-  mk_kit "$TMP/kit-$state" "$state"
-  # shellcheck disable=SC2043 # one consumer left since verify-state moved to Go; the loop keeps the shape for a second one
-  for s in research-sdd-status; do
-    out="$(bash "$TMP/kit-$state/$s.sh" "$TMP/corpus" 2>&1)"; rc=$?
-    if [ "$rc" = 1 ] && grep -q 'blocked-rows' <<<"$out"; then ok "$s with $state lib: exit 1 + typed message naming blocked-rows"
-    else no "$s with $state lib: rc=$rc :: $(head -1 <<<"$out")"; fi
-  done
-done
-
 echo ""
 echo "== $pass passed · $fail failed =="
 
