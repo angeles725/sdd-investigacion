@@ -23,7 +23,9 @@ import (
 //	cat-4 -> TestBudgetCollapsedLine  (the (N) equals the name count)
 //	cat-mb -> TestBudgetMultibyteCut  (and tooth J, the byte cut without the incomplete-sequence trim; both locales)
 //
-// The cap is a budget assertion on a FROZEN fixture, not the live aggregate reading.
+// The teeth were proved by hand in PR #2769 (each mutation applied to hookctx.go, compact.go or cut.go, run, restored);
+// the package's mutation run keeps proving them. The cap is a budget assertion on a FROZEN fixture, not the live
+// aggregate reading.
 
 const catalogHookCap = 700 // characters of hook stdout, as `wc -m` counts them
 
@@ -75,10 +77,17 @@ func TestBudgetSummaryVerbatim(t *testing.T) {
 	t.Parallel()
 	raw := readBudgetRaw(t, "verify-tool-catalog.raw")
 	ctx := budgetContext(t, budgetHook(raw, "C"))
+	n := 0
 	for _, l := range strings.Split(raw, "\n") {
-		if strings.HasPrefix(l, "Summary:") && !strings.Contains(ctx, l) {
-			t.Errorf("Summary line altered or missing: %q", l)
+		if strings.HasPrefix(l, "Summary:") {
+			n++
+			if !strings.Contains(ctx, l) {
+				t.Errorf("Summary line altered or missing: %q", l)
+			}
 		}
+	}
+	if n == 0 {
+		t.Fatal("the frozen reading has no Summary line: the check would pass vacuously")
 	}
 }
 
