@@ -104,3 +104,48 @@ func TestSymlinkedProbesAreNotFollowed(t *testing.T) {
 		t.Errorf("manifest outside the target was read:\n%s", w.dump(r))
 	}
 }
+
+// manifestFor is a SCRIPTS-MANIFEST.md that lists run.sh.
+func manifestFor() string { return "| `run.sh` | " + strings.Repeat("0", 64) + " | x |\n" }
+
+// A symlinked sources (an intermediate component of sources/probes) is not followed either: a manifest it reaches
+// outside the target must not exempt a scratchpad script.
+func TestSymlinkedSourcesIsNotFollowed(t *testing.T) {
+	w := newWorld(t)
+	w.writeAt(w.root+"/elsewhere/probes/b1/SCRIPTS-MANIFEST.md", manifestFor())
+	w.writeAt(w.scratch+"/run.sh", "echo\n")
+	if err := os.Symlink(w.root+"/elsewhere", w.repo+"/sources"); err != nil {
+		t.Fatal(err)
+	}
+	r := w.check(func(o *Options) { o.Scratchpad = w.scratch })
+	if r.Verdict != Findings || r.Exit != 1 || !has(r, "UNMANIFESTED-SCRIPT "+w.scratch+"/run.sh") {
+		t.Errorf("manifest behind a symlinked sources was read:\n%s", w.dump(r))
+	}
+	if len(r.Degraded) != 0 || len(r.Absent) != 1 || r.Absent[0].Kind != AbsentKeepList {
+		t.Errorf("unexpected typed state: absent %v degraded %v", r.Absent, r.Degraded)
+	}
+}
+
+// Pinned: a symlinked sources is refused even when it points at a directory INSIDE the target. The rule is about the
+// path component, not about where it leads, so the outcome is the same as for a link that leaves the target.
+func TestSymlinkedSourcesInsideTargetIsNotFollowed(t *testing.T) {
+	w := newWorld(t)
+	w.writeAt(w.repo+"/real/probes/b1/SCRIPTS-MANIFEST.md", manifestFor())
+	w.writeAt(w.scratch+"/run.sh", "echo\n")
+	if err := os.Symlink(w.repo+"/real", w.repo+"/sources"); err != nil {
+		t.Fatal(err)
+	}
+	r := w.check(func(o *Options) { o.Scratchpad = w.scratch })
+	if r.Verdict != Findings || r.Exit != 1 || !has(r, "UNMANIFESTED-SCRIPT "+w.scratch+"/run.sh") {
+		t.Errorf("symlinked sources inside the target was followed:\n%s", w.dump(r))
+	}
+}
+
+// An empty Options.Cwd would resolve every relative path against the process or "/": a typed refusal.
+func TestEmptyCwdIsATypedRefusal(t *testing.T) {
+	w := newWorld(t)
+	r := w.check(func(o *Options) { o.Cwd = "" })
+	if r.Exit != 2 || r.Verdict != Refused || r.Summary != "" || !strings.Contains(r.Stderr(), "Options.Cwd") {
+		t.Errorf("%s", w.dump(r))
+	}
+}

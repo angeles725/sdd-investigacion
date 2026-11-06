@@ -56,5 +56,9 @@ dependency):
 - **A git listing cut at the output cap is a refused scan** (`git ls-files failed or was truncated ...`, exit 2), the
   guarantee the script's RC marker gave; pinned by `TestOutputCapIsNotACompleteListing`.
 - **A symlinked `sources/probes` is not followed**, as `find <dir> -type f` did not (`TestSymlinkedProbesAreNotFollowed`).
+- **A symlinked `sources` is not followed either** (stricter than the script, which followed it): every component between the
+  target and `probes` is checked with `lstat`, so a manifest or copy reached through a link, outside or inside the target,
+  cannot exempt a scratchpad file (`TestSymlinkedSourcesIsNotFollowed`, `TestSymlinkedSourcesInsideTargetIsNotFollowed`).
 - **In-process contract.** Every relative path is resolved against `Options.Cwd` (`TestRelativePathsUseOptionsCwd`);
-  a nil `Options.Now` is a typed refusal, never a panic (`TestZeroNowIsATypedRefusal`).
+  a nil `Options.Now` is a typed refusal, never a panic (`TestZeroNowIsATypedRefusal`), and so is an empty
+  `Options.Cwd` (`TestEmptyCwdIsATypedRefusal`).

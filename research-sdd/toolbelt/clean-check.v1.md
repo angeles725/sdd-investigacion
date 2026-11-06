@@ -98,8 +98,8 @@ suppressed when a byte-identical copy (sha256) already sits anywhere under
 preserve the file under `sources/probes/b<N>/` first. The sha256 is computed in process and streamed, so
 files of any size are hashed in constant memory and no hash tool can be missing: `DEGRADED-NO-SHA256` and the
 exit 3 it carried are retired (the script skipped the check without `sha256sum`/`shasum`). A file that cannot
-be read has no copy and stays a finding. A symlinked `sources/probes` is not followed (it holds no files and
-no manifests), so nothing outside the target can preserve or exempt a scratchpad file.
+be read has no copy and stays a finding. A symlink at `sources` or at `sources/probes` is not followed, wherever it leads (it holds no files and no
+manifests), so nothing outside the target can preserve or exempt a scratchpad file.
 
 ### `UNMANIFESTED-SCRIPT <file>`
 

@@ -46,9 +46,13 @@ func (r *run) readProbes() (probes, bool) {
 	p := probes{manifested: map[string]bool{}, shas: map[string]bool{}}
 	root := r.targetP + "/sources/probes"
 	// find <dir> -type f does not follow a symlinked <dir>: a sources/probes that links elsewhere has no files, and
-	// reading through it would trust what lies outside the target.
-	if fi, err := r.lstat(root); err != nil || !fi.IsDir() {
-		return p, true
+	// reading through it would trust what lies outside the target. The same holds for every component between the
+	// target and probes (sources, then sources/probes): a symlink at any of them ends the read, so nothing outside the
+	// target can preserve or exempt a scratchpad file. The legacy script followed a symlinked sources (stricter here).
+	for _, dir := range []string{r.targetP + "/sources", root} {
+		if fi, err := r.lstat(dir); err != nil || !fi.IsDir() {
+			return p, true
+		}
 	}
 	var manifests, files []string
 	errs := walkTree(root, -1, func(path string, _ int, e entry) bool {

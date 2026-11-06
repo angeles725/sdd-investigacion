@@ -15,14 +15,20 @@ import (
 // the evidence directory) and Degraded for each check that could not run. Retention WARNs are counted in Warnings and
 // never change the verdict. A run that stopped early (Refused, or git missing) has no Summary line.
 //
-// Check reads nothing from the process: the working directory, the environment (git, TMPDIR) and the clock are in
-// Options, and every relative path is resolved against Options.Cwd. Options.Now is required: a nil clock is a typed
-// refusal (Refused, exit 2, no Summary), never a panic; the rsdd command supplies the process clock. It runs only git,
+// Check reads almost nothing from the process: the working directory, the environment (git, TMPDIR) and the clock
+// are in Options, and every relative path is resolved against Options.Cwd. The one process read is the owner uid,
+// taken from os.Getuid only when neither Options.UID nor Options.Self is set. Options.Now and Options.Cwd are
+// required: a nil clock or an empty working directory is a typed refusal (Refused, exit 2, no Summary), never a
+// panic or a path resolved against "/"; the rsdd command supplies the process clock and directory. It runs only git,
 // and only to read.
 func Check(o Options) Result {
 	r := newRun(o)
 	if o.Now == nil {
 		r.refuse("Options.Now is required (the command layer supplies the clock)")
+		return r.res
+	}
+	if o.Cwd == "" {
+		r.refuse("Options.Cwd is required (relative paths are resolved against it)")
 		return r.res
 	}
 	r.settleScratchpad()
