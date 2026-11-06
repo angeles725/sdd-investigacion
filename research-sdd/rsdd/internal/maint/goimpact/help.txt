@@ -1,0 +1,26 @@
+usage: rsdd maint go-impact [--repo DIR] [--wide N] FILE...
+
+Map changed files (repo-relative, e.g. research-sdd/rsdd/internal/retro/stageissues/run.go) to the toolbelt bash
+files that reach the rsdd commands built from them. The Go module under DIR/research-sdd/rsdd is parsed from
+source (go/parser only); nothing is built. One block per FILE, in input order, tab-separated:
+
+  NONE    FILE  go-test-only        a _test.go or testdata file, or a package no command imports
+  SHIM    FILE  BASH  GROUP NAME    one line per bash file that reaches a command built from FILE
+  UNREACHED FILE GROUP NAME       a command in the closure that no bash file calls (informational)
+  NONE    FILE  no-bash-caller       the closure has commands but none has a bash caller
+  CLOSURE FILE  PACKAGES COMMANDS   closure size, last line of a SHIM block
+  FULL    FILE  REASON              not placed: go.mod, go.sum, Makefile, cmd/**, internal/cli/**,
+                                    internal/commands/**, a path outside the module, a parse error, an
+                                    unresolved command literal, an
+                                    unclassifiable bash caller (including a file that names RSDD_BIN
+                                    outside a recognised call), an unclassified module file (a non-Go file
+                                    that is not testdata; teeth-debt.txt included), testdata named by bash,
+                                    or a closure wider
+                                    than --wide
+
+options:
+  --repo DIR   repository root (default: the working directory)
+  --wide N     FULL when a closure reaches more than N distinct bash files (default 12)
+
+Exit 0 when classification ran, 2 on a usage error or an unreadable module
+("degraded: go-impact: <reason>" on stderr).
