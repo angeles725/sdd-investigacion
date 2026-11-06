@@ -59,7 +59,7 @@ func TestLoadRecordsParseErrorsAndUnresolvedLiterals(t *testing.T) {
 	if e := m.Pkgs["internal/util"].ParseErrors; len(e) != 1 || !strings.HasPrefix(e[0], "internal/util/util.go: ") {
 		t.Errorf("parse errors: %v", e)
 	}
-	if u := m.Pkgs["internal/beta"].Unresolved; len(u) != 1 || u[0] != "internal/beta/c.go:6" {
+	if u := m.Pkgs["internal/beta"].Unresolved; len(u) != 1 || u[0] != "internal/beta/c.go:6: cli.Command{Name: N}" {
 		t.Errorf("unresolved: %v", u)
 	}
 }

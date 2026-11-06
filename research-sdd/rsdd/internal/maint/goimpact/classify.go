@@ -49,6 +49,15 @@ func (a *Analysis) Classify(file string) []string {
 	if why := typedFull(rel); why != "" {
 		return full(file, why)
 	}
+	if owner, ok := a.mod.EmbedOwner(rel); ok && !strings.HasSuffix(rel, ".go") { // an embedded file is its package's
+		if script := a.namedByBash(rel); script != "" {
+			return full(file, "testdata named by bash: "+script)
+		}
+		if why := a.mod.firstProblem(); why != "" {
+			return full(file, why)
+		}
+		return a.reach(file, owner)
+	}
 	if isTestPath(rel) {
 		if script := a.namedByBash(rel); script != "" {
 			return full(file, "testdata named by bash: "+script)

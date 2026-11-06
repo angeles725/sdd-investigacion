@@ -32,7 +32,7 @@ func parseDir(m *Module, abs, rel string) (*Package, error) {
 	var prod []*ast.File
 	for _, n := range names {
 		isTest := strings.HasSuffix(n, "_test.go")
-		f, perr := parser.ParseFile(fset, filepath.Join(abs, n), nil, parser.SkipObjectResolution)
+		f, perr := parser.ParseFile(fset, filepath.Join(abs, n), nil, parser.SkipObjectResolution|parser.ParseComments)
 		if perr != nil {
 			if !isTest { // a test file's imports never enter the closure, so its syntax cannot change it
 				pkg.ParseErrors = append(pkg.ParseErrors, filepath.ToSlash(filepath.Join(rel, n))+": "+perr.Error())
@@ -48,6 +48,9 @@ func parseDir(m *Module, abs, rel string) (*Package, error) {
 		delete(pkg.TestImports, d)
 	}
 	recoverCommands(m, pkg, fset, prod)
+	recoverTables(m, pkg, fset, prod)
+	recoverInjections(m, prod)
+	recoverEmbeds(pkg, prod)
 	return pkg, nil
 }
 

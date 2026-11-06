@@ -14,8 +14,9 @@ source (go/parser only); nothing is built. One block per FILE, in input order, t
   CLOSURE   FILE PACKAGES COMMANDS closure size, last line of a block
   FULL      FILE REASON            not placed: go.mod, go.sum, Makefile, teeth-debt.txt, cmd/**, internal/cli/**,
                                    internal/commands/**, a path outside the module, an unclassified module
-                                   file (a non-Go file that is not testdata), testdata named by bash, a parse
-                                   error, an unresolved command literal, or a closure wider than --wide
+                                   file (a non-Go file that is not testdata or //go:embed-ed), testdata named by
+                                   bash, a parse error, an unresolved command literal or command table (the
+                                   reason names file:line and the expression), or a closure wider than --wide
                                    (counted in SHIM bash files; BLIND files are counted apart)
 
 After all blocks, one line counts every RSDD_BIN / RSDD_REAL_BIN mention class over the scanned bash tree:

@@ -69,6 +69,11 @@ func (m *Module) ClosureCommands(closure []string) []Command {
 		if d != Registry {
 			add(d)
 		}
+		for _, x := range slices.Sorted(maps.Keys(m.Injects[d])) { // a seam wires d into x's commands
+			if x != Registry {
+				add(x)
+			}
+		}
 	}
 	return out
 }

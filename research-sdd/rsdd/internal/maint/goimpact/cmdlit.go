@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/token"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -21,14 +20,7 @@ func recoverCommands(m *Module, pkg *Package, fset *token.FileSet, files []*ast.
 			continue
 		}
 		imports := moduleImportNames(m, f)
-		isCmd := func(e ast.Expr) bool {
-			s, ok := e.(*ast.SelectorExpr)
-			if !ok {
-				return false
-			}
-			id, ok := s.X.(*ast.Ident)
-			return ok && id.Name == local && s.Sel.Name == "Command"
-		}
+		isCmd := func(e ast.Expr) bool { return isCliCommand(e, local) }
 		ast.Inspect(f, func(n ast.Node) bool {
 			cl, ok := n.(*ast.CompositeLit)
 			if !ok {
@@ -38,10 +30,7 @@ func recoverCommands(m *Module, pkg *Package, fset *token.FileSet, files []*ast.
 			if cl.Type != nil && isCmd(cl.Type) {
 				lits = append(lits, cl)
 			}
-			unresolved := func(n ast.Node) {
-				p := fset.Position(n.Pos())
-				pkg.Unresolved = append(pkg.Unresolved, filepath.ToSlash(filepath.Join(pkg.Dir, filepath.Base(p.Filename)))+":"+strconv.Itoa(p.Line))
-			}
+			unresolved := func(n ast.Node) { markUnresolved(pkg, fset, n) }
 			if at, ok := cl.Type.(*ast.ArrayType); ok && isCmd(at.Elt) {
 				for _, el := range cl.Elts {
 					c, ok := el.(*ast.CompositeLit)

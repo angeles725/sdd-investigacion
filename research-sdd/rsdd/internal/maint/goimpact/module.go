@@ -62,12 +62,15 @@ type Package struct {
 	Unresolved  []string        // cli.Command literals the parser cannot read, as file:line
 	Refs        map[string]bool // in-module dirs whose commands a []cli.Command element names (`sub.Command`)
 	ParseErrors []string        // non-test files that did not parse
+	Embeds      []string        // //go:embed patterns of the non-test files, relative to Dir
 }
 
 // Module is the parsed rsdd Go module.
 type Module struct {
 	Path string // the module path from go.mod
 	Pkgs map[string]*Package
+	// Injects maps a package y to the packages x it is wired into by a seam assignment `x.V = y.F`.
+	Injects map[string]map[string]bool
 }
 
 // skipDirs are the directory names Load never descends into.
@@ -84,7 +87,7 @@ func Load(repo string) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Module{Path: mod, Pkgs: map[string]*Package{}}
+	m := &Module{Path: mod, Pkgs: map[string]*Package{}, Injects: map[string]map[string]bool{}}
 	err = filepath.WalkDir(root, func(p string, d os.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
