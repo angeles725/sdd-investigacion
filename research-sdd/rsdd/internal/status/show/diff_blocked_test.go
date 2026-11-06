@@ -32,7 +32,7 @@ func runBlockedBash(t testing.TB, bs blockedScenario, root string) outcome {
 	dir := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(dir, "excerpt.sh"), excerpt, 0o644))
 	must(t, os.WriteFile(filepath.Join(dir, "harness.sh"), []byte(blockedHarness), 0o644))
-	lib, err := filepath.Abs(liveLib)
+	lib, err := frozenLibAbs(t)
 	must(t, err)
 	args := append([]string{filepath.Join(dir, "harness.sh"), filepath.Join(root, "RESEARCH-STATE.md")}, bs.gaps...)
 	cmd := exec.Command("bash", args...)

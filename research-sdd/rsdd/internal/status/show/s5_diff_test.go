@@ -17,7 +17,7 @@ import (
 
 // The S5 differential: the frozen excerpts of research-sdd-status.sh (testdata/legacy, see SOURCE.txt) are put back
 // together in the order of the original script, and run as the real entry (`bash research-sdd-status.sh <target>
-// --next ...`) over the LIVE toolbelt/lib. Unlike S4, nothing stands in for the S5 sections: the retro-coverage
+// --next ...`) over the frozen toolbelt/lib copies. Unlike S4, nothing stands in for the S5 sections: the retro-coverage
 // derivation, issues_due_gate and the terminal clean-check are the script's own. The subprocesses they start are the
 // authored fakes of s5_harness_test.go, which the port runs too (reconcile through the production runner with the
 // fake as the command).
@@ -134,7 +134,7 @@ var (
 	s5Err  error
 )
 
-// s5Stage writes <dir>/toolbelt (the assembled script, the fakes, lib/ linked to the live library) and <dir>/bin
+// s5Stage writes <dir>/toolbelt (the assembled script, the fakes, lib/ linked to the frozen library copies) and <dir>/bin
 // (the fake gh and git), once.
 func s5Stage(t testing.TB) string {
 	t.Helper()
@@ -148,7 +148,7 @@ func s5Stage(t testing.TB) string {
 		}
 		script = append(script, s4TailBash...)
 		bin := filepath.Join(s5Dir, "bin")
-		lib, err := filepath.Abs(liveLib)
+		lib, err := frozenLibAbs(t)
 		if err != nil {
 			s5Err = err
 			return

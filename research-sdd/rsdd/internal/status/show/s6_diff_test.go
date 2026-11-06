@@ -16,7 +16,7 @@ import (
 
 // The S6 differential: the frozen excerpts of research-sdd-status.sh (testdata/legacy, see SOURCE.txt) are put back
 // together in the order of the original script and run as the real entry (`bash research-sdd-status.sh <target>
-// ...`) over the LIVE toolbelt/lib. Nothing stands in for the S6 or S7 sections: the default report, the
+// ...`) over the frozen toolbelt/lib copies. Nothing stands in for the S6 or S7 sections: the default report, the
 // contradictions and iteration readers, saturation, the remote-visibility block, the campaign queue and the
 // document-cycle outline are the script's own. The subprocesses (gh, verify-state) are the authored fakes the port
 // runs too.
@@ -53,7 +53,7 @@ printf '%s\n' "$@" > "$d/ver.$n"
 exit "$(cat "$S5_SPEC/v.rc" 2>/dev/null || echo 0)"
 `
 
-// s6Stage writes <dir>/toolbelt (the assembled script, the fake verify-state, lib/ linked to the live library) and
+// s6Stage writes <dir>/toolbelt (the assembled script, the fake verify-state, lib/ linked to the frozen library copies) and
 // <dir>/bin (the fake gh), and builds the rsdd binary the live lib shims run (hook wiring). The directory is
 // removed with the test that staged it.
 func s6Stage(t *testing.T) (dir, rsddBin string) {
@@ -65,7 +65,7 @@ func s6Stage(t *testing.T) (dir, rsddBin string) {
 	for _, f := range s6Frozen() {
 		script = append(script, readFrozen(t, f.file, f.sha)...)
 	}
-	lib, err := filepath.Abs(liveLib)
+	lib, err := frozenLibAbs(t)
 	must(t, err)
 	bin := filepath.Join(dir, "bin")
 	must(t, os.MkdirAll(bin, 0o755))

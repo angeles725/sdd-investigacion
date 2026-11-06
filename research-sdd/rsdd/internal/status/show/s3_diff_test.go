@@ -14,7 +14,7 @@ import (
 
 // The S3 differential: the frozen excerpts of research-sdd-status.sh (testdata/legacy, see SOURCE.txt) are put back
 // together in the order of the original script and run as the real entry (`bash research-sdd-status.sh <target>
-// --sync-state ...`) over the LIVE toolbelt/lib. The pieces of the script that are not ported yet are absent; the
+// --sync-state ...`) over the frozen toolbelt/lib copies. The pieces of the script that are not ported yet are absent; the
 // authored tail answers every mode other than --sync-state with the line the Go test tail prints.
 
 var s3Frozen = []struct{ file, sha string }{
@@ -36,7 +36,7 @@ var (
 	s3Err    error
 )
 
-// s3Stage writes <dir>/toolbelt/research-sdd-status.sh (the assembled script) with lib/ linked to the live library.
+// s3Stage writes <dir>/toolbelt/research-sdd-status.sh (the assembled script) with lib/ linked to the frozen library copies.
 func s3Stage(t testing.TB) string {
 	t.Helper()
 	s3Once.Do(func() {
@@ -57,7 +57,7 @@ func s3Stage(t testing.TB) string {
 		if s3Err = os.WriteFile(s3Script, script, 0o755); s3Err != nil {
 			return
 		}
-		lib, err := filepath.Abs(liveLib)
+		lib, err := frozenLibAbs(t)
 		if err != nil {
 			s3Err = err
 			return

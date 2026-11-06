@@ -87,7 +87,7 @@ func runS2Bash(t testing.TB, sc s2Scenario, root string) []outcome {
 	must(t, os.WriteFile(opsf, []byte(strings.Join(lines, "\n")+"\n"), 0o644))
 	outd := filepath.Join(work, "out")
 	must(t, os.MkdirAll(outd, 0o755))
-	lib, err := filepath.Abs(liveLib)
+	lib, err := frozenLibAbs(t)
 	must(t, err)
 	cmd := exec.Command("bash", s2Script, filepath.Join(root, stateRel), opsf, outd)
 	cmd.Dir = root

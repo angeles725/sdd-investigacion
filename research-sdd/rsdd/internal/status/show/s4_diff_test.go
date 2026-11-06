@@ -17,7 +17,7 @@ import (
 
 // The S4 differential: the frozen excerpts of research-sdd-status.sh (testdata/legacy, see SOURCE.txt) are put back
 // together in the order of the original script and run as the real entry (`bash research-sdd-status.sh <target>
-// --next ...`) over the LIVE toolbelt/lib. The --next block is frozen in two halves with the S5 retro-coverage
+// --next ...`) over the frozen toolbelt/lib copies. The --next block is frozen in two halves with the S5 retro-coverage
 // derivation (and issues_due_gate) replaced by the stand-ins of s4_harness_test.go between them.
 //
 // verify-state.sh, which the STALE gate runs, is staged as a wrapper over the real `rsdd verify state` (built from
@@ -87,7 +87,7 @@ func s4Stage(t testing.TB) string {
 		if s4Err = os.WriteFile(filepath.Join(tb, "verify-state.sh"), []byte(verifyWrapper), 0o755); s4Err != nil {
 			return
 		}
-		lib, err := filepath.Abs(liveLib)
+		lib, err := frozenLibAbs(t)
 		if err != nil {
 			s4Err = err
 			return

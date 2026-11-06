@@ -101,3 +101,11 @@ status-doccycle.sh lines 2385-2455 (the document cycle: outline_rows, outline_su
 The S7 differential (and the S6 one, since S7) assembles the S5 order with status-campaign.sh and status-doccycle.sh in the
 place of the authored S6 stand-ins, in front of status-report.sh: no section of the default report is authored any more.
 The clock of both sides is the script's own hook, _RSDD_NOW_EPOCH. verify-state.sh and gh stay authored fakes that log their argv.
+
+Slice S8c (issue #2549): frozen sourced libraries, byte copies of research-sdd/toolbelt/lib at origin/main 31bb4be5, same
+blob 7e734c53bc63f4337f26a3b39551da846d3f98c1 of the script (unchanged through the S8 shim commit):
+
+lib/state-files.sh, lib/focus-prefix.sh, lib/block-files.sh, lib/hook-wiring.sh, lib/blocked-rows.sh, lib/retro-status.sh,
+lib/gh-visibility.sh and lib/rsdd-exec.sh (sourced by hook-wiring.sh). The sha256 of each is pinned in frozenlib_diff_test.go
+(frozenLibSHA) and checked, together with the file list, before the first differential scenario runs. The differential stages
+this directory as the toolbelt's lib/, so the oracle no longer moves with the live library, which can now change or go.

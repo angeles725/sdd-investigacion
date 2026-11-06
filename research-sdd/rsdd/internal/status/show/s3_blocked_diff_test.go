@@ -24,7 +24,7 @@ func TestDifferentialBlockedOpen(t *testing.T) {
 				bashOuts := runS2Bash(t, sc, root)
 				for i, op := range sc.ops {
 					if goOuts[i] != bashOuts[i] {
-						t.Errorf("op %s differs from the live library\ngo   rc=%d stdout=%q stderr=%q\nbash rc=%d stdout=%q stderr=%q",
+						t.Errorf("op %s differs from the frozen library oracle\ngo   rc=%d stdout=%q stderr=%q\nbash rc=%d stdout=%q stderr=%q",
 							op.line(root), goOuts[i].rc, goOuts[i].out, goOuts[i].err, bashOuts[i].rc, bashOuts[i].out, bashOuts[i].err)
 					}
 				}

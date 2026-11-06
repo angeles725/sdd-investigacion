@@ -20,16 +20,13 @@ import (
 
 // The differential: the frozen excerpts of research-sdd-status.sh (testdata/legacy, verbatim bytes of origin/main
 // 31bb4be5, see SOURCE.txt) run beside the Go code on the same world. The head excerpt is the part of the script
-// that S1 ports; the test appends the probe tail (the Go side has the same one), and stages the LIVE toolbelt/lib
-// beside it so the sourced helpers stay under test too. A missing bash FAILS: a skipped differential proves
+// that S1 ports; the test appends the probe tail (the Go side has the same one), and stages the FROZEN copies of the
+// sourced toolbelt/lib (frozenlib_diff_test.go) beside it, so the oracle never moves with the live library. A missing bash FAILS: a skipped differential proves
 // nothing. The goldens are asserted equal to the oracle here and replayed through Go in the nodiff-visible tests.
 
 var update = flag.Bool("update", false, "rewrite the goldens from the frozen oracle")
 
-const (
-	headSHA = "8d4482f0686616ab72c62da3ac1a3764f401f34462736b4c302939c07cf77545"
-	liveLib = "../../../../toolbelt/lib"
-)
+const headSHA = "8d4482f0686616ab72c62da3ac1a3764f401f34462736b4c302939c07cf77545"
 
 var (
 	stageOnce sync.Once
@@ -64,7 +61,7 @@ func readFrozen(t testing.TB, name, want string) []byte {
 	return b
 }
 
-// stage returns <dir>/toolbelt with the head excerpt plus the probe tail and lib/ linked to the live library.
+// stage returns <dir>/toolbelt with the head excerpt plus the probe tail and lib/ linked to the frozen library copies.
 func stage(t testing.TB) string {
 	t.Helper()
 	stageOnce.Do(func() {
@@ -80,7 +77,7 @@ func stage(t testing.TB) string {
 		if stageErr = os.WriteFile(filepath.Join(tb, "research-sdd-status.sh"), append(head, probeTailBash...), 0o755); stageErr != nil {
 			return
 		}
-		lib, err := filepath.Abs(liveLib)
+		lib, err := frozenLibAbs(t)
 		if err != nil {
 			stageErr = err
 			return
