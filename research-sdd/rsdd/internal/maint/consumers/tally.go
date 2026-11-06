@@ -1,6 +1,9 @@
 package consumers
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 // classStats is one row of the table.
 type classStats struct {
@@ -35,6 +38,6 @@ func (sn scanned) referencing(class string) []fileResult {
 			out = append(out, r)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
+	slices.SortFunc(out, func(a, b fileResult) int { return cmp.Compare(a.path, b.path) })
 	return out
 }

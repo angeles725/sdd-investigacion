@@ -12,12 +12,12 @@ import (
 func writeTable(w io.Writer, sn scanned) {
 	fmt.Fprintf(w, rowFormat, rowHeadClass, rowHeadFiles, rowHeadWith, rowHeadPairs, rowHeadRefs, rowHeadSelf)
 	for _, c := range reportClasses {
-		fmt.Fprintf(w, rowFormat, append([]any{c}, cells(sn.total[c], sn.stats(c))...)...)
+		fmt.Fprintf(w, rowFormat, append([]any{c}, cells(sn.listed[c], sn.stats(c))...)...)
 	}
 }
 
-func cells(total int, st classStats) []any {
-	if total == 0 {
+func cells(listed bool, st classStats) []any {
+	if !listed {
 		return []any{wordNoFiles, wordNA, wordNA, wordNA, wordNA}
 	}
 	if st.files == 0 {
@@ -35,7 +35,7 @@ func cells(total int, st classStats) []any {
 
 // writeUnclassified names every unclassified file that names a script, with its reference count.
 func writeUnclassified(w io.Writer, sn scanned) {
-	if sn.total[classUnclassified] == 0 {
+	if !sn.listed[classUnclassified] {
 		fmt.Fprint(w, unclassifiedNoFile)
 		return
 	}

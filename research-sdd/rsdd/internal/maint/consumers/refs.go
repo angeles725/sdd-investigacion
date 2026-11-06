@@ -1,9 +1,10 @@
 package consumers
 
 import (
+	"cmp"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
 )
 
 // pair is one line of --refs.
@@ -20,15 +21,8 @@ func (sn scanned) pairs() []pair {
 			out = append(out, pair{r.class, r.path, name, n})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if a.class != b.class {
-			return a.class < b.class
-		}
-		if a.file != b.file {
-			return a.file < b.file
-		}
-		return a.script < b.script
+	slices.SortFunc(out, func(a, b pair) int {
+		return cmp.Or(cmp.Compare(a.class, b.class), cmp.Compare(a.file, b.file), cmp.Compare(a.script, b.script))
 	})
 	return out
 }

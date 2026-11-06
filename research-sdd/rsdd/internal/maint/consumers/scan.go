@@ -23,22 +23,21 @@ type fileResult struct {
 // scanned is everything one pass over the files learned.
 type scanned struct {
 	results    []fileResult
-	total      map[string]int // files per class, read or not
+	listed     map[string]bool // the classes that hold at least one listed file, read or not
 	goModule   int
 	fixtures   int
 	binary     int
 	notRegular int
-	binaryBy   map[string]int
 	errs       []string
 }
 
 // scan reads every file that is not in the Go module or a fixtures directory and counts the names in it. A file
 // that cannot be read is an error entry naming it, never a skipped file.
 func scan(top string, files []string, live, names map[string]bool) scanned {
-	sn := scanned{total: map[string]int{}, binaryBy: map[string]int{}}
+	sn := scanned{listed: map[string]bool{}}
 	for _, f := range files {
 		class := classify(f, live)
-		sn.total[class]++
+		sn.listed[class] = true
 		if class == classGo {
 			sn.goModule++
 			continue
@@ -58,7 +57,6 @@ func scan(top string, files []string, live, names map[string]bool) scanned {
 		}
 		if bytes.IndexByte(b[:min(len(b), binaryProbe)], 0) >= 0 {
 			sn.binary++
-			sn.binaryBy[class]++
 			continue
 		}
 		r := fileResult{path: f, class: class, refs: countNames(b, names)}
