@@ -247,3 +247,23 @@ the reading of L6); T4 is recorded in this document and in the last pull request
   61; unclassified 11 files, 5 with a reference (two install goldens, `openspec/config.yaml`, `.gitignore`,
   `research-sdd/.research-tools.txt`). Not read by this pull request: 558 files under a `fixtures` directory and
   the 4,342 files of the Go module.
+- L9 Cross-read of pull request #2778 by session 4 at 5ff6737c, 2026-11-06: one blocker and six advisories.
+  Blocker, verbatim: "An untracked file in an unreadable directory is silently dropped and the run exits 0
+  (files.go:53-57; core/kitmaint/runner.go:47-61 keeps stderr only on non-zero exit). Reproduced by me: repo with
+  toolbelt/a.sh, sub/b.sh (tracked), sub/c.sh (untracked): `files: 3 listed / scripts: 3`; chmod 000 sub →
+  `files: 2 listed / scripts: 2`, rc=0, while `git ls-files --others --exclude-standard` prints `warning: could not
+  open directory 'research-sdd/toolbelt/sub/': Permission denied` and exits 0. [...] Fix: capture stderr on
+  success; any `could not open directory` (or any stderr) → typed degraded / operational exit, no counts."
+  Accepted, fixed in #2778: anything `git ls-files` prints on stderr with exit 0 is a degraded run (stdout
+  `consumers: degraded`, the reason and git's line on stderr, exit 3, no count).
+  Accepted into the same batch: (a) the documents of #2778 describe #2778: the `cannot read <path>` reason code,
+  the exit-1 clause about a listed file that cannot be read, the words "enumerator of the references" and the
+  comment that cites classdata.go leave it and return with the second pull request; the name matcher, which had
+  tests and no caller, moved there too (commit 266f00c8); (b) GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR and
+  GIT_INDEX_FILE in the caller's environment overrode `--repo`: they are dropped from the environment of the git
+  children; (c) a `--repo` that is not a directory read as "not inside a git work tree": it is absent-input,
+  exit 1, with the path; a git that timed out or hit the output cap read as "exit code 124" or "127": each gets
+  its own message; (d) one more limit line: files ignored by git and the contents of submodules are not listed.
+  Sent to session 1 to rule for the second pull request: a line naming live scripts whose basename the matcher
+  cannot match, an option that prints the script list, and a line declaring the files under the three
+  directories that are not scripts, by extension. The exclusion rules stay as accepted in L6.
