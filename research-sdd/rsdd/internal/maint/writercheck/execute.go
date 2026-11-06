@@ -39,9 +39,6 @@ func (c *ctx) execute() int {
 			if err != nil || !kitmaint.IsDir(dir) {
 				return degrade(s, "teeth-log dir absent: "+o.logDir)
 			}
-			if _, err := os.ReadDir(dir); err != nil { // absent and unreadable are different states
-				return degrade(s, "teeth-log dir unreadable: "+o.logDir+" ("+osErr(err)+")")
-			}
 			o.logDir = dir
 		}
 		if script = c.impactScript(); !o.printBinding && !isFile(kitmaint.Abs(s.Cwd, script)) {

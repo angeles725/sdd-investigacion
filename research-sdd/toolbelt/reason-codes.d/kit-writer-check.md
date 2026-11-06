@@ -6,8 +6,8 @@
   `maint/`, outside the scanned scripts, so it is NOT a row of the degraded table in `reason-codes.v1.md` (section "Degraded class"). Reasons: a runtime
   dependency (git always; bash where suite-impact.sh or a suite runs) is not on PATH; `not a git repository`; `bad base ref` /
   `bad head ref`; `no merge-base of <base> and HEAD`; `git diff failed`; `teeth-log dir absent` (an absent
-  directory is not "no logs"); `teeth-log dir unreadable: <dir> (<os error>)` and `teeth log unreadable: <path> (<os
-  error>)` (it exists but cannot be read: could not look, never a finding); `suite-impact.sh not found`; `suite-impact.sh exited N: <its message>` (an
+  directory is not "no logs"); `teeth log unreadable: <path> (<os error>)` (a required log exists but cannot be read, or its
+  directory cannot be searched: could not look, never a finding); `suite-impact.sh not found`; `suite-impact.sh exited N: <its message>` (an
   impact map that could not look must never read as an empty requirement set);
   `KIT_WRITER_CHECK_TIMEOUT must be a positive integer`; `cannot create teeth-log dir`; `cannot hash the changed
   files`. Findings (exit 1, not degraded): `missing-teeth <suite> <reason>`, `stale-teeth <suite> <reason>` (the log's

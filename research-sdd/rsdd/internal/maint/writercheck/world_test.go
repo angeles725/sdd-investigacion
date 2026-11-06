@@ -187,8 +187,14 @@ func (k *kase) goRun(extra []string, args ...string) ran {
 }
 
 // impactScript is the real suite-impact.sh of this kit, which both sides run.
+// A deleted script fails here, never skips: the run that needs it cannot turn into a silent pass. Declared
+// temporary (#2613): it leaves when writer-check calls the Go impact engine in process.
 func impactScript(t *testing.T) string {
-	return kitroot.Path(t, "toolbelt", "tests", "suite-impact.sh")
+	p := kitroot.Path(t, "toolbelt", "tests", "suite-impact.sh")
+	if fi, err := os.Stat(p); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("the live suite-impact.sh is required: %v", err)
+	}
+	return p
 }
 
 // norm replaces the case root by <R>, so two runs in different roots compare equal.

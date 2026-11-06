@@ -26,19 +26,55 @@ func wantDegraded(t *testing.T, r ran, err string) {
 	}
 }
 
-func TestUnreadableTeethLogDirIsDegraded(t *testing.T) {
+// The tool reads only the logs it needs. A log directory it cannot search (mode 000, or 600/400: listable but
+// not searchable) makes each required log unreadable: exit 2 with the typed line, never a finding. A directory it
+// can search but not list (mode 300) is enough: the logs in it are read.
+func TestTeethLogDirModes(t *testing.T) {
 	if os.Geteuid() == 0 {
-		t.Skip("root reads a mode-000 directory")
+		t.Skip("root reads and searches any directory, so these modes cannot be exercised")
 	}
 	k := newKase(t)
 	k.touch(alpha)
-	dir := k.root + "/logs"
-	if err := os.Mkdir(dir, 0); err != nil {
+	imp := []string{"KIT_WRITER_CHECK_IMPACT=" + k.impact}
+	suite := firstRequired(t, k, imp)
+	for _, mode := range []os.FileMode{0, 0o600, 0o400} {
+		dir := filepath.Join(k.root, "logs"+mode.String())
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, logName(suite)), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, mode); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(dir, 0o755) })
+		r := k.goRun(imp, "--repo", k.dir, "--base", "base", "--teeth-log", dir)
+		wantDegraded(t, r, "teeth log unreadable: "+filepath.Join(dir, logName(suite))+" (permission denied)")
+	}
+	dir := filepath.Join(k.root, "logs300")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o300); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o755) })
-	r := k.goRun(nil, "--repo", k.dir, "--base", "base", "--teeth-log", dir)
-	wantDegraded(t, r, "teeth-log dir unreadable: "+dir+" (permission denied)")
+	if r := k.goRun(imp, "--repo", k.dir, "--base", "base", "--teeth-log", dir); r.rc != 1 || !strings.Contains(r.out, "missing-teeth "+suite+" (no log ") {
+		t.Errorf("mode 300: rc %d out %q err %q", r.rc, r.out, r.err)
+	}
+}
+
+func firstRequired(t *testing.T, k *kase, imp []string) string {
+	t.Helper()
+	first := k.goRun(imp, "--repo", k.dir, "--base", "base")
+	if lines := strings.Split(first.out, "\n"); len(lines) > 1 && strings.HasPrefix(lines[0], "Required suites: ") {
+		if s := strings.TrimSpace(lines[1]); s != "" {
+			return s
+		}
+	}
+	t.Fatalf("no required suite: %q", first.out)
+	return ""
 }
 
 func TestUnreadableTeethLogIsDegraded(t *testing.T) {
@@ -48,14 +84,7 @@ func TestUnreadableTeethLogIsDegraded(t *testing.T) {
 	k := newKase(t)
 	k.touch(alpha)
 	imp := []string{"KIT_WRITER_CHECK_IMPACT=" + k.impact}
-	first := k.goRun(imp, "--repo", k.dir, "--base", "base")
-	suite := ""
-	if lines := strings.Split(first.out, "\n"); len(lines) > 1 && strings.HasPrefix(lines[0], "Required suites: ") {
-		suite = strings.TrimSpace(lines[1])
-	}
-	if suite == "" {
-		t.Fatalf("no required suite: %q", first.out)
-	}
+	suite := firstRequired(t, k, imp)
 	dir := k.root + "/logs"
 	p := filepath.Join(dir, logName(suite))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
