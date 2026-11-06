@@ -1,5 +1,5 @@
 # Go blind-spot bash files, derived by the classifier: `<path> <class>` per line, sorted. A file the
-# classifier marks that is missing here fails the test; so does a stale entry. Reviewed on every change.
+# classifier marks that is missing here fails the test; so does a stale entry. Reviewed on every change. Classes: bashclass.go.
 research-sdd/install/tests/research-sdd-install.test.sh D
 research-sdd/toolbelt/lib/hook-wiring.sh C
 research-sdd/toolbelt/tests/capa.test.sh D

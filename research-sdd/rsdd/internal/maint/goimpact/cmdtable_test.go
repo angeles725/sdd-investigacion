@@ -7,7 +7,7 @@ import (
 )
 
 const aggHead = "package agg\n\nimport (\n\t\"example.test/rsdd/internal/agg/s1\"\n\t\"example.test/rsdd/internal/agg/s2\"\n\t\"example.test/rsdd/internal/agg/s3\"\n\t\"example.test/rsdd/internal/cli\"\n)\n\n" +
-	"var _, _, _ = s1.Commands, s2.Commands, s3.Commands\n\nvar local []cli.Command\n\nvar localCmd cli.Command\n\n"
+	"var _, _, _ = s1.Commands, s2.Commands, s3.Commands\n\nvar local []cli.Command\n\nvar localCmd = cli.Command{Name: \"loc\", Group: \"agg\"}\n\nvar alias = s1.Command\n\n"
 
 // aggRoot is a module whose agg package assembles its table from three sub-packages (s1, s2, s3), each with
 // one command called by one bash file; body is the rest of agg/commands.go after aggHead.
@@ -90,6 +90,18 @@ func TestUnreadableTableIsFullNamingFileAndExpression(t *testing.T) {
 		prefix := "FULL\t" + f + "\tunresolved command literal at internal/agg/commands.go:"
 		if !strings.Contains(r.out, prefix) || !strings.Contains(r.out, c[1]) || r.rc != 0 {
 			t.Errorf("%s: want FULL naming file and %q:\n%s%s", name, c[1], r.out, r.err)
+		}
+	}
+}
+
+// A literal element naming a package variable whose value is not a cli.Command literal (`var alias = s1.Command`)
+// is not attributable: FULL naming file and element, in FIRST, MIDDLE and LAST position and alone (s10's advisory).
+func TestAliasElementIsFull(t *testing.T) {
+	bodies := []string{"alias, localCmd, localCmd", "localCmd, alias, localCmd", "localCmd, localCmd, alias", "alias"}
+	for _, b := range bodies {
+		r := run("--repo", aggRoot(t, "var Commands = []cli.Command{"+b+"}\n"), aggFile)
+		if !strings.Contains(r.out, "FULL\t"+aggFile+"\tunresolved command literal at internal/agg/commands.go:") || !strings.Contains(r.out, ": alias") || r.rc != 0 {
+			t.Errorf("{%s}: want FULL naming alias:\n%s%s", b, r.out, r.err)
 		}
 	}
 }

@@ -20,6 +20,7 @@ func recoverCommands(m *Module, pkg *Package, fset *token.FileSet, files []*ast.
 			continue
 		}
 		imports := moduleImportNames(m, f)
+		litVars := commandLitVars(files, local)
 		isCmd := func(e ast.Expr) bool { return isCliCommand(e, local) }
 		ast.Inspect(f, func(n ast.Node) bool {
 			cl, ok := n.(*ast.CompositeLit)
@@ -38,7 +39,7 @@ func recoverCommands(m *Module, pkg *Package, fset *token.FileSet, files []*ast.
 						lits = append(lits, c)
 						continue
 					}
-					if !ok && !refElement(el, imports, pkg) {
+					if !ok && !refElement(el, imports, pkg, litVars) {
 						unresolved(el)
 					}
 				}
@@ -56,11 +57,12 @@ func recoverCommands(m *Module, pkg *Package, fset *token.FileSet, files []*ast.
 }
 
 // refElement records a non-literal element of a []cli.Command slice: a package-level variable of this package
-// (its literal is recovered here) or `x.Name` of an imported module package (a reference to that package's
-// commands). Anything else, a call or an unknown selector, is not attributable and returns false.
-func refElement(el ast.Expr, imports map[string]string, pkg *Package) bool {
-	if _, ok := el.(*ast.Ident); ok {
-		return true
+// initialised with a cli.Command literal (litVars; the literal is recovered here) or `x.Name` of an imported module
+// package (a reference to that package's commands). Anything else, a variable with any other value, a call or an
+// unknown selector, is not attributable and returns false.
+func refElement(el ast.Expr, imports map[string]string, pkg *Package, litVars map[string]bool) bool {
+	if id, ok := el.(*ast.Ident); ok {
+		return litVars[id.Name]
 	}
 	s, ok := el.(*ast.SelectorExpr)
 	if !ok {
@@ -162,6 +164,23 @@ func packageConsts(files []*ast.File) map[string]string {
 				for i := range min(len(vs.Names), len(vs.Values)) { // an implicit repeat has no values
 					if s, ok := constString(vs.Values[i], nil); ok {
 						out[vs.Names[i].Name] = s
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// commandLitVars names the package-level variables whose value is a cli.Command literal.
+func commandLitVars(files []*ast.File, local string) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range files {
+		for _, spec := range varSpecs(f) {
+			for i, n := range spec.Names {
+				if i < len(spec.Values) {
+					if cl, ok := spec.Values[i].(*ast.CompositeLit); ok && isCliCommand(cl.Type, local) {
+						out[n.Name] = true
 					}
 				}
 			}

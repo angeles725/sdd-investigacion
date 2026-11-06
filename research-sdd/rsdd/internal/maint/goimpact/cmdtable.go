@@ -121,7 +121,7 @@ func (r tableReader) readable(e ast.Expr) bool {
 	case *ast.Ident:
 		return v.Name == "nil" || r.tables[v.Name]
 	case *ast.SelectorExpr:
-		return refElement(v, r.imports, r.pkg)
+		return refElement(v, r.imports, r.pkg, nil)
 	case *ast.CallExpr:
 		if at, ok := v.Fun.(*ast.ArrayType); ok { // []cli.Command(nil)
 			return isCliCommand(at.Elt, r.local) && len(v.Args) == 1 && r.readable(v.Args[0])
