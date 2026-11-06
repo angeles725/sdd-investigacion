@@ -31,9 +31,6 @@ func Check(ctx context.Context, o Options) Result {
 	if !r.requirements() {
 		return r.res
 	}
-	if r.stopped() {
-		return r.timedOut()
-	}
 	r.applyEnv()
 	r.settleScratchpad()
 	if r.resolveInputs() && r.resolveBase() && r.loadKeep() && r.scanUntracked() && r.scanStaleTmp() {
@@ -47,13 +44,10 @@ func Check(ctx context.Context, o Options) Result {
 	return r.res
 }
 
-// requirements refuses the Options a run cannot start from: no clock, no or a relative working directory, no context.
+// requirements refuses the Options a run cannot start from: no clock, an empty or relative working directory, no context.
 func (r *run) requirements() bool {
 	if r.o.Now == nil {
 		return r.refuse("Options.Now is required (the command layer supplies the clock)")
-	}
-	if r.o.Cwd == "" {
-		return r.refuse("Options.Cwd is required (relative paths are resolved against it)")
 	}
 	if !strings.HasPrefix(r.o.Cwd, "/") {
 		return r.refuse("Options.Cwd must be an absolute path (a relative one would be resolved against the process): '" + r.o.Cwd + "'")

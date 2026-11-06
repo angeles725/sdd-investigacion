@@ -19,7 +19,7 @@ func (r *run) timedOut() Result {
 }
 
 // childTimeout is how long one child may run: the ceiling, or less when the context has a nearer deadline (the child
-// is then stopped by its own timeout, process group and all). ok is false when the context is already over.
+// is then stopped by its own timeout, process group and all). ok is false when the context is already over (a deadline that passes after this check yields a timeout <= 0, which proc refuses, and Check reports the ended context anyway).
 func (r *run) childTimeout() (d time.Duration, ok bool) {
 	if r.stopped() {
 		return 0, false
@@ -28,7 +28,7 @@ func (r *run) childTimeout() (d time.Duration, ok bool) {
 	if dl, has := r.ctx.Deadline(); has {
 		d = min(d, time.Until(dl))
 	}
-	return d, d > 0
+	return d, true
 }
 
 // child is one finished bounded run.
@@ -51,7 +51,7 @@ func (r *run) runChild(spec proc.Spec) (c child, ok bool) {
 		out, err := proc.Run(spec)
 		done <- child{out, err}
 	}()
-	if _, bounded := r.ctx.Deadline(); bounded || r.ctx.Done() == nil {
+	if _, bounded := r.ctx.Deadline(); bounded {
 		return <-done, true
 	}
 	select {
