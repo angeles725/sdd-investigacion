@@ -98,10 +98,7 @@ func archiveRunWith(args []string, s cli.Stdio, hook func(*archiveHooks)) int {
 		fmt.Fprintln(s.Err, archiveUsage)
 		return cli.ExitUsage
 	}
-	e := &archiveEnv{s: s, dry: a.dry, allowVC: a.allowVC, focus: a.focus, hooks: archiveDefaultHooks()}
-	if s.Environ != nil {
-		e.env = s.Environ()
-	}
+	e := &archiveEnv{s: s, dry: a.dry, allowVC: a.allowVC, focus: a.focus, hooks: archiveDefaultHooks(), env: s.Environment()}
 	if hook != nil {
 		hook(&e.hooks)
 	}

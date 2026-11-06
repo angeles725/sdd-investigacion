@@ -31,9 +31,9 @@ func execVerify(args []string, s cli.Stdio) int {
 	}
 	cmd := exec.Command(dir+"/verify-state.sh", args...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = s.Cwd, s.Out, s.Err
-	if s.Environ != nil {
+	if env := s.Environment(); env != nil {
 		// verify-state.sh is a shim that runs once per state file: it gets this binary as RSDD_BIN.
-		cmd.Env = kit.ShimEnv(s.Environ(), os.Executable)
+		cmd.Env = kit.ShimEnv(env, os.Executable)
 	}
 	err := cmd.Run()
 	var ee *exec.ExitError

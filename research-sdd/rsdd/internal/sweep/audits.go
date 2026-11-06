@@ -122,8 +122,8 @@ func addedEpoch(g git.Runner, p, f string, now int64) int64 {
 			return t.Unix()
 		}
 	}
-	if st, err := os.Stat(f); err == nil {
-		return st.ModTime().Unix()
+	if m, ok := lmtime(f); ok {
+		return m
 	}
 	return now
 }

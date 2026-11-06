@@ -35,6 +35,7 @@ func (w *sdWorld) wantRun(args []string, wantOut, wantErr string, wantRC int) {
 }
 
 func TestSkillDriftSingleHarnessStates(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	w.deploy(claudeRel, sdKitSkill)
 	w.wantRun(nil, "", "", 0) // in sync: silent
@@ -48,6 +49,7 @@ func TestSkillDriftSingleHarnessStates(t *testing.T) {
 }
 
 func TestSkillDriftSingleHarnessCouldNotRun(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	dep := w.skillPath(claudeRel)
 	if err := os.MkdirAll(filepath.Dir(dep), 0o755); err != nil {
@@ -76,6 +78,7 @@ func TestSkillDriftSingleHarnessCouldNotRun(t *testing.T) {
 }
 
 func TestSkillDriftKitInstallMissing(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	if err := os.Remove(filepath.Join(w.kit, "install", "adapters.sh")); err != nil {
 		t.Fatal(err)
@@ -88,6 +91,7 @@ func TestSkillDriftKitInstallMissing(t *testing.T) {
 }
 
 func TestSkillDriftArgumentContract(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	for _, c := range []struct {
 		args []string
@@ -108,6 +112,7 @@ func TestSkillDriftArgumentContract(t *testing.T) {
 }
 
 func TestSkillDriftHelpIsTheScriptHeader(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	for _, flag := range []string{"-h", "--help"} {
 		out, errs, rc := w.runGo(flag)
@@ -129,6 +134,7 @@ func TestSkillDriftHelpIsTheScriptHeader(t *testing.T) {
 }
 
 func TestSkillDriftHomeResolution(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	w.deploy(claudeRel, sdKitSkill)
 	const noHome = "verify-skill-drift: could-not-run: HOME is unset or empty and no --home given\n"
@@ -139,6 +145,7 @@ func TestSkillDriftHomeResolution(t *testing.T) {
 }
 
 func TestSkillDriftAllMode(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	w.wantRun([]string{"--all"}, "", "", 0) // every harness absent is normal and silent
 
@@ -160,6 +167,7 @@ func TestSkillDriftAllMode(t *testing.T) {
 }
 
 func TestSkillDriftAllModeCouldNotRunOutranksNothingButDivergedOutranksIt(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	w.deploy(claudeRel, sdKitSkill)
 	dep := w.skillPath(piRel)
@@ -181,6 +189,7 @@ func TestSkillDriftAllModeCouldNotRunOutranksNothingButDivergedOutranksIt(t *tes
 }
 
 func TestSkillDriftAllModeKitSourceMissing(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	w.deploy(claudeRel, sdKitSkill)
 	if err := os.Remove(filepath.Join(w.kit, "skills", "research-sdd", "SKILL.md")); err != nil {
@@ -192,6 +201,7 @@ func TestSkillDriftAllModeKitSourceMissing(t *testing.T) {
 }
 
 func TestSkillDriftAllModeUnreadableDeployed(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a mode-000 file")
 	}

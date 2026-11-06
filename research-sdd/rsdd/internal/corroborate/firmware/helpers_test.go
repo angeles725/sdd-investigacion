@@ -12,6 +12,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/adapter"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 )
 
 // TestMain lets the test binary stand in for rsdd as the rlimit re-exec helper that runBounded starts.
@@ -108,14 +109,12 @@ func (w *world) write(name string, data []byte) string {
 	return w.path(name)
 }
 
-// exe writes an executable script (0755: not group- or world-writable, whatever the umask).
+// exe writes an executable script (0755: not group- or world-writable, whatever the umask). Parallel tests build
+// worlds, so the write goes through execfile.Write: no fork can leak the open descriptor into a child (ETXTBSY).
 func (w *world) exe(name, script string) string {
 	w.t.Helper()
-	p := w.write(name, []byte(script))
-	if err := os.Chmod(p, 0o755); err != nil {
-		w.t.Fatal(err)
-	}
-	return p
+	execfile.Write(w.t, w.path(name), script)
+	return w.path(name)
 }
 
 // analyzer installs a fake binwalk in its own directory and returns the directory.

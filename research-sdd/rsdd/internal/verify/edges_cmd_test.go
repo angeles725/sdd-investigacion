@@ -12,7 +12,7 @@ import (
 )
 
 // Command-level edges that the first teeth run of this package left alive (kit issue #2592). The skill-drift
-// cases write and exec stubs, so they stay serial (ETXTBSY under parallel forks, see main_test.go).
+// cases write and exec stubs through testkit/execfile (sdWorld.put), so they run in parallel without ETXTBSY.
 
 // With no --kit the registry resolves the kit from RESEARCH_SDD_KIT, the way the portable hook does, and reports
 // exactly what an explicit --kit reports.
@@ -43,7 +43,7 @@ func TestRegistryHookTrailingKitFlagIsIgnored(t *testing.T) {
 	k.blocks("alpha", 3)
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(3 blocks)")))
 	k.write("kit/toolbelt/verify-registry.sh", "#!/usr/bin/env bash\n")
-	want, _, _ := k.runHook(nil)
+	plain, _, _ := k.runHook(nil)
 	e := k.env(map[string]string{"RESEARCH_SDD_KIT": k.kit})
 	var out, errb bytes.Buffer
 	s := cli.Stdio{In: strings.NewReader(""), Out: &out, Err: &errb, Env: func(key string) string { return e[key] },
@@ -58,13 +58,14 @@ func TestRegistryHookTrailingKitFlagIsIgnored(t *testing.T) {
 	if out.String() != fullRaw {
 		t.Errorf("a trailing --kit changed the report:\n got %q\nwant %q", out.String(), fullRaw)
 	}
-	if want == full {
+	if plain == full {
 		t.Error("--full made no difference here; the case would not show that --full was still honoured")
 	}
 }
 
 // With no arguments skill-drift resolves the kit from RESEARCH_SDD_KIT and checks the default harness.
 func TestSkillDriftWithNoArguments(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	w.deploy(claudeRel, sdKitSkill)
 	w.put(filepath.Join(w.kit, "toolbelt", "verify-skill-drift.sh"), "#!/usr/bin/env bash\n", 0o644)
@@ -82,6 +83,7 @@ func TestSkillDriftWithNoArguments(t *testing.T) {
 
 // The shortest absolute override ("/p", two characters) is accepted.
 func TestSkillDriftPiOverrideOfTwoCharacters(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	for _, v := range []string{"/p", "/p/", "/p//"} {
 		w.env["GENTLE_PI_AGENT_HOME"] = v
@@ -91,6 +93,7 @@ func TestSkillDriftPiOverrideOfTwoCharacters(t *testing.T) {
 
 // The throwaway render lives under $TMPDIR; an unusable $TMPDIR is a could-not-run, never a silent /tmp.
 func TestSkillDriftRenderHonoursTMPDIR(t *testing.T) {
+	t.Parallel()
 	w := profileWorld(t)
 	w.installProfile(piRel, "general")
 	w.env["TMPDIR"] = filepath.Join(w.root, "no-such-dir")
@@ -100,10 +103,19 @@ func TestSkillDriftRenderHonoursTMPDIR(t *testing.T) {
 
 // A single-harness check leaves no render directory behind (the --all path is covered elsewhere).
 func TestSkillDriftSingleHarnessLeavesNoTempDir(t *testing.T) {
+	t.Parallel()
 	w := profileWorld(t)
 	w.installProfile(piRel, "general")
 	w.wantRun([]string{"--harness", "pi"}, "", "", 0)
-	if left, _ := os.ReadDir(w.env["TMPDIR"]); len(left) != 0 {
+	tmp := w.env["TMPDIR"]
+	if tmp == "" {
+		t.Fatal("the world sets no TMPDIR; the leak check would look nowhere")
+	}
+	left, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatalf("cannot list TMPDIR, so the leak check proves nothing: %v", err)
+	}
+	if len(left) != 0 {
 		t.Errorf("throwaway render dirs left behind in TMPDIR: %v", left)
 	}
 }
@@ -111,6 +123,7 @@ func TestSkillDriftSingleHarnessLeavesNoTempDir(t *testing.T) {
 // The kit is a subdirectory of its checkout (research-sdd/ under the repo root): that is the kit's own
 // repository, so staleness is measured, not reported as an unrelated repo.
 func TestSkillDriftHookKitInASubdirectoryOfItsCheckout(t *testing.T) {
+	t.Parallel()
 	w := hookWorld(t)
 	repo := w.gitKit(3)
 	sub := filepath.Join(repo, "research-sdd")
