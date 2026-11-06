@@ -64,9 +64,12 @@ func TestHookKeepsAnInvalidWarnLine(t *testing.T) {
 // D5: the check takes one argument at most.
 func TestRunRejectsExtraArguments(t *testing.T) {
 	t.Parallel()
-	got := runGo(kit(t, files(logOf("a"), regOf("a"))), "C", Run, "x", "y")
-	if got.code != 2 || got.stdout != "" || got.stderr != "usage: rsdd verify tool-catalog [<toolbelt-dir>]\n" {
-		t.Errorf("got %+v, want the usage line on stderr and exit 2", got)
+	dir := kit(t, files(logOf("a"), regOf("a")))
+	for _, args := range [][]string{{"x", "y"}, {""}} { // an empty operand would otherwise read /INSTALLED-TOOLS.md
+		got := runGo(dir, "C", Run, args...)
+		if got.code != 2 || got.stdout != "" || got.stderr != "usage: rsdd verify tool-catalog [<toolbelt-dir>]\n" {
+			t.Errorf("%q: got %+v, want the usage line on stderr and exit 2", args, got)
+		}
 	}
 }
 

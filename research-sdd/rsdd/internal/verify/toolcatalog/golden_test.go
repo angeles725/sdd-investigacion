@@ -41,7 +41,12 @@ func digestFiles(files map[string]string) string {
 
 // entry renders one observed run: the temporary directory is written {D}, so the entry does not depend on where it is.
 func entry(name, digest, dir string, o observed) string {
-	norm := func(s string) string { return strings.ReplaceAll(s, dir, "{D}") }
+	norm := func(s string) string {
+		if dir == "" { // a stub entry has no directory: replacing "" would put {D} between every character
+			return s
+		}
+		return strings.ReplaceAll(s, dir, "{D}")
+	}
 	return fmt.Sprintf("%s\n  input  %s\n  exit   %d\n  stdout %q\n  stderr %q\n", name, digest, o.code, norm(o.stdout), norm(o.stderr))
 }
 

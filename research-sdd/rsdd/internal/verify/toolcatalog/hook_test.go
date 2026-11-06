@@ -63,7 +63,7 @@ func TestHookPanicIsCouldNotRun(t *testing.T) {
 	}
 }
 
-// `--full` is read as the first argument, or the one after the directory; anything else is the directory or ignored.
+// `--full` is read anywhere; the directory at most once, non-empty and not a flag; anything else is a usage context.
 func TestHookArguments(t *testing.T) {
 	t.Parallel()
 	drift := warn("a") + "\n" + warn("b") + "\n" + summary("2", "0", "2")
@@ -82,9 +82,8 @@ func TestHookArguments(t *testing.T) {
 		{[]string{"--full"}, "/cwd", true},
 		{[]string{"/d"}, "/d", false},
 		{[]string{"/d", "--full"}, "/d", true},
-		{[]string{"/d", "x", "--full"}, "/d", false},
-		{[]string{"--full", "/d"}, "/cwd", true},
-		{[]string{"/d", "--fullx"}, "/d", false},
+		{[]string{"--full", "/d"}, "/d", true},
+		{[]string{"--full", "--full"}, "/cwd", true},
 	} {
 		dirs = nil
 		ctx := contextOfOutput(t, hookRun(spy, c.args...))
@@ -110,5 +109,19 @@ func TestHookPassesTheLocale(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].utf8 || !got[1].utf8 {
 		t.Errorf("locales seen %v, want the C locale then UTF-8", got)
+	}
+}
+
+// A call the hook cannot read runs nothing and says so, capped, and the hook still exits 0.
+func TestHookUsageIsACouldNotRunContext(t *testing.T) {
+	t.Parallel()
+	ran := false
+	spy := func(string, locale, io.Writer, io.Writer) int { ran = true; return 0 }
+	want := hookUsageHeader + "\n" + hookUsageLine
+	for _, args := range [][]string{{"/d", "x"}, {"/d", "x", "--full"}, {"/d", "--fullx"}, {"-x"}, {""}, {"--full", ""}} {
+		got := hookRun(spy, args...)
+		if ctx := contextOfOutput(t, got); got.code != 0 || ctx != want || ran {
+			t.Errorf("%q: exit %d, ran %v, context %q, want %q", args, got.code, ran, ctx, want)
+		}
 	}
 }

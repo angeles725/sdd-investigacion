@@ -230,3 +230,26 @@ func TestNumbersAndSummaryParsing(t *testing.T) {
 		t.Errorf("a later non-zero count is drift: %q", ctx)
 	}
 }
+
+// The locale is LC_ALL, else LC_CTYPE, else LANG (an empty value falls through, as in glibc), and only a UTF-8
+// codeset in either spelling makes it a UTF-8 locale.
+func TestLocaleOf(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		all, ctype, lang string
+		utf8             bool
+	}{
+		{"", "", "", false},
+		{"C.UTF-8", "", "", true},
+		{"C", "en_US.UTF-8", "en_US.UTF-8", false}, // LC_ALL wins
+		{"", "en_US.utf8", "C", true},              // then LC_CTYPE
+		{"", "C", "en_US.UTF-8", false},
+		{"", "", "es_MX.UTF-8", true}, // then LANG
+		{"", "", "en_US.ISO-8859-1", false},
+	} {
+		env := map[string]string{"LC_ALL": c.all, "LC_CTYPE": c.ctype, "LANG": c.lang}
+		if got := localeOf(func(k string) string { return env[k] }); got.utf8 != c.utf8 {
+			t.Errorf("LC_ALL=%q LC_CTYPE=%q LANG=%q: utf8 = %v, want %v", c.all, c.ctype, c.lang, got.utf8, c.utf8)
+		}
+	}
+}

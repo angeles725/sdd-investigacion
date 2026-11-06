@@ -21,6 +21,8 @@
 //   - An input that exists but cannot be read is an operational failure (exit 1, "unreadable-input"). The script
 //     swallowed the read error and reported an empty log, or every tool as uncataloged.
 //   - The envelope is always JSON; the script printed plain text when jq was missing.
-//   - The check takes at most one argument; the script ignored its arguments.
+//   - The check takes at most one non-empty argument; the script ignored its arguments.
+//   - The hook reads --full anywhere and one directory; any other call is a capped usage context. The script read
+//     only $1 == --full and dropped the rest unseen.
 //   - The "WARN-line extraction failed" notice is gone with grep: selecting lines in Go cannot fail.
 package toolcatalog

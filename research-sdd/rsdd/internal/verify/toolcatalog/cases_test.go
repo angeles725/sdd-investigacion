@@ -100,8 +100,6 @@ func hookCases() []runCase {
 		{name: "hook drift names with comma and apostrophe, full", hook: true, files: files(logOf("a,b", "o'brien", "plain"), regHead), args: []string{"--full"}},
 		{name: "hook drift from a heading", hook: true, files: files("## h-tool (x)\n"+logOf("t-tool"), regHead)},
 		{name: "hook drift first, middle and last", hook: true, files: files(logOf("one", "two", "three", "four", "five"), regOf("two", "four"))},
-		{name: "hook --full only counts as the first argument", hook: true, files: files(logOf("typst"), regHead), args: []string{"x", "--full"}},
-		{name: "hook an unknown first argument is compact", hook: true, files: files(logOf("typst"), regHead), args: []string{"--compact"}},
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 //
 // Exit: 0 clean or advisory findings, 1 an input missing or unreadable, 2 usage.
 func Run(args []string, s cli.Stdio) int {
-	if len(args) > 1 {
+	if len(args) > 1 || len(args) == 1 && args[0] == "" { // an empty operand would read /INSTALLED-TOOLS.md
 		fmt.Fprintln(s.Err, usageLine)
 		return cli.ExitUsage
 	}

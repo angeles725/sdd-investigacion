@@ -24,6 +24,8 @@ const (
 	hookCleanFmt       = "Research-SDD tool catalog: clean (%s logged tools, 0 uncataloged)."
 	hookCollapsedFmt   = "WARN  installed-but-not-cataloged (%d): %s — add a tool-registry.md row each (propose-never-apply)."
 	hookFullList       = "Run toolbelt/verify-tool-catalog.sh for the full list."
+	hookUsageHeader    = "Research-SDD tool catalog hook could not run (usage error):"
+	hookUsageLine      = "usage: rsdd verify tool-catalog-hook [<toolbelt-dir>] [--full]"
 	hookRerun          = "rsdd verify tool-catalog" // the command whose own output a capped failure context points at (#2631)
 	notCatalogedWarn   = "WARN  installed-but-not-cataloged: '"
 	compactWarnBytes   = 160 // `cut -c1-160` counts bytes

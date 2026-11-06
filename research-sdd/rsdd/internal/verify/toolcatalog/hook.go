@@ -29,11 +29,11 @@ func RunHook(args []string, s cli.Stdio) int {
 }
 
 func runHook(args []string, s cli.Stdio, run hookCheck) int {
-	dir := s.Cwd
-	if len(args) > 0 && args[0] != "--full" {
-		dir, args = args[0], args[1:]
+	dir, full, ok := hookArgs(args, s.Cwd)
+	if !ok { // a hook never fails the session: a bad call is a could-not-run context, never silence
+		hookenv.WriteSessionStart(s.Out, hookenv.FailureContext(hookUsageHeader, hookUsageLine, hookRerun))
+		return cli.ExitOK
 	}
-	full := len(args) > 0 && args[0] == "--full"
 	var buf bytes.Buffer // one writer for both streams, so the order is the script's `2>&1`
 	// the check exits 1 only when it could not run, so a panic (cli.ExitOperational, also 1) shares that header
 	rc := hookenv.Guard(&buf, func() int { return run(dir, localeOf(s.Env), &buf, &buf) })
@@ -46,4 +46,21 @@ func emitHook(w io.Writer, out string, rc int, full bool) {
 	if ctx, emit := hookContext(out, rc, full); emit {
 		hookenv.WriteSessionStart(w, ctx)
 	}
+}
+
+// hookArgs reads `[<toolbelt-dir>] [--full]` in either order: --full anywhere, the directory at most once, never
+// empty and never starting with "-" (the script read only $1 and dropped the rest unseen). ok=false is a usage error.
+func hookArgs(args []string, cwd string) (dir string, full, ok bool) {
+	dir, seen := cwd, false
+	for _, a := range args {
+		if a == "--full" {
+			full = true
+			continue
+		}
+		if a == "" || seen || strings.HasPrefix(a, "-") {
+			return "", false, false
+		}
+		dir, seen = a, true
+	}
+	return dir, full, true
 }
