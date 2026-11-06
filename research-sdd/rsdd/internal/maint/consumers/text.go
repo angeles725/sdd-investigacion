@@ -2,7 +2,7 @@ package consumers
 
 // Every string the command prints is here, apart from the limits (limits.go) and the help text (help.txt).
 const (
-	usageLine = "usage: rsdd maint consumers [--repo DIR]\n"
+	usageLine = "usage: rsdd maint consumers [--repo DIR] [--refs] [--script NAME]\n"
 
 	reportRepository = "consumers: repository %s\n"
 	reportKit        = "kit: %s/research-sdd\n"

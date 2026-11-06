@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const wantUsage = "usage: rsdd maint consumers [--repo DIR]\n"
+const wantUsage = "usage: rsdd maint consumers [--repo DIR] [--refs] [--script NAME]\n"
 
 func TestUsageErrors(t *testing.T) {
 	f := newFixture(t)
@@ -17,6 +17,8 @@ func TestUsageErrors(t *testing.T) {
 		{"a positional argument", "unknown argument: extra", []string{"extra"}},
 		{"--repo without a value", "--repo needs a value", []string{"--repo"}},
 		{"--repo with an empty value", "--repo needs a value", []string{"--repo", ""}},
+		{"--script without a value", "--script needs a value", []string{"--script"}},
+		{"--script with an empty value", "--script needs a value", []string{"--refs", "--script", ""}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

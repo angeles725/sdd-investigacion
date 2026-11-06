@@ -10,3 +10,7 @@
   could not be read, so no count is printed; exit 3, stdout `consumers: degraded`. Continuation: install git, or point `--repo` at a work tree.
 - `consumers: error: git ls-files failed (exit code <N>) in <repository>` (same tool): git ran and failed; exit 1. A file git lists that cannot
   be read is also an error (exit 1, one `consumers: error: cannot read <path>: <why>` line per file), never a zero.
+- `consumers: no-match: no file names a live script` and `consumers: no-match: no file names <script>` (same tool, `--refs`): the file list was read and
+  no pair exists; exit 0, nothing on stdout. In the report the same state is the word `no-match` on a class row, and an empty class is `no files` or
+  `none read` (every file binary or not regular), never a bare 0. `consumers: script <name> is not live` (`--refs --script`) says the name asked for is
+  not a live script; the report prints `script: <name> (not live)`.

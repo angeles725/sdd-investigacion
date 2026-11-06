@@ -1,7 +1,11 @@
 rsdd maint consumers - list the live kit scripts and state what names them
 
-Usage: rsdd maint consumers [--repo DIR]
-  --repo DIR   the repository to read (default: the work tree that holds the working directory)
+Usage: rsdd maint consumers [--repo DIR] [--refs] [--script NAME]
+  --repo DIR     the repository to read (default: the work tree that holds the working directory)
+  --refs         print one line per pair instead of the report: class, file, script and count, separated
+                 by tabs, sorted by class, file and script
+  --script NAME  restrict the report (or --refs) to one basename; NAME may be a name that is not a live
+                 script (after a deletion, who still names it?) and the output then says so
   -h, --help   this text
 
 The files are `git ls-files -z --cached --others --exclude-standard` in the repository: tracked files plus
@@ -12,6 +16,24 @@ with the extension .sh, .py, .mjs, .cjs, .js, .ts or .java, read from the tree o
 excluded and every run prints how many files each removed: a name that contains `.test.`, a directory named
 `fixtures`, and a directory named `node_modules`. A file is counted under one of them, `fixtures` first, then
 `.test.`, then `node_modules`, so the counts add up to the files removed.
+
+A reference is an occurrence of a live script's basename as a whole name: not preceded by a letter, a digit,
+'_', '.' or '-', and not followed by a letter, a digit, '_' or '-', nor by '.' and a letter or digit (letters are
+ASCII). A script that names itself is not its own consumer; it is counted apart (the self-only column is the
+files that name only themselves). Two live scripts with the same basename are one name, and a reference is
+counted once under it; the report lists them as ambiguous basenames.
+
+Files are classified by the first rule that holds: research-sdd/rsdd/ (the Go module, not read), a directory
+named `fixtures` (not read), .github/ (CI workflows), .claude/ and research-sdd/install/pi/ (harness wiring),
+research-sdd/templates/ (templates), a name that contains `.test.` (bash tests), a live script (scripts), *.md
+(doctrine and registries), *.txt under research-sdd/toolbelt/ (lists), anything else (unclassified; every
+unclassified file with a reference is printed). A file with a NUL byte in its first 8,192 bytes is binary and
+a file that is not a regular file (a symbolic link, a submodule) is not read; both are counted, never skipped
+silently. A listed file that cannot be read is an error that names it.
+
+A class prints a word, not a bare 0, when it has nothing to count: `no files` (the class holds no file),
+`none read` (all its files were binary or not regular), `no-match` (it was read and names no script), `none`
+(no file of the class names only itself); `n/a` fills the cells that cannot be counted.
 
 Every run prints its limits and states that the Go module is not enumerated by this version.
 
