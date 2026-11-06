@@ -227,30 +227,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   lib_tooth HB '/RANGE-HDR-VOCAB/ s/|rango)\$/|rango|blocked.*)$/' "focus_range_report '$TMP/bk/RESEARCH-STATE.md' '%s|%s\\n' | grep -c 'found elsewhere'" 1
   lib_tooth HF '/RANGE-HDR-FALLBACK/ s/fb=1//' "focus_range_report '$TMP/fb/RESEARCH-STATE.md' '%s|%s\\n' | grep -c 'found elsewhere'" 0
   lib_tooth R '/RANGE-ROOT-ONLY/ s/RESEARCH-STATE.md/RESEARCH-STATE-o.md/' "$P_RANGE" ""
-  # site_tooth NAME FILE SEDEXPR MODE(sync|display|verify) CB MALFORMED(0|1) PATTERN — the mutated TOOL must print PATTERN
-  # (the wrong behaviour); each pattern is also what the unmutated tool does NOT print on the same fixture (asserted above).
-  site_tooth() {
-    local name="$1" file="$2" expr="$3" mode="$4" cb="$5" mal="$6" pat="$7" t d o
-    t="$(mk_tree "$name")"; d="$MT/fx-$name"; rm -rf "$d"; mkcorpus "$d" "$cb"
-    [ "$mal" = 1 ] && sed -i 's/B2–B4/B9–B3/' "$d/FOCUSES.md"
-    [ -n "${FXSED:-}" ] && sed -i "$FXSED" "$d/FOCUSES.md"
-    if ! mutant_sed "$TB/$file" "$t/$file" "$expr" >/dev/null 2>&1; then no "teeth $name: mutant unbuildable"; return; fi
-    case "$mode" in
-      sync) o="$(bash "$t/research-sdd-status.sh" "$d" --sync-state --root 2>&1)"; o="$o $(env_val "$d/RESEARCH-STATE.md" covered_blocks)" ;;
-      display) o="$(bash "$t/research-sdd-status.sh" "$d" --root 2>&1)" ;;
-      verify) o="$(bash "$t/verify-state.sh" "$d" 2>/dev/null)" ;;
-    esac
-    if [ "${pat#ABSENT:}" != "$pat" ]; then
-      if grep -qF -- "${pat#ABSENT:}" <<<"$o"; then no "teeth $name: '${pat#ABSENT:}' still shown — THEATER"; else ok "teeth $name: mutant no longer shows '${pat#ABSENT:}'"; fi
-    elif grep -qF -- "$pat" <<<"$o"; then ok "teeth $name: mutant shows the wrong '$pat'"; else no "teeth $name: '$pat' not shown — THEATER: $(head -c 200 <<<"$o")"; fi
-  }
-  site_tooth SY research-sdd-status.sh '/RANGE-SYNC-COUNT/ s/cb=.*/cb=99/' sync 0 0 ' 99'
-  site_tooth DI research-sdd-status.sh '/RANGE-DISPLAY-COUNT/ s/ondisk=.*/ondisk=99/' display 0 0 '99 on disk'
-  site_tooth WS research-sdd-status.sh '/# RANGE-REPORT/ s/focus_range_report [^;]*;/:;/' sync 0 1 'ABSENT:B9–B3'
+  # The status-script teeth SY (sync count), DI (display count), WS (malformed-range report) and CW (corpus-wide guard) mutated the bash body, a shim since kit issue #2549; they are Go mutants now, pinned by the S3 scenarios cb-range-counts-numbers-in-range, cb-range-malformed-ignored-with-warn and cw-root-with-range-is-scoped and the S6 scenarios h-on-disk-with-a-range and h-on-disk-malformed-range-counts-everything (internal/status/show, replayed against goldens).
   # verify-state is a shim over the Go port (kit #2457): its former teeth VE (range count), WV (malformed-range report),
   # UN (unit text), CS (cannot-see condition) and CM (CHECK A message) are Go mutants, killed by the internal/verify
   # TestDifferentialState cases range-corpus-* (RED recorded in the PR). Cases 8c-8k above still run the shim.
-  site_tooth CW research-sdd-status.sh 's/\[ -z "\$_sfpfx" \] \&\& \[ -z "\$_sfrange" \] \&\&/[ -z "$_sfpfx" ] \&\&/' sync 0 0 'CORPUS-WIDE'
 fi
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

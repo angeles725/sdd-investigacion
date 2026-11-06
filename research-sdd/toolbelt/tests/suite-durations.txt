@@ -94,7 +94,6 @@ research-sdd/toolbelt/tests/research-sdd-status-deferred-populations.test.sh 206
 research-sdd/toolbelt/tests/research-sdd-status-focus-scope.test.sh 10
 research-sdd/toolbelt/tests/research-sdd-status-root-pick.test.sh 12
 research-sdd/toolbelt/tests/research-sdd-status-unreadable-stop.test.sh 19
-research-sdd/toolbelt/tests/research-sdd-status-visibility.test.sh 67
 research-sdd/toolbelt/tests/resume-render.test.sh 3
 research-sdd/toolbelt/tests/resume-state-json.test.sh 28
 research-sdd/toolbelt/tests/resume-state.test.sh 21

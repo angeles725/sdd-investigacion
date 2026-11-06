@@ -15,102 +15,104 @@ const (
 	DegradedRemoteVisibilityVNotAGithubOwnerRepo Code = 4
 	// DegradedRemoteVisibilityGhProbeCouldNotRunVForRemote is the registry row "degraded: remote-visibility: gh probe could not run (<v>) for remote".
 	DegradedRemoteVisibilityGhProbeCouldNotRunVForRemote Code = 5
-	// DegradedRemoteVisibilityLibGhVisibilityShUnavailable is the registry row "degraded: remote-visibility: lib/gh-visibility.sh unavailable".
-	DegradedRemoteVisibilityLibGhVisibilityShUnavailable Code = 6
 	// DegradedRemoteVisibilityGhTimedOutForRemote is the registry row "degraded: remote-visibility: gh timed out for remote".
-	DegradedRemoteVisibilityGhTimedOutForRemote Code = 7
+	DegradedRemoteVisibilityGhTimedOutForRemote Code = 6
 	// DegradedRemoteVisibilitySkippedAfterTimeoutForRemote is the registry row "degraded: remote-visibility: skipped after timeout for remote".
-	DegradedRemoteVisibilitySkippedAfterTimeoutForRemote Code = 8
+	DegradedRemoteVisibilitySkippedAfterTimeoutForRemote Code = 7
 	// DegradedRemoteVisibilityGhFailedRcVForRemote is the registry row "degraded: remote-visibility: gh failed (rc=<v>) for remote".
-	DegradedRemoteVisibilityGhFailedRcVForRemote Code = 9
+	DegradedRemoteVisibilityGhFailedRcVForRemote Code = 8
 	// DegradedRemoteVisibilityUnrecognisedGhAnswerVForRemote is the registry row "degraded: remote-visibility: unrecognised gh answer [<v>] for remote".
-	DegradedRemoteVisibilityUnrecognisedGhAnswerVForRemote Code = 10
+	DegradedRemoteVisibilityUnrecognisedGhAnswerVForRemote Code = 9
+	// DegradedCannotListTheStateFilesUnderV is the registry row "degraded: cannot list the state files under <v>:".
+	DegradedCannotListTheStateFilesUnderV Code = 10
+	// DegradedVerifyStateUnavailableV is the registry row "degraded: verify-state unavailable (<v>)".
+	DegradedVerifyStateUnavailableV Code = 11
 	// DegradedBlockedOpenBlockedOpenCountRc is the registry row "degraded: blocked_open: blocked_open_count rc".
-	DegradedBlockedOpenBlockedOpenCountRc Code = 11
+	DegradedBlockedOpenBlockedOpenCountRc Code = 12
 	// DegradedMissingRuntimeDependency is the registry row "degraded: missing runtime dependency:".
-	DegradedMissingRuntimeDependency Code = 12
+	DegradedMissingRuntimeDependency Code = 13
 	// DegradedGhNotFoundOnPATH is the registry row "degraded: gh not found on PATH".
-	DegradedGhNotFoundOnPATH Code = 13
+	DegradedGhNotFoundOnPATH Code = 14
 	// DegradedGitNotFoundOnPATH is the registry row "degraded: git not found on PATH".
-	DegradedGitNotFoundOnPATH Code = 14
+	DegradedGitNotFoundOnPATH Code = 15
 	// DegradedGitCouldNotReadTheStateOfTheKitRepoInVV is the registry row "degraded: git could not read the state of the kit repo in <v> (<v>)".
-	DegradedGitCouldNotReadTheStateOfTheKitRepoInVV Code = 15
+	DegradedGitCouldNotReadTheStateOfTheKitRepoInVV Code = 16
 	// DegradedGitFetchOriginFailed is the registry row "degraded: git fetch origin failed".
-	DegradedGitFetchOriginFailed Code = 16
+	DegradedGitFetchOriginFailed Code = 17
 	// DegradedVIsNotAGitRepository is the registry row "degraded: <v> is not a git repository".
-	DegradedVIsNotAGitRepository Code = 17
+	DegradedVIsNotAGitRepository Code = 18
 	// DegradedGitCouldNotBeRunInVV is the registry row "degraded: git could not be run in <v> (<v>)".
-	DegradedGitCouldNotBeRunInVV Code = 18
+	DegradedGitCouldNotBeRunInVV Code = 19
 	// DegradedGitCouldNotResolveRefVInVV is the registry row "degraded: git could not resolve ref <v> in <v> (<v>)".
-	DegradedGitCouldNotResolveRefVInVV Code = 19
+	DegradedGitCouldNotResolveRefVInVV Code = 20
 	// DegradedRefVIsNotKnownLocallyInVNoFetchIsPerformed is the registry row "degraded: ref <v> is not known locally in <v> (no fetch is performed)".
-	DegradedRefVIsNotKnownLocallyInVNoFetchIsPerformed Code = 20
+	DegradedRefVIsNotKnownLocallyInVNoFetchIsPerformed Code = 21
 	// DegradedRetrosDirectoryNotListable is the registry row "degraded: retros directory not listable:".
-	DegradedRetrosDirectoryNotListable Code = 21
+	DegradedRetrosDirectoryNotListable Code = 22
 	// DegradedLaterRetroNotReadable is the registry row "degraded: later retro not readable:".
-	DegradedLaterRetroNotReadable Code = 22
+	DegradedLaterRetroNotReadable Code = 23
 	// DegradedGhIssueListClosedOldGhFallbackFailedExitV is the registry row "degraded: gh issue list (closed, old-gh fallback) failed (exit <v>)".
-	DegradedGhIssueListClosedOldGhFallbackFailedExitV Code = 23
+	DegradedGhIssueListClosedOldGhFallbackFailedExitV Code = 24
 	// DegradedGhApiStateReasonListingFailedThisGhHasNoStateReasonJsonField is the registry row "degraded: gh api state_reason listing failed (this gh has no stateReason --json field)".
-	DegradedGhApiStateReasonListingFailedThisGhHasNoStateReasonJsonField Code = 24
+	DegradedGhApiStateReasonListingFailedThisGhHasNoStateReasonJsonField Code = 25
 	// DegradedGhIsNotAuthenticated is the registry row "degraded: gh is not authenticated".
-	DegradedGhIsNotAuthenticated Code = 25
+	DegradedGhIsNotAuthenticated Code = 26
 	// DegradedRECONCILEISSUESLISTLIMITMustBeAPositiveIntegerGotV is the registry row "degraded: RECONCILE_ISSUES_LIST_LIMIT must be a positive integer (got '<v>')".
-	DegradedRECONCILEISSUESLISTLIMITMustBeAPositiveIntegerGotV Code = 26
+	DegradedRECONCILEISSUESLISTLIMITMustBeAPositiveIntegerGotV Code = 27
 	// DegradedSTAGERETROISSUESLISTLIMITMustBeAPositiveIntegerGotV is the registry row "degraded: STAGE_RETRO_ISSUES_LIST_LIMIT must be a positive integer (got '<v>')".
-	DegradedSTAGERETROISSUESLISTLIMITMustBeAPositiveIntegerGotV Code = 27
+	DegradedSTAGERETROISSUESLISTLIMITMustBeAPositiveIntegerGotV Code = 28
 	// DegradedClosedCacheFileNotReadable is the registry row "degraded: --closed-cache file not readable:".
-	DegradedClosedCacheFileNotReadable Code = 28
+	DegradedClosedCacheFileNotReadable Code = 29
 	// DegradedIssuesCacheFileNotReadable is the registry row "degraded: --issues-cache file not readable:".
-	DegradedIssuesCacheFileNotReadable Code = 29
+	DegradedIssuesCacheFileNotReadable Code = 30
 	// DegradedGhIssueListClosedFailedForVExitV is the registry row "degraded: gh issue list (closed) failed for <v> (exit <v>)".
-	DegradedGhIssueListClosedFailedForVExitV Code = 30
+	DegradedGhIssueListClosedFailedForVExitV Code = 31
 	// DegradedGhIssueListClosedReturnedVResultsTheLimitVCapFor is the registry row "degraded: gh issue list (closed) returned <v> results = the --limit <v> cap for".
-	DegradedGhIssueListClosedReturnedVResultsTheLimitVCapFor Code = 31
+	DegradedGhIssueListClosedReturnedVResultsTheLimitVCapFor Code = 32
 	// DegradedGhIssueListFailedForVExitV is the registry row "degraded: gh issue list failed for <v> (exit <v>)".
-	DegradedGhIssueListFailedForVExitV Code = 32
+	DegradedGhIssueListFailedForVExitV Code = 33
 	// DegradedGhIssueListReturnedVResultsTheLimitVCapFor is the registry row "degraded: gh issue list returned <v> results = the --limit <v> cap for".
-	DegradedGhIssueListReturnedVResultsTheLimitVCapFor Code = 33
+	DegradedGhIssueListReturnedVResultsTheLimitVCapFor Code = 34
 	// DegradedRetroNotReadable is the registry row "degraded: retro not readable:".
-	DegradedRetroNotReadable Code = 34
+	DegradedRetroNotReadable Code = 35
 	// DegradedTheReviewStatusMarkerOfVListsAShippedRangeTooLargeToExpandV is the registry row "degraded: the review-status marker of <v> lists a shipped: range too large to expand (<v>)".
-	DegradedTheReviewStatusMarkerOfVListsAShippedRangeTooLargeToExpandV Code = 35
+	DegradedTheReviewStatusMarkerOfVListsAShippedRangeTooLargeToExpandV Code = 36
 	// DegradedCannotResolveARegisteredTargetNameForVTargetNameForRetroRcV is the registry row "degraded: cannot resolve a registered target name for <v> (target_name_for_retro rc=<v>)".
-	DegradedCannotResolveARegisteredTargetNameForVTargetNameForRetroRcV Code = 36
+	DegradedCannotResolveARegisteredTargetNameForVTargetNameForRetroRcV Code = 37
 	// DegradedCannotResolveKitIssueRepoV is the registry row "degraded: cannot resolve kit issue repo (<v>)".
-	DegradedCannotResolveKitIssueRepoV Code = 37
+	DegradedCannotResolveKitIssueRepoV Code = 38
 	// DegradedCouldNotProbeLabelVOnVGhLabelListExitV is the registry row "degraded: could not probe label '<v>' on <v> (gh label list exit <v>):".
-	DegradedCouldNotProbeLabelVOnVGhLabelListExitV Code = 38
+	DegradedCouldNotProbeLabelVOnVGhLabelListExitV Code = 39
 	// DegradedGhLabelListReturnedAnUnexpectedReplyForVOnVExpectedAJSONArray is the registry row "degraded: gh label list returned an unexpected reply for '<v>' on <v> (expected a JSON array):".
-	DegradedGhLabelListReturnedAnUnexpectedReplyForVOnVExpectedAJSONArray Code = 39
+	DegradedGhLabelListReturnedAnUnexpectedReplyForVOnVExpectedAJSONArray Code = 40
 	// DegradedTargetVIsUnregisteredInVBasenameFallback is the registry row "degraded: target '<v>' is unregistered in <v> (basename fallback)".
-	DegradedTargetVIsUnregisteredInVBasenameFallback Code = 40
+	DegradedTargetVIsUnregisteredInVBasenameFallback Code = 41
 	// DegradedLabelVIsMissingOnVAndCouldNotBeCreated is the registry row "degraded: label '<v>' is missing on <v> and could not be created:".
-	DegradedLabelVIsMissingOnVAndCouldNotBeCreated Code = 41
+	DegradedLabelVIsMissingOnVAndCouldNotBeCreated Code = 42
 	// DegradedJqNotFoundOnPATH is the registry row "degraded: jq not found on PATH".
-	DegradedJqNotFoundOnPATH Code = 42
+	DegradedJqNotFoundOnPATH Code = 43
 	// DegradedJqFailedOn is the registry row "degraded: jq failed on".
-	DegradedJqFailedOn Code = 43
+	DegradedJqFailedOn Code = 44
 	// DegradedMigrateBacklogsCannotRead is the registry row "degraded: migrate-backlogs: cannot read".
-	DegradedMigrateBacklogsCannotRead Code = 44
+	DegradedMigrateBacklogsCannotRead Code = 45
 	// DegradedMigrateBacklogsVIsNotReadableTraversableV is the registry row "degraded: migrate-backlogs: <v> is not readable/traversable (<v>)".
-	DegradedMigrateBacklogsVIsNotReadableTraversableV Code = 45
+	DegradedMigrateBacklogsVIsNotReadableTraversableV Code = 46
 	// DegradedMigrateBacklogsScanningVFailedV is the registry row "degraded: migrate-backlogs: scanning <v> failed (<v>)".
-	DegradedMigrateBacklogsScanningVFailedV Code = 46
+	DegradedMigrateBacklogsScanningVFailedV Code = 47
 	// DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt is the registry row "degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at".
-	DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt Code = 47
+	DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt Code = 48
 	// DegradedRsddUnavailable is the registry row "degraded: rsdd-unavailable".
-	DegradedRsddUnavailable Code = 48
+	DegradedRsddUnavailable Code = 49
 	// DegradedRsddSourceHashUnavailable is the registry row "degraded: rsdd-source-hash-unavailable".
-	DegradedRsddSourceHashUnavailable Code = 49
+	DegradedRsddSourceHashUnavailable Code = 50
 	// AbsentInput is the registry row "absent-input".
-	AbsentInput Code = 50
+	AbsentInput Code = 51
 	// EmptyInput is the registry row "empty-input".
-	EmptyInput Code = 51
+	EmptyInput Code = 52
 	// Unclassifiable is the registry row "unclassifiable".
-	Unclassifiable Code = 52
+	Unclassifiable Code = 53
 	// NoMatch is the registry row "no-match".
-	NoMatch Code = 53
+	NoMatch Code = 54
 )
 
 var table = []entry{
@@ -119,11 +121,12 @@ var table = []entry{
 	{text: "degraded: remote-visibility: <v> url empty or unreadable", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "a remote has no readable URL", continuation: "run `git remote -v` in the target and fix the remote URL"},
 	{text: "degraded: remote-visibility: <v> not a github owner/repo", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "the remote is not a GitHub owner/repo, so gh cannot classify it", continuation: "verify the host's visibility by hand; no tool step exists"},
 	{text: "degraded: remote-visibility: gh probe could not run (<v>) for remote", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "the shared bounded gh probe could not run (no temp file, or gh vanished between the check and the call)", continuation: "free disk / TMPDIR space, then re-run `research-sdd-status.sh`"},
-	{text: "degraded: remote-visibility: lib/gh-visibility.sh unavailable", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "the shared probe library next to the script is missing or broken, so no remote can be probed", continuation: "re-install or update the kit so `lib/gh-visibility.sh` sits beside `research-sdd-status.sh`, then re-run"},
 	{text: "degraded: remote-visibility: gh timed out for remote", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "the gh visibility call exceeded its bound", continuation: "check network access, then re-run `research-sdd-status.sh`"},
 	{text: "degraded: remote-visibility: skipped after timeout for remote", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "an earlier remote's gh call timed out, so this remote was not probed (the block's total latency stays at one bound)", continuation: "check network access, then re-run `research-sdd-status.sh`"},
 	{text: "degraded: remote-visibility: gh failed (rc=<v>) for remote", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "gh exited non-zero for the remote", continuation: "run `gh auth status`, fix the reported problem, then re-run `research-sdd-status.sh`"},
 	{text: "degraded: remote-visibility: unrecognised gh answer [<v>] for remote", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "gh answered with a value that is not a known visibility", continuation: "run `gh repo view <owner>/<repo> --json visibility` by hand and report the value as a kit issue"},
+	{text: "degraded: cannot list the state files under <v>:", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "`--next` could not list the RESEARCH-STATE files of the target (stderr line prefixed `research-sdd-status: `); exit 1, no verdict", continuation: "check that the target directory exists and is readable, then re-run `research-sdd-status.sh <target> --next`"},
+	{text: "degraded: verify-state unavailable (<v>)", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "the STALE gate of `--next` could not run `verify-state.sh` from the toolbelt directory (`RSDD_TOOLBELT_DIR` unset, script missing or not executable); stderr line prefixed `research-sdd-status: `, exit 1", continuation: "run the script through its shim (`research-sdd-status.sh`, which hands the directory over) and make sure `verify-state.sh` sits beside it"},
 	{text: "degraded: blocked_open: blocked_open_count rc", class: ClassDegraded, emitters: []string{"research-sdd-status.sh"}, meaning: "the blocked sections could not be extracted or counted (lib/blocked-rows.sh returned a non-zero status), so blocked, investigable and next step are not derived (`--next` answers `STALE` first for a repeatable failure, because verify-state CHECK C fails on the same read; its `DEGRADED` verdict line and exit 3 is the backup for a failure that appears after that gate, kit #2024)", continuation: "fix the failure named by the `blocked-rows: degraded ...` stderr line (or, when the state file itself is missing or unreadable, `blocked-rows: state file absent or unreadable`), then re-run `research-sdd-status.sh`"},
 	{text: "degraded: missing runtime dependency:", class: ClassDegraded, emitters: []string{"core/probe"}, meaning: "a required tool is absent (the Go ports emit it through core/probe)", continuation: "install the named dependency, then re-run the tool"},
 	{text: "degraded: gh not found on PATH", class: ClassDegraded, emitters: []string{"reconcile-issues.sh", "stage-retro-issues.sh"}, meaning: "the gh CLI is not installed", continuation: "install the gh CLI, then re-run the script"},
@@ -161,7 +164,7 @@ var table = []entry{
 	{text: "degraded: migrate-backlogs: <v> is not readable/traversable (<v>)", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the target directory cannot be listed, so absent cannot be told from unreadable", continuation: "fix the target path or its permissions, then re-run `migrate-backlogs.sh`"},
 	{text: "degraded: migrate-backlogs: scanning <v> failed (<v>)", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the corpus directory or a subdirectory of it could not be listed, so unreadable cannot be told from absent (nothing is reported before the scan completes)", continuation: "fix the permissions of the unreadable subdirectory named in parentheses, then re-run `migrate-backlogs.sh`"},
 	{text: "degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at", class: ClassDegraded, emitters: []string{"research-sdd-status.sh", "reconcile-issues.sh", "stage-retro-issues.sh", "stage-retro.sh", "research-sdd-init.sh", "migrate-backlogs.sh", "lib/rsdd-exec.sh"}, meaning: "the shared RSDD-SELF-DIR idiom could not finish following the script's symlink chain (40-hop limit, or `readlink` missing/failing), so the script directory is the link's own directory and lib/ may not be found", continuation: "re-run with a `readlink` on PATH and a symlink chain of 40 hops or fewer, or invoke the script by its real path"},
-	{text: "degraded: rsdd-unavailable", class: ClassDegraded, emitters: []string{"lib/rsdd-exec.sh", "reconcile-issues.sh", "stage-retro-issues.sh", "stage-retro.sh", "migrate-backlogs.sh"}, meaning: "the Go `rsdd` binary could not be resolved for a ported shim; the reason follows ` — `: `RSDD_BIN not executable: <path>`, `go not found`, `build failed`, `bin dir not writable: <dir>`, `rebuild lock busy` (another rebuild held the lock past `RSDD_EXEC_LOCK_WAIT`, default 120 s, and no binary exists) or `no sources at <path>` (via `rsdd_exec` the call fails with rc 2; via `rsdd_exec_hook` it exits 0 with a per-event answer: `sweep` a SessionStart DEGRADED headline, `guard` a PreToolUse `ask` decision, `gate` a `branch=degraded` line)", continuation: "install Go and re-run, or build a stamped binary by hand (`cd research-sdd/rsdd && make build`; a plain `go build` is unstamped and counts as stale), or point `RSDD_BIN` at an executable `rsdd`"},
+	{text: "degraded: rsdd-unavailable", class: ClassDegraded, emitters: []string{"lib/rsdd-exec.sh", "reconcile-issues.sh", "research-sdd-status.sh", "stage-retro-issues.sh", "stage-retro.sh", "migrate-backlogs.sh"}, meaning: "the Go `rsdd` binary could not be resolved for a ported shim; the reason follows ` — `: `RSDD_BIN not executable: <path>`, `go not found`, `build failed`, `bin dir not writable: <dir>`, `rebuild lock busy` (another rebuild held the lock past `RSDD_EXEC_LOCK_WAIT`, default 120 s, and no binary exists) or `no sources at <path>` (via `rsdd_exec` the call fails with rc 2; via `rsdd_exec_hook` it exits 0 with a per-event answer: `sweep` a SessionStart DEGRADED headline, `guard` a PreToolUse `ask` decision, `gate` a `branch=degraded` line)", continuation: "install Go and re-run, or build a stamped binary by hand (`cd research-sdd/rsdd && make build`; a plain `go build` is unstamped and counts as stale), or point `RSDD_BIN` at an executable `rsdd`"},
 	{text: "degraded: rsdd-source-hash-unavailable", class: ClassDegraded, emitters: []string{"lib/rsdd-exec.sh"}, meaning: "the source hash of `<kit>/rsdd` could not be computed in shell (no sha256 tool, a failed find, no source file, a path with a newline or a backslash, a sha tool that failed or answered out of step) nor by the `go run ./cmd/rsdd-srchash .` fallback (or go is absent), or a fresh rebuild still differs from the shell hash (`shell and go source hashes disagree`, remembered so it is not rebuilt in a loop); the reason follows ` — `; stderr line `rsdd-exec: degraded: rsdd-source-hash-unavailable — <reason>`, the existing binary runs unchanged (an unknown hash is never fresh and never triggers a rebuild), rc unaffected", continuation: "install a sha256 tool or Go, or remove the unusual source path, then re-run"},
 	{text: "absent-input", class: ClassInput, emitters: []string{"coverage-map.sh", "focus-partition-audit.sh", "migrate-backlogs.sh", "reconcile-issues.sh", "retro-gate.sh", "stage-retro-issues.sh", "sweep-audits.sh", "sweep-audits-hook.sh", "sweep-breakthroughs-hook.sh", "sweep-breakthroughs.sh", "sweep-retros.sh", "sweep-retros-hook.sh", "sweep-tools-hook.sh", "sweep-tools.sh", "verify-cd-physical.sh", "verify-registry.sh", "verify-retro.sh", "verify-tool-catalog.sh"}, meaning: "the file or directory was not found or not traversable", continuation: "fix the path or restore the input, then re-run; do not read the result as zero"},
 	{text: "empty-input", class: ClassInput, emitters: []string{"coverage-map.sh", "focus-partition-audit.sh", "migrate-backlogs.sh", "reconcile-issues.sh", "score-loop-transcript.sh", "stage-retro-issues.sh", "sweep-audits.sh", "sweep-audits-hook.sh", "sweep-breakthroughs-hook.sh", "sweep-breakthroughs.sh", "sweep-retros.sh", "sweep-retros-hook.sh", "sweep-tools-hook.sh", "sweep-tools.sh", "verify-cd-physical.sh", "verify-tool-catalog.sh", "maint/kit-size-check.sh"}, meaning: "the input exists and is genuinely empty", continuation: "confirm the emptiness is real; nothing to repair"},

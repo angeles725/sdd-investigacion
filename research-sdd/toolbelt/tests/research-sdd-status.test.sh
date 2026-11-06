@@ -489,14 +489,14 @@ fi
 _normalize_awk_body() {
   sed 's/# SS-/# BP-/g; s/# VS-/# BP-/g'
 }
-_mirror_status="$(awk '/# BACKLOG-ROWS-AWK-START/{p=1} p{print} /OOB-WARN-EOF/{p=0}' "$SUT" | _normalize_awk_body)"
+_mirror_status="$(awk '/# BACKLOG-ROWS-AWK-START/{p=1} p{print} /OOB-WARN-EOF/{p=0}' "$HERE/../../rsdd/internal/status/show/testdata/legacy/status-scan.sh" | _normalize_awk_body)"   # the frozen oracle of the status port (kit issue #2549): the script is a shim now
 _mirror_vs="$(awk '/# BACKLOG-ROWS-AWK-START/{p=1} p{print} /OOB-WARN-EOF/{p=0}' "$HERE/../../rsdd/internal/verify/testdata/state-legacy/verify-state.sh" | _normalize_awk_body)"   # the frozen oracle of the Go port (kit issue #2457)
 if [ -z "$_mirror_status" ]; then
-  no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from $SUT (BACKLOG-ROWS-AWK-START marker missing)"
+  no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from the frozen status oracle (BACKLOG-ROWS-AWK-START marker missing)"
 elif [ -z "$_mirror_vs" ]; then
   no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from the frozen verify-state.sh oracle (BACKLOG-ROWS-AWK-START marker missing)"
 elif [ "$_mirror_status" = "$_mirror_vs" ]; then
-  ok "T-BACKLOG-ROWS-MIRROR: awk logic identical in backlog_rows (status.sh) and _backlog_rows (verify-state.sh) after sentinel-prefix normalisation"
+  ok "T-BACKLOG-ROWS-MIRROR: awk logic identical in the frozen backlog_rows (status.sh) and _backlog_rows (verify-state.sh) oracles of the two Go ports after sentinel-prefix normalisation"
 else
   no "T-BACKLOG-ROWS-MIRROR: awk body differs (logic drift, not just sentinel prefix); diff: $(diff <(echo "$_mirror_status") <(echo "$_mirror_vs") | head -10)"
 fi
@@ -520,18 +520,10 @@ else
   no "T-M1-DENOM-UNSPACED: expected contradictory-denominators WARN for 7/8 vs 7/7 — got: [$(echo "$_m1_out" | grep -i denom | head -1)]"
 fi
 
-if ! grep -q '\$(remote_visibility_block)' "$SUT"; then ok "RC-WIRE-1: remote_visibility_block is not run inside a command substitution"
-else no "RC-WIRE-1: remote_visibility_block still runs inside \$(...) (loses its variables and trailing newlines)"; fi
-
-# RC-WIRE-2/3: every degraded echo of the block sets the flag (structural, covers paths a fixture cannot
-# reach: git absent, timeout absent, empty url), and the wire region buffers nothing.
-_n_echo="$(grep -c 'echo "degraded: remote-visibility:' "$SUT")"
-_n_flag="$(grep -c '_RC_DEGRADED_PRINTED=1; echo "degraded: remote-visibility:' "$SUT")"
-if [ "$_n_echo" -gt 0 ] && [ "$_n_echo" = "$_n_flag" ]; then ok "RC-WIRE-2: all $_n_echo degraded echoes of the block set the flag on the same line"
-else no "RC-WIRE-2: $_n_echo degraded echoes but $_n_flag set the flag"; fi
-_wire_region="$(sed -n '/^# RC-WIRE-BEGIN$/,/^# RC-WIRE-END$/p' "$SUT")"
-if [ -n "$_wire_region" ] && ! grep -qE 'mktemp|\$\(|tee |>"' <<<"$_wire_region"; then ok "RC-WIRE-3: the wire region has no temp file, subshell or redirect"
-else no "RC-WIRE-3: the wire region buffers or forks"; fi
+# RC-WIRE-1..3 (structural greps over the script body: no command substitution around the block, every degraded echo sets
+# the flag, no buffering in the wire region) were retired with the body (kit issue #2549). Their behaviour is pinned in Go:
+# s6_scen_vis_test.go v-degraded-line-sets-the-footer (a typed remote-visibility line sets the reason-codes footer) and
+# s8a_blocked_test.go (the blocked-rows step prints the footer exactly once, after the step), both replayed against goldens.
 
 # The script-mutation teeth of this suite (sed/awk on a copy of research-sdd-status.sh) were retired:
 # every fault they injected is killed by a Go test or scenario in
@@ -568,46 +560,9 @@ ro_dir_is_readonly() {
   return 0
 }
 
-echo "-- Round 4 nit: _read_focuses_tok_into must not shadow a caller variable named like one of its OLD locals --"
-# Before this fix, the function's own locals were _rft_var/ffile/sbase/_cache_key/_tok. printf -v
-# resolves the target name against the NEAREST scope, so a caller whose own variable happened to be
-# named e.g. "_tok" would have `printf -v "$_rft_var"` (with _rft_var="_tok") silently write into the
-# FUNCTION's own local _tok instead of the caller's — the caller's real variable would stay whatever
-# it was before, unset or stale, with no error. Every local is now __rft_-prefixed specifically to
-# close this. Exercise it directly: source just the two functions this needs (declare -A line +
-# _read_focuses_tok_into + _read_focuses_tok_uncached) into an isolated harness — sourcing the whole
-# SUT would run its own argv-dependent top-level logic and `exit` the harness — then call it with a
-# caller-side variable named "_tok" and confirm THAT variable receives the real token.
-_shadow_harness="$TMP/shadow-harness.sh"
-# Marker-based extraction (kit issue #1023): the SUT brackets the two functions this needs with
-# SENTINEL-RFT-HARNESS-BEGIN / -END comments, so the slice survives any line shift above or below it and
-# a missing or duplicated marker is a DISTINCT failure below, never misreported as the shadowing regression.
-awk '/# SENTINEL-RFT-HARNESS-BEGIN/{p=1;next} /# SENTINEL-RFT-HARNESS-END/{p=0} p{print}' "$SUT" > "$_shadow_harness"
-_shadow_nb="$(grep -cF 'SENTINEL-RFT-HARNESS-BEGIN' "$SUT")"; _shadow_ne="$(grep -cF 'SENTINEL-RFT-HARNESS-END' "$SUT")"
-_shadow_dir="$TMP/shadow-fixture"; mkdir -p "$_shadow_dir"
-{
-  printf '# Focus Registry\n\n'
-  printf '| Focus | Status | State file |\n'
-  printf '|---|---|---|\n'
-  printf '| alpha | active | RESEARCH-STATE-alpha.md |\n'
-} > "$_shadow_dir/FOCUSES.md"
-_shadow_err="$TMP/shadow-harness.err"
-_shadow_out="$(bash -c '
-  # shellcheck disable=SC1090
-  source "$1"
-  _tok="UNCHANGED"
-  _read_focuses_tok_into _tok "$2" "RESEARCH-STATE-alpha.md"
-  printf "%s" "$_tok"
-' _ "$_shadow_harness" "$_shadow_dir/FOCUSES.md" 2>"$_shadow_err")"
-if [ "$_shadow_nb" != 1 ] || [ "$_shadow_ne" != 1 ] || [ ! -s "$_shadow_harness" ]; then
-  no "T-RFT-NO-SHADOW: harness extraction is broken (BEGIN markers=$_shadow_nb, END markers=$_shadow_ne, harness bytes=$(wc -c < "$_shadow_harness")) — this is NOT the shadowing regression"
-elif [ -s "$_shadow_err" ]; then
-  no "T-RFT-NO-SHADOW: the extracted harness wrote to stderr — a broken extraction, NOT the shadowing regression: [$(head -c 300 "$_shadow_err")]"
-elif [ "$_shadow_out" = "active" ]; then
-  ok "T-RFT-NO-SHADOW: a caller variable named '_tok' (collides with an old internal local name) still receives the correct token, not left unchanged"
-else
-  no "T-RFT-NO-SHADOW: expected the caller's _tok to become 'active', got [$_shadow_out] — printf -v wrote into the function's own local instead of the caller's variable"
-fi
+# T-RFT-NO-SHADOW (a bash `printf -v` into a caller variable named like an old local of _read_focuses_tok_into) was retired
+# with the body: the shadowing class does not exist in Go (kit issue #2549). The FOCUSES token itself, including the
+# per-(file, state) cache of _read_focuses_tok_into, stays pinned by the S2 differential (s2_diff_test.go __into_twice).
 
 
 

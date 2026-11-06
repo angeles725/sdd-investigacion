@@ -51,7 +51,6 @@ research-sdd-status-focus-scope reach=research-sdd/toolbelt/*.sh,research-sdd/to
 research-sdd-status-retyped reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
 research-sdd-status-root-pick reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
 research-sdd-status-unreadable-stop reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
-research-sdd-status-visibility reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
 resume-state reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
 resume-state-json reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 retro-gate reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also uses eval on built text; the script it runs is not a literal name

@@ -79,6 +79,7 @@ GO_SRC=(
   "clean-check.sh=../rsdd/internal/core/cleancheck"      # the engine behind rsdd hygiene clean-check; the ABSENT-* and DEGRADED-* lines are typed there (kit issue #2270)
   "fetch-doc.sh=../rsdd/internal/sources/fetchdoc"   # exe.go and ocr.go print the typed DEGRADED / not-installed lines (kit issue #2270)
   "kit-size-check.sh=../rsdd/internal/maint/sizecheck"   # classify.go names the empty-input state of the size verdict (kit issue #2212)
+  "research-sdd-status.sh=../rsdd/internal/status/show"   # the engine behind rsdd status show; the typed degraded lines are printed there (kit issue #2549)
 )
 GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
   decompile-java.sh corroborate-bacnet.sh corroborate-capa.sh corroborate-firmware.sh qnx6-read.sh corroborate-floss.sh
@@ -93,7 +94,20 @@ GO_NO_TYPED+=(return-token-gate.sh verify-kit-clean-hook.sh verify-skill-drift-h
 # GO_SHARED lists degraded rows whose emitter is a shared Go package that several ports call, not one shim's package
 # (kit issue #2563): `code|row emitter label|package dir|literal`. The row counts as emitted only while the literal is
 # still in the package's non-test sources, so a removed emission turns it stale again.
-GO_SHARED=("degraded: missing runtime dependency:|core/probe|../rsdd/internal/core/probe|missing runtime dependency: ")
+# An entry labelled with a script (`foo.sh`) applies only while that script is a rsdd shim; its rows are the typed lines of a Go helper the scan cannot read as emit calls.
+GO_SHARED=("degraded: missing runtime dependency:|core/probe|../rsdd/internal/core/probe|missing runtime dependency: "
+  "degraded: remote-visibility: gh not found|research-sdd-status.sh|../rsdd/internal/status/show|gh not found — cannot verify the visibility of remote"
+  "degraded: remote-visibility: <v> url empty or unreadable|research-sdd-status.sh|../rsdd/internal/status/show|url empty or unreadable — visibility unverified"
+  "degraded: remote-visibility: <v> not a github owner/repo|research-sdd-status.sh|../rsdd/internal/status/show|not a github owner/repo — visibility unverified"
+  "degraded: remote-visibility: gh probe could not run (<v>) for remote|research-sdd-status.sh|../rsdd/internal/status/show|gh probe could not run ("
+  "degraded: remote-visibility: gh timed out for remote|research-sdd-status.sh|../rsdd/internal/status/show|gh timed out for remote"
+  "degraded: remote-visibility: skipped after timeout for remote|research-sdd-status.sh|../rsdd/internal/status/show|skipped after timeout for remote"
+  "degraded: remote-visibility: gh failed (rc=<v>) for remote|research-sdd-status.sh|../rsdd/internal/status/show|gh failed (rc=%d) for remote"
+  "degraded: remote-visibility: unrecognised gh answer [<v>] for remote|research-sdd-status.sh|../rsdd/internal/status/show|unrecognised gh answer [%s] for remote")
+# The remote-visibility block of research-sdd-status prints each of those rows through one local helper (`say`) that adds the prefix
+# (kit issue #2549), so the scan reads the prefix line as the token below and the rows above are verified by their literal
+# in the Go package. GO_PREFIX_ONLY lists such prefix tokens: a token equal to one is not an emitted code of its own.
+GO_PREFIX_ONLY=("degraded: remote-visibility:")
 # The emit calls the Go packages use: errf/outf (stageissues, gate), .degrade/.note/.fail (reconcile), fmt.* (sweep, reconcile).
 GO_CALL_RE='(errf|outf|\.degrade|\.note|\.fail|fmt\.Fprintf|fmt\.Fprintln|fmt\.Sprintf|fmt\.Errorf)\('
 
@@ -292,6 +306,7 @@ rc_check() {
       done <<<"$uc"
     fi
     while IFS= read -r tok; do
+      case " ${GO_PREFIX_ONLY[*]} " in *" $tok "*) continue ;; esac   # TOOTH-GOPREFIX
       idx=-1
       for ((i = 0; i < n; i++)); do
         if [ "${codes[$i]}" = "$tok" ]; then idx=$i; fi
@@ -315,6 +330,7 @@ rc_check() {
   local sh scode slabel sdir slit grc
   for sh in "${GO_SHARED[@]}"; do
     IFS='|' read -r scode slabel sdir slit <<<"$sh"
+    case "$slabel" in *.sh) go_shim "$dir/$slabel" || continue ;; esac   # a script-labelled entry applies only while that script is a rsdd shim (kit issue #2549)
     idx=-1
     for ((i = 0; i < n; i++)); do
       if [ "${codes[$i]}" = "$scode" ]; then idx=$i; fi
@@ -1064,6 +1080,10 @@ expect "Go emitter: the Go scan alone finds an unlisted code" 1 "$tmp/go_solo/re
 mkgofix go_test_only
 printf '%s\n' 'package stageissues' 'func g(a *app) { a.errf("degraded: only in a test file — x\n") }' > "$tmp/go_test_only/rsdd/internal/retro/stageissues/run_test.go"
 expect "Go emitter: _test.go files are not emitters" 0 "$tmp/go_test_only/reg.md" "$tmp/go_test_only/scripts"
+# go_prefix: a prefix-only wrapper token (GO_PREFIX_ONLY, kit issue #2549) is not an unlisted code of its own
+mkgofix go_prefix
+printf '%s\n' 'func g(a *app, format string) { a.outf("degraded: remote-visibility: "+format+"\n") }' >> "$tmp/go_prefix/rsdd/internal/retro/stageissues/run.go"
+expect "Go emitter: a prefix-only wrapper token (GO_PREFIX_ONLY) is not an unlisted code" 0 "$tmp/go_prefix/reg.md" "$tmp/go_prefix/scripts"
 mkgofix go_stray
 printf '%s\n' 'var msg = "degraded: via a variable"' >> "$tmp/go_stray/rsdd/internal/retro/stageissues/run.go"
 expect "Go emitter: a degraded: line that is not an errf/outf call is unclassifiable" 1 "$tmp/go_stray/reg.md" "$tmp/go_stray/scripts" 'unclassifiable degraded: line in stage-retro-issues.sh'
@@ -1228,6 +1248,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Go emitters: dropping one code from the Go source must fail, and each guard of the Go scan has teeth
   tooth go-staleemit go_drop    1 0 '/# TOOTH-STALEEMIT/s/finding /: /'
   tooth go-shared    go_shared  0 1 '/# TOOTH-GOSHARED/s/^.*$/      :/'
+  tooth go-prefix    go_prefix  0 1 '/# TOOTH-GOPREFIX/s/continue/:/'
   tooth go-unlisted  go_unlisted 1 0 '/# TOOTH-UNLISTED/s/finding /: /'
   tooth go-stray     go_stray   1 0 '/# TOOTH-GOSTRAY/s/finding /: /'
   tooth go-absent    go_absent  2 0 '/# TOOTH-GOABSENT/s/return 2/return 0/'

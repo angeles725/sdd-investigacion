@@ -31,6 +31,8 @@ TOOLBELT="$HERE/.."
 # verify-state.sh is a shim to the Go `rsdd verify state` (kit issue #2457); its old awk program lives on, frozen, as the
 # parity oracle of the Go differential tests. The awk_eq probe keeps research-sdd-status.sh equal to that frozen copy.
 ORACLE="$HERE/../../rsdd/internal/verify/testdata/state-legacy/verify-state.sh"
+STATUS_ORACLE="$HERE/../../rsdd/internal/status/show/testdata/legacy/status-scan.sh"   # the frozen deferred_scan of the status port (kit issue #2549): the script is a shim now
+[ -f "$STATUS_ORACLE" ] || { echo "FATAL: frozen status oracle not found: $STATUS_ORACLE" >&2; exit 2; }
 [ -f "$ORACLE" ] || { echo "FATAL: frozen oracle not found: $ORACLE" >&2; exit 2; }
 if [ -z "${RSDD_BIN:-}" ]; then
   command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
@@ -113,12 +115,12 @@ probes() {
     [ "$n" = "${WANT[$c]}" ] || { [ "${PR[vs_count]}" = ok ] && PR[vs_count]="$c: verify-state derived deferred_open=${n:-?} want ${WANT[$c]}"; }
   done
   # the two awk blocks (deferred_scan / derive_deferred) are one program: byte-identical between their markers.
-  if ! cmp -s <(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$t/research-sdd-status.sh") <(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$ORACLE") \
+  if ! cmp -s <(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$STATUS_ORACLE") <(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$ORACLE") \
      || [ -z "$(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$ORACLE")" ]; then PR[awk_eq]="the DEF-AWK blocks differ (or are missing)"; fi
 }
 declare -A DESC=(
   [vs_count]="verify-state.sh derive_deferred: the same cases derive the same deferred_open as research-sdd-status.sh"
-  [awk_eq]="research-sdd-status.sh deferred_scan and the frozen verify-state.sh derive_deferred (the Go port's oracle) hold the byte-identical awk program"
+  [awk_eq]="the frozen research-sdd-status.sh deferred_scan and the frozen verify-state.sh derive_deferred (the oracles of the two Go ports's oracle) hold the byte-identical awk program"
 )
 probes "$TOOLBELT"
 for p in $PROBES; do
@@ -132,19 +134,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   mutant_bootstrap mutant_built || exit 2
-  # tooth <name> <file> <literal-old> <literal-new> <probe-that-must-turn-red>
+  # tooth <name> <literal-old> <literal-new> <probe-that-must-turn-red>: mutates a copy of the FROZEN status oracle (the
+  # script is a shim, kit issue #2549) and re-runs the probes with STATUS_ORACLE pointing at the copy.
   tooth() {
-    local name="$1" file="$2" old="$3" new="$4" watch="$5" t="$TMP/mut-$1" s v
-    mkdir -p "$t/lib"; cp "$TOOLBELT"/*.sh "$t/"; cp -r "$TOOLBELT"/lib/. "$t/lib/"
-    s="$(cat "$TOOLBELT/$file"; printf x)"; s="${s%x}"
-    case "$s" in *"$old"*) ;; *) no "teeth $name: literal not found in $file — the call site moved"; return ;; esac
-    printf '%s' "${s/"$old"/"$new"}" > "$t/$file"
-    if ! mutant_built "teeth $name" "$TOOLBELT/$file" "$t/$file" >/dev/null 2>&1; then no "teeth $name: mutant refused by lib/mutant.sh"; return; fi
-    probes "$t"; v="${PR[$watch]}"
+    local name="$1" old="$2" new="$3" watch="$4" m="$TMP/mut-$1.sh" real="$STATUS_ORACLE" s v
+    s="$(cat "$real"; printf x)"; s="${s%x}"
+    case "$s" in *"$old"*) ;; *) no "teeth $name: literal not found in the frozen status oracle — the call site moved"; return ;; esac
+    printf '%s' "${s/"$old"/"$new"}" > "$m"
+    if ! mutant_built "teeth $name" "$real" "$m" >/dev/null 2>&1; then no "teeth $name: mutant refused by lib/mutant.sh"; return; fi
+    STATUS_ORACLE="$m"; probes "$TOOLBELT"; v="${PR[$watch]}"; STATUS_ORACLE="$real"
     if [ "$v" != ok ]; then ok "teeth $name: mutant turns probe $watch red"; else no "teeth $name: probe $watch stays green on the mutant — THEATER"; fi
   }
   # (the st-* and kg-closed teeth mutated the bash readers; those readers are Go now, pinned by the def-* scenarios of rsdd status show)
-  tooth awk-eq    research-sdd-status.sh 'st=tolower(a[cnt])  # DEF-STATUS-LAST' 'st=tolower(a[cnt]);  # DEF-STATUS-LAST' awk_eq
+  tooth awk-eq 'st=tolower(a[cnt])  # DEF-STATUS-LAST' 'st=tolower(a[cnt]);  # DEF-STATUS-LAST' awk_eq
 fi
 
 echo
