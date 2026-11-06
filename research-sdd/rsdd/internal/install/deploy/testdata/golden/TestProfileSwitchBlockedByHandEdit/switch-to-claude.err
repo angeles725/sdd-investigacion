@@ -1,0 +1,2 @@
+research-sdd-install: WARNING <ROOT>/home/.pi/agent/skills/research-sdd/SKILL.md exists with diverged content — local content kept (use --force-skill to overwrite, or delete to reinstall)
+research-sdd-install: ERROR pi: switching profile "general" → "claude" was requested, but a hand-edit at <ROOT>/home/.pi/agent/skills/research-sdd/SKILL.md blocked it — the launcher was left UNCHANGED (still "general") so nothing mixed is written; the deployed skill also stays "general". Resolve with --force-skill (overwrites, backs up first) or by hand, then re-run.

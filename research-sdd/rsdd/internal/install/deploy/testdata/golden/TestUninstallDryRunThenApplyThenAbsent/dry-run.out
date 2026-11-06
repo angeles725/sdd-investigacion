@@ -1,0 +1,12 @@
+uninstall harness=claude mode=dry-run
+  would-remove  <ROOT>/home/.claude/skills/research-sdd/SKILL.md  [skill]
+  would-remove  <ROOT>/home/.claude/research-sdd/.installed-skill-state  [state]
+  would-remove  <ROOT>/home/.claude/agents/research-sdd-readability.md  [read-only agent definition]
+  would-remove  <ROOT>/home/.claude/research-sdd/.installed-agent-research-sdd-readability-state  [state]
+  would-remove  <ROOT>/home/.claude/agents/research-sdd-risk.md  [read-only agent definition]
+  would-remove  <ROOT>/home/.claude/research-sdd/.installed-agent-research-sdd-risk-state  [state]
+  would-remove  <ROOT>/home/.claude/CLAUDE.md  [launcher block]
+  absent  <ROOT>/home/.claude/research-sdd/profile  [rendered profile]
+  would-remove  <ROOT>/home/.claude/research-sdd/.installed-bundle-state  [state]
+  note  installer directories left empty (research-sdd/profile, skills/research-sdd, research-sdd) are removed with --yes
+  summary harness=claude would-remove=8 kept=0 absent=1 failed=0
