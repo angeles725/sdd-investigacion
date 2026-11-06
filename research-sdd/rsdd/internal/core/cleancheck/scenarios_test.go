@@ -18,6 +18,10 @@ type scenario struct {
 	// unordered compares the legacy side as a set of lines: the script's find reports in readdir order, which differs
 	// between filesystems and hosts (kit lesson L94); the golden pins the engine's sorted order.
 	unordered bool
+	// diverges names a declared divergence (tool-registry.d/clean-check.md): the frozen script must still exit legacyRC, Check
+	// exits want, and the text is not compared (the golden pins the engine's answer).
+	diverges string
+	legacyRC int
 }
 
 // std is the argument list of a plain run: the repository and its tmp directory.
@@ -35,7 +39,7 @@ func keep(w *world, body string) { w.write(".research-sdd/keep.txt", body) }
 
 func scenarios() []scenario {
 	var all []scenario
-	for _, g := range [][]scenario{scanScenarios(), tmpScenarios(), scratchScenarios(), worktreeScenarios(), branchScenarios(), evidenceScenarios(), refusalScenarios()} {
+	for _, g := range [][]scenario{scanScenarios(), tmpScenarios(), scratchScenarios(), worktreeScenarios(), branchScenarios(), evidenceScenarios(), refusalScenarios(), accessScenarios()} {
 		all = append(all, g...)
 	}
 	return all

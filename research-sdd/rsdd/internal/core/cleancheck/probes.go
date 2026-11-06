@@ -26,7 +26,9 @@ func (p probes) hasCopy(path string) bool {
 }
 
 // fileSum is the sha256 of the file, streamed: an artifact of any size is hashed in constant memory, as
-// `sha256sum < file` did. A file that cannot be opened or read has no sum.
+// `sha256sum < file` did. A file that cannot be opened or read has no sum. It is not fsx.SHA256FD on purpose: that one
+// takes a raw descriptor, seeks it and wraps failures in fsx's own error type, and its syscalls exist on Linux only,
+// while this runs wherever the engine builds.
 func fileSum(path string) (string, bool) {
 	f, err := os.Open(path)
 	if err != nil {

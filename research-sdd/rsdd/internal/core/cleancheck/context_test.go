@@ -2,11 +2,9 @@ package cleancheck
 
 import (
 	"context"
-	"errors"
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -137,7 +135,7 @@ func TestDeadlineStopsABlockedGit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-		t.Errorf("the git child %d is still alive after the run (kill -0: %v)", pid, err)
+	if !pidGone(pid) {
+		t.Errorf("the child %d is still alive after the run", pid)
 	}
 }

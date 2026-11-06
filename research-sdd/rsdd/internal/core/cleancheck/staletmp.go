@@ -27,10 +27,18 @@ func (r *run) ageIn(path string, unitSeconds int64, suffix string) string {
 	return strconv.FormatInt((r.now.Unix()-info.ModTime().Unix())/unitSeconds, 10) + suffix
 }
 
+// ownershipKnown is ownerSupported; a test sets it false to take the branch a platform without file owners takes.
+var ownershipKnown = ownerSupported
+
 // scanStaleTmp is class (b): the direct children of the tmp directory named tmp.*, owned by the configured uid and
 // older than the stale age, sorted bytewise, except what lies in the scratchpad.
 func (r *run) scanStaleTmp() bool {
 	r.now = r.o.Now()
+	if !ownershipKnown {
+		// Without file owners every entry would read as someone else's: a quiet zero. Say the check did not look.
+		r.degrade(DegradedOwnership, "DEGRADED-STALE-TMP-OWNERSHIP the owner of tmp.* entries cannot be determined on this platform; stale-tmp not evaluated", "stale-tmp ownership unknown on this platform")
+		return true
+	}
 	ents, err := listDir(r.tmpP)
 	if err != nil {
 		r.stderr(newFindError(r.tmpP, err).line())

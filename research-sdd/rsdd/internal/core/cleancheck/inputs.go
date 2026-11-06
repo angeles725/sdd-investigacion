@@ -92,7 +92,16 @@ func (r *run) resolveTmp() bool {
 	return true
 }
 
-// physical is `cd -P -- p && pwd -P`: p made absolute against cwd, every symlink and dot-dot resolved on disk.
+// physical is `cd -P -- p && pwd -P`: p made absolute against cwd, every symlink and dot-dot resolved on disk. Like cd
+// it needs the search permission of the directory it enters (stat of "dir/." asks for it), so a directory that can
+// be listed but not entered is refused here, as the script refused it, instead of being read as an empty one.
 func physical(cwd, p string) (string, error) {
-	return filepath.EvalSymlinks(kitmaint.Abs(cwd, p))
+	phys, err := filepath.EvalSymlinks(kitmaint.Abs(cwd, p))
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(phys + "/."); err != nil {
+		return "", err
+	}
+	return phys, nil
 }

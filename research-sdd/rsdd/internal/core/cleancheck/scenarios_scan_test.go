@@ -21,6 +21,12 @@ func scanScenarios() []scenario {
 				w.write(f, "x")
 			}
 		}, args: std(), want: 1},
+		{name: "keeplist-extglob-operators-are-literal", diverges: "bash honours extglob operators inside [[ ]]; the Go matcher reads them as literal text", legacyRC: 1, build: func(w *world) {
+			keep(w, "@(one|two).txt\n+(a)\n")
+			for _, f := range []string{"one.txt", "two.txt", "@(one|two).txt", "a", "aa", "+(a)"} {
+				w.write(f, "x")
+			}
+		}, args: std(), want: 1},
 		{name: "keeplist-is-a-directory", build: func(w *world) { w.mkdir(w.repo + "/.research-sdd/keep.txt") }, args: std(), want: 2},
 		{name: "keeplist-last-line-without-newline", build: func(w *world) {
 			keep(w, "one.txt")

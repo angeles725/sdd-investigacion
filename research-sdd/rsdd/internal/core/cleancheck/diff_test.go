@@ -36,8 +36,15 @@ func TestCleanCheckDifferential(t *testing.T) {
 			wg := newWorld(t)
 			sc.prepare(wg)
 			g := Check(context.Background(), wg.optionsFor(sc.environ(wg), sc.args(wg)...))
-			if l.rc != sc.want || g.Exit != sc.want {
+			if (l.rc != sc.want && sc.diverges == "") || g.Exit != sc.want {
 				t.Fatalf("exit codes: legacy %d, go %d, scenario wants %d\nlegacy:\n%s\ngo:\n%s", l.rc, g.Exit, sc.want, l.merged, g.Merged())
+			}
+			if sc.diverges != "" {
+				if l.rc != sc.legacyRC {
+					t.Errorf("the declared divergence (%s) assumes the script exits %d, it exited %d:\n%s", sc.diverges, sc.legacyRC, l.rc, l.merged)
+				}
+				golden[sc.name] = goldenCase{Merged: wg.show(g.Merged()), Out: wg.show(g.Stdout()), Err: wg.show(g.Stderr()), RC: g.Exit}
+				return
 			}
 			if sc.unordered {
 				compareAsSets(t, wl, wg, l, g)

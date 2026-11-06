@@ -107,6 +107,12 @@
   "err": "clean-check: DEGRADED: git not found on PATH; nothing was measured\n",
   "rc": 3
  },
+ "empty-tmp-dir-readable-but-not-searchable": {
+  "merged": "clean-check: ERROR: cannot enter tmp dir: \u003cR\u003e/tmp\n",
+  "out": "",
+  "err": "clean-check: ERROR: cannot enter tmp dir: \u003cR\u003e/tmp\n",
+  "rc": 2
+ },
  "evidence-backup-days-boundary": {
   "merged": "WARN stale-backup \u003cR\u003e/ev/backup-a age=3d retention=3d\nWARN stale-backup \u003cR\u003e/ev/backup-b age=3d retention=3d\nCLEAN-CHECK: clean (untracked in \u003cR\u003e/repo, tmp.* in \u003cR\u003e/tmp older than 24h, keep-list entries: 0, scratchpad: not set, worktrees: 1 registered, 0 stale, branches: base main, 0 local, 0 remote, evidence: 1 dir(s) scanned, 2 older than 3d, warnings: 2)\n",
   "out": "WARN stale-backup \u003cR\u003e/ev/backup-a age=3d retention=3d\nWARN stale-backup \u003cR\u003e/ev/backup-b age=3d retention=3d\nCLEAN-CHECK: clean (untracked in \u003cR\u003e/repo, tmp.* in \u003cR\u003e/tmp older than 24h, keep-list entries: 0, scratchpad: not set, worktrees: 1 registered, 0 stale, branches: base main, 0 local, 0 remote, evidence: 1 dir(s) scanned, 2 older than 3d, warnings: 2)\n",
@@ -182,6 +188,12 @@
  "findings-and-warnings-together": {
   "merged": "ABSENT-KEEPLIST \u003cR\u003e/repo/.research-sdd/keep.txt\nGARBAGE untracked stray.txt\nWARN merged-branch merged-one merged into main\nCLEAN-CHECK: 1 finding(s) (untracked in \u003cR\u003e/repo, tmp.* in \u003cR\u003e/tmp older than 24h, keep-list entries: 0, scratchpad: not set, worktrees: 1 registered, 0 stale, branches: base main, 1 local, 0 remote, evidence: none found, warnings: 1)\n",
   "out": "ABSENT-KEEPLIST \u003cR\u003e/repo/.research-sdd/keep.txt\nGARBAGE untracked stray.txt\nWARN merged-branch merged-one merged into main\nCLEAN-CHECK: 1 finding(s) (untracked in \u003cR\u003e/repo, tmp.* in \u003cR\u003e/tmp older than 24h, keep-list entries: 0, scratchpad: not set, worktrees: 1 registered, 0 stale, branches: base main, 1 local, 0 remote, evidence: none found, warnings: 1)\n",
+  "err": "",
+  "rc": 1
+ },
+ "keeplist-extglob-operators-are-literal": {
+  "merged": "GARBAGE untracked a\nGARBAGE untracked aa\nGARBAGE untracked one.txt\nGARBAGE untracked two.txt\nCLEAN-CHECK: 4 finding(s) (untracked in \u003cR\u003e/repo, tmp.* in \u003cR\u003e/tmp older than 24h, keep-list entries: 2, scratchpad: not set, worktrees: 1 registered, 0 stale, branches: base main, 0 local, 0 remote, evidence: none found, warnings: 0)\n",
+  "out": "GARBAGE untracked a\nGARBAGE untracked aa\nGARBAGE untracked one.txt\nGARBAGE untracked two.txt\nCLEAN-CHECK: 4 finding(s) (untracked in \u003cR\u003e/repo, tmp.* in \u003cR\u003e/tmp older than 24h, keep-list entries: 2, scratchpad: not set, worktrees: 1 registered, 0 stale, branches: base main, 0 local, 0 remote, evidence: none found, warnings: 0)\n",
   "err": "",
   "rc": 1
  },
@@ -376,6 +388,12 @@
   "out": "UNPRESERVED-ARTIFACT \u003cR\u003e/scratch/angle.txt cited by docs/b2.md\nUNPRESERVED-ARTIFACT \u003cR\u003e/scratch/brk.txt cited by docs/b2.md\nUNPRESERVED-ARTIFACT \u003cR\u003e/scratch/end.txt cited by docs/b2.md\nUNPRESERVED-ARTIFACT \u003cR\u003e/scratch/full.json cited by docs/b1.md\nUNPRESERVED-ARTIFACT \u003cR\u003e/scratch/other.py cited by docs/b1.md\nUNMANIFESTED-SCRIPT \u003cR\u003e/scratch/other.py\nUNPRESERVED-ARTIFACT \u003cR\u003e/scratch/out.json cited by docs/b1.md\nUNPRESERVED-ARTIFACT \u003cR\u003e/scratch/paren.txt cited by docs/b2.md\nUNPRESERVED-ARTIFACT \u003cR\u003e/scratch/pipe.txt cited by docs/b2.md\nUNPRESERVED-ARTIFACT \u003cR\u003e/scratch/prerun.sh cited by docs/b1.md\nUNMANIFESTED-SCRIPT \u003cR\u003e/scratch/prerun.sh\nUNPRESERVED-ARTIFACT \u003cR\u003e/scratch/quoted.txt cited by docs/b2.md\nUNMANIFESTED-SCRIPT \u003cR\u003e/scratch/short.pl\nUNMANIFESTED-SCRIPT \u003cR\u003e/scratch/sub/deep/z.kts\nUNMANIFESTED-SCRIPT \u003cR\u003e/scratch/sub/y.ps1\nUNPRESERVED-ARTIFACT \u003cR\u003e/scratch/tail.txt cited by docs/b2.md\nUNMANIFESTED-SCRIPT \u003cR\u003e/scratch/x.sh\nCLEAN-CHECK: 17 finding(s) (untracked in \u003cR\u003e/repo, tmp.* in \u003cR\u003e/tmp older than 24h, keep-list entries: 2, scratchpad: 23 file(s), blocks-missing-on-disk: 0, preserved-copies: 2, worktrees: 1 registered, 0 stale, branches: base main, 0 local, 0 remote, evidence: none found, warnings: 0)\n",
   "err": "",
   "rc": 1
+ },
+ "scratchpad-without-search-permission": {
+  "merged": "find: '\u003cR\u003e/scratch': Permission denied\nclean-check: ERROR: find failed or was truncated in scratchpad \u003cR\u003e/scratch\n",
+  "out": "",
+  "err": "find: '\u003cR\u003e/scratch': Permission denied\nclean-check: ERROR: find failed or was truncated in scratchpad \u003cR\u003e/scratch\n",
+  "rc": 2
  },
  "stale-hours-large": {
   "merged": "CLEAN-CHECK: clean (untracked in \u003cR\u003e/repo, tmp.* in \u003cR\u003e/tmp older than 999999999h, keep-list entries: 0, scratchpad: not set, worktrees: 1 registered, 0 stale, branches: base main, 0 local, 0 remote, evidence: none found, warnings: 0)\n",

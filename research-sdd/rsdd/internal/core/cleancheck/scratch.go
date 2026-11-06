@@ -1,10 +1,11 @@
 package cleancheck
 
 import (
-	"os"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kitmaint"
 )
 
 // scratchExts are the script extensions class (d) looks at.
@@ -30,18 +31,10 @@ func (r *run) settleScratchpad() {
 	if t := strings.TrimSuffix(s, "/"); t != "" {
 		s = t
 	}
-	if p, err := physical(r.o.Cwd, s); err == nil && isDir(r.o.Cwd, s) {
+	if p, err := physical(r.o.Cwd, s); err == nil && kitmaint.IsDir(kitmaint.Abs(r.o.Cwd, s)) {
 		s = p
 	}
 	r.scratchP = s
-}
-
-func isDir(cwd, p string) bool {
-	if !strings.HasPrefix(p, "/") {
-		p = cwd + "/" + p
-	}
-	fi, err := os.Stat(p)
-	return err == nil && fi.IsDir()
 }
 
 // scanScratchpad is classes (c) and (d) and the scratchpad's summary field. Not configured is `not set`, configured
@@ -50,7 +43,7 @@ func (r *run) scanScratchpad() (state string, ok bool) {
 	if r.scratchP == "" {
 		return "not set", true
 	}
-	if !isDir(r.o.Cwd, r.scratchP) {
+	if !kitmaint.IsDir(kitmaint.Abs(r.o.Cwd, r.scratchP)) {
 		r.absent(AbsentScratchpad, r.scratchP, "ABSENT-SCRATCHPAD "+r.scratchP)
 		return "absent", true
 	}

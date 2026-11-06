@@ -49,9 +49,13 @@ type entry struct {
 	info fs.FileInfo // lstat: a symlink is a symlink
 }
 
-// listDir lists dir sorted by name (bytewise: os.ReadDir sorts by filename). An entry that vanishes while it is being read is left out.
+// readDir is os.ReadDir; a test replaces it to hand listDir an entry that vanishes between the listing and its Info.
+var readDir = os.ReadDir
+
+// listDir lists dir sorted by name (bytewise: os.ReadDir sorts by filename). An entry that vanishes while it is being
+// read is left out.
 func listDir(dir string) ([]entry, error) {
-	des, err := os.ReadDir(dir)
+	des, err := readDir(dir)
 	if err != nil {
 		return nil, err
 	}

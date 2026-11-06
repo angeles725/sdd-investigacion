@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kitmaint"
 )
 
 // evidenceDirName is the directory a campaign keeps its rollback and backup copies in.
@@ -22,7 +24,7 @@ func (r *run) scanEvidence() string {
 		if arg = strings.TrimSuffix(arg, "/"); arg == "" {
 			arg = "/"
 		}
-		if !isDir(r.o.Cwd, arg) {
+		if !kitmaint.IsDir(kitmaint.Abs(r.o.Cwd, arg)) {
 			r.absent(AbsentEvidence, arg, "ABSENT-EVIDENCE "+arg)
 			return "absent"
 		}

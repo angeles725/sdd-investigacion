@@ -100,14 +100,8 @@ func (w *world) optionsFor(extraEnv []string, args ...string) Options {
 	w.t.Helper()
 	o := Options{Cwd: w.root, Env: w.env, Now: time.Now}
 	for _, kv := range extraEnv {
-		switch {
-		case strings.HasPrefix(kv, "CLEAN_CHECK_UID="):
-			o.UID = strings.TrimPrefix(kv, "CLEAN_CHECK_UID=")
-		case strings.HasPrefix(kv, "CLEAN_CHECK_SCRATCHPAD="):
-			o.Scratchpad = strings.TrimPrefix(kv, "CLEAN_CHECK_SCRATCHPAD=")
-		case strings.HasPrefix(kv, "PATH="):
-			o.Env = append(append([]string(nil), o.Env...), kv)
-		}
+		// Every variable goes where a process puts it: into the environment Check reads (one layer, no side fields).
+		o.Env = append(append([]string(nil), o.Env...), kv)
 	}
 	for i := 0; i+1 < len(args); i += 2 {
 		v := args[i+1]

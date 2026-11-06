@@ -496,7 +496,7 @@ OUT="$(PATH="$TMP/shim-wtfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "
 OUT="$(PATH="$TMP/shim-brfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 3 ] && has "DEGRADED-BRANCH-SCAN" && has "for-each-ref exploded" && has "CLEAN-CHECK: degraded"; } && ok "failing git for-each-ref -> typed DEGRADED-BRANCH-SCAN, exit 3" || no "branch degraded" "(rc=$RC $OUT)"
 OUT="$(PATH="$TMP/shim-evfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-skip "#failing evidence find: TestDegradedStatesAreValues (DEGRADED-EVIDENCE-SCAN)"
+skip "#failing evidence find: scenario evidence-unreadable-explicit-backup-dir and TestUnreadableDirUnderEvidenceDegradesTheScan (DEGRADED-EVIDENCE-SCAN)"
 printf 'x\n' > "$REPO/stray.json"
 OUT="$(PATH="$TMP/shim-wtfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "DEGRADED-WORKTREE-SCAN" && has "GARBAGE untracked stray.json"; } && ok "degraded retention scan + real finding -> findings still win (exit 1)" || no "degraded+finding" "(rc=$RC $OUT)"

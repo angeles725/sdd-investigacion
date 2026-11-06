@@ -49,10 +49,11 @@ type DegradedKind string
 
 // The typed degraded states. DEGRADED-NO-SHA256 of the script no longer exists: the hash is computed in process.
 const (
-	DegradedGit      DegradedKind = "git"
-	DegradedWorktree DegradedKind = "DEGRADED-WORKTREE-SCAN"
-	DegradedBranch   DegradedKind = "DEGRADED-BRANCH-SCAN"
-	DegradedEvidence DegradedKind = "DEGRADED-EVIDENCE-SCAN"
+	DegradedGit       DegradedKind = "git"
+	DegradedWorktree  DegradedKind = "DEGRADED-WORKTREE-SCAN"
+	DegradedBranch    DegradedKind = "DEGRADED-BRANCH-SCAN"
+	DegradedEvidence  DegradedKind = "DEGRADED-EVIDENCE-SCAN"
+	DegradedOwnership DegradedKind = "DEGRADED-STALE-TMP-OWNERSHIP"
 )
 
 // Result is the whole answer of Check.

@@ -26,6 +26,8 @@ func TestGlobMatch(t *testing.T) {
 		{`a\`, `a\`, true}, {`[a\-c]`, "b", false},
 		{"q?.dat", "q1.dat", true}, {"q?.dat", "q10.dat", false}, {"*.log", "a/b/c.log", true}, {"*.log", "c.log.txt", false},
 		{".research-sdd/keep.txt", ".research-sdd/keep.txt", true}, {"name#hash.txt", "name#hash.txt", true},
+		// extglob operators are literal text here (bash honoured them in [[ ]]: a declared divergence): @(a|b) is the name "@(a|b)", not a or b
+		{"@(a|b)", "@(a|b)", true}, {"@(a|b)", "a", false}, {"+(a)", "aa", false}, {"+(a)", "+(a)", true}, {"!(a)", "b", false},
 	} {
 		if got := globMatch(c.pattern, c.s); got != c.want {
 			t.Errorf("globMatch(%q, %q) = %v, want %v", c.pattern, c.s, got, c.want)

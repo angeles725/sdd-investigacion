@@ -17,12 +17,15 @@ func hasPrefix(r Result, prefix string) bool {
 }
 
 // lock makes dir unreadable for the test and restores it afterwards; the case is skipped for root.
-func lock(t *testing.T, dir string) {
+func lock(t *testing.T, dir string) { t.Helper(); lockMode(t, dir, 0) }
+
+// lockMode is lock with the mode the directory is left with.
+func lockMode(t *testing.T, dir string, mode os.FileMode) {
 	t.Helper()
 	if os.Getuid() == 0 {
 		t.Skip("a permission case needs a non-root user")
 	}
-	if err := os.Chmod(dir, 0); err != nil {
+	if err := os.Chmod(dir, mode); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
@@ -33,7 +36,7 @@ func lock(t *testing.T, dir string) {
 func TestStaleTmpListingFailureRefuses(t *testing.T) {
 	w := newWorld(t)
 	keep(w, "")
-	lock(t, w.tmp)
+	lockMode(t, w.tmp, 0o100) // searchable (so it can be entered) but not listable
 	r := w.check()
 	if r.Exit != 2 || r.Verdict != Refused || r.Summary != "" {
 		t.Fatal(w.dump(r))
