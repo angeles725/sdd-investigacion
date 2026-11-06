@@ -24,10 +24,8 @@ func Jobs(src string) ([]Job, State) {
 	top := indent(jobs.body[0])
 	var out []Job
 	for _, l := range jobs.body {
-		if indent(l) > top {
-			if len(out) > 0 {
-				out[len(out)-1].Body = append(out[len(out)-1].Body, l)
-			}
+		if indent(l) > top { // never the first line: top is its indent, so a job is already open
+			out[len(out)-1].Body = append(out[len(out)-1].Body, l)
 			continue
 		}
 		id, rest, ok := strings.Cut(strings.TrimSpace(l), ":")
