@@ -1,0 +1,17 @@
+home:
+D 0755 .claude
+D 0755 .claude/agents
+D 0755 .claude/research-sdd
+D 0755 .claude/skills
+D 0755 .claude/skills/research-sdd
+F 0600 .claude/CLAUDE.md 326 01511ded11473d71
+F 0600 .claude/research-sdd/.installed-agent-research-sdd-readability-state 30 0f73790d215653fd
+F 0600 .claude/research-sdd/.installed-agent-research-sdd-risk-state 30 0f73790d215653fd
+F 0600 .claude/research-sdd/.installed-bundle-state 221 4793cf210c8c0768
+F 0600 .claude/research-sdd/.installed-skill-state 31 2dcc4d4a95f5cd63
+F 0644 .claude/agents/research-sdd-readability.md 80 7b285d55e2365751
+F 0644 .claude/agents/research-sdd-risk.md 66 2191ada60400c4e4
+F 0644 .claude/skills/research-sdd/SKILL.md 42 ef02f65ea7726c08
+F 0644 .claude/skills/research-sdd/SKILL.md.local-backup 16 a4d4301d35278e4f
+tmp:
+cwd:

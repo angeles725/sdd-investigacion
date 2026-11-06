@@ -1,0 +1,23 @@
+home:
+D 0755 .pi
+D 0755 .pi/agent
+D 0755 .pi/agent/agents
+D 0755 .pi/agent/extensions
+D 0755 .pi/agent/prompts
+D 0755 .pi/agent/research-sdd
+D 0755 elsewhere
+D 0755 elsewhere/general
+F 0600 .pi/agent/AGENTS.md 2345 cdb69bcf2623ca76
+F 0600 .pi/agent/prompts/research-sdd.md 359 ecd1b1b90c9c92a8
+F 0600 .pi/agent/research-sdd/.installed-agent-research-sdd-mechanical-state 30 0f73790d215653fd
+F 0600 .pi/agent/research-sdd/.installed-agent-research-sdd-reasoning-state 30 0f73790d215653fd
+F 0600 .pi/agent/research-sdd/.installed-agent-research-sdd-structural-state 30 0f73790d215653fd
+F 0600 .pi/agent/research-sdd/.installed-extension-state 34 cf8bb9d2da2a880d
+F 0600 .pi/agent/research-sdd/.installed-template-state 33 0a0255caeddbfc45
+F 0644 .pi/agent/agents/research-sdd-mechanical.md 80 05c21f16d3d721d7
+F 0644 .pi/agent/agents/research-sdd-reasoning.md 78 f6f88ff8213bcc5c
+F 0644 .pi/agent/agents/research-sdd-structural.md 80 c2b1c3febd780ad9
+F 0644 .pi/agent/extensions/research-sdd-hooks.ts 49 80aaa9ba45260b71
+L .pi/agent/research-sdd/profile -> <ROOT>/home/elsewhere
+tmp:
+cwd:

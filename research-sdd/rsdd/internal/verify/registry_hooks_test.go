@@ -124,7 +124,7 @@ func TestRegistrySessionBudget(t *testing.T) {
 		k.blocks("alpha", 1)
 		k.put("alpha/.claude/settings.json", "{}\n")
 		if !missingScript {
-			k.write("kit/toolbelt/verify-session-budget.sh", "#!/bin/sh\n")
+			k.write("home/kit/toolbelt/verify-session-budget.sh", "#!/bin/sh\n")
 		}
 		k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")))
 		withHooks(t, h)

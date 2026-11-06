@@ -14,10 +14,10 @@ const nextPad = "  next step       : "
 // nextStepLine prints the next step. A document-cycle NEXT / BOOTSTRAP is final; its STOP yields to any gap-centric
 // verdict that is not itself a STOP (DOC-STOP-GUARD). dgNames lists the state files whose blocked-rows derivation
 // is unreadable: the verdict is then not derived at all (NEXT-STEP-DEGRADED-GUARD).
-func (c *ctx) nextStepLine(doc docCycle, dgNames string) {
+func (c *ctx) nextStepLine(doc docMode, dgNames string) {
 	nsDoc := ""
-	if doc.mode == docOutline {
-		nsDoc = doc.nextStep(c)
+	if doc == docOutline {
+		nsDoc = c.outlineNextStep()
 	}
 	if strings.HasPrefix(nsDoc, "NEXT") || strings.HasPrefix(nsDoc, "BOOTSTRAP") {
 		fmt.Fprintf(c.s.Out, "%s%s\n", nextPad, nsDoc)

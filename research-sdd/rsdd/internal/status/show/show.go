@@ -1,8 +1,9 @@
 // Package show is `rsdd status show`, the port of toolbelt/research-sdd-status.sh (issue #2549). It lands in
-// slices. Ported so far: argument parsing and validation, --emit-token, the state-file pick with its BOOTSTRAP
-// answers, the is_blocked reader, and the default report body (S6). The script stays authoritative until the
-// last slice: a section not yet wired into liveSections (the campaign block and document-cycle outline, S7) is
-// reported as not yet ported (typed, exit 1), never answered silently.
+// slices. Ported so far, which is every mode of the script: argument parsing and validation, --emit-token, the
+// state-file pick with its BOOTSTRAP answers, the is_blocked reader, the counters and envelope readers, --sync-state
+// (S3), --next with its STALE / RETRO-DUE / ISSUES-DUE gates (S4, S5), and the default report (S6) with its §8c
+// campaign queue block and document-cycle outline (S7). The script stays authoritative until the last slice (S8
+// turns it into a shim over this package).
 package show
 
 import (
@@ -31,18 +32,12 @@ type ctx struct {
 	blockedHook func(gap string) int // a test replaces the is_blocked read (0 blocked, 1 not, 2 unknown)
 }
 
-// tail is the part of the run after the pick. A slice that ports more sections replaces notPorted.
+// tail is the part of the run after the pick.
 type tail func(c *ctx) int
 
 // Run is `rsdd status show <target-dir> [flags]`.
 func Run(args []string, s cli.Stdio) int {
-	return run(args, s, syncOr(nextOr(liveSeams, defaultOr(liveSections, notPorted))))
-}
-
-// notPorted answers a run that got past the pick: the later sections are not in Go yet.
-func notPorted(c *ctx) int {
-	fmt.Fprintf(c.s.Err, "rsdd: status show: not-yet-ported: %s after the state-file pick; use toolbelt/research-sdd-status.sh (issue #2549)\n", c.opts.mode)
-	return cli.ExitOperational
+	return run(args, s, syncOr(nextOr(liveSeams, (*ctx).report)))
 }
 
 func run(args []string, s cli.Stdio, t tail) int {

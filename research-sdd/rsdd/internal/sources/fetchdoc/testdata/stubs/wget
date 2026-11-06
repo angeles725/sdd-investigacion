@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+out=""; prev=""
+for arg in "$@"; do [ "$prev" = "-O" ] && out="$arg"; prev="$arg"; done
+if [ "${STUB_WGET_FAIL:-0}" = "1" ]; then
+  # Real `wget -O` CREATES/TRUNCATES its target file even when the request fails (round-5 R1) —
+  # mirror that here so a test relying only on the stub cannot miss a caller that forgets to
+  # clean up $dest on wget failure.
+  [ -n "$out" ] && : > "$out"
+  echo "wget: (stub) simulated wget failure" >&2
+  exit 4
+fi
+if [ "${STUB_WGET_EMPTY:-0}" = "1" ]; then
+  # An "empty 200": wget exits 0 but wrote ZERO bytes (#1285 review B1).
+  [ -n "$out" ] && : > "$out"
+  exit 0
+fi
+[ -n "$out" ] && printf 'stub wget body\n' >"$out"
+exit 0
