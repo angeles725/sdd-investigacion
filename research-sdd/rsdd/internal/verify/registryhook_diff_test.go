@@ -21,8 +21,8 @@ import (
 func (k *vrKit) installLegacyHook() {
 	k.t.Helper()
 	for rel, dst := range map[string]string{
-		filepath.Join("registry", "verify-registry-hook.sh"): "kit/toolbelt/verify-registry-hook.sh",
-		filepath.Join("lib", "hook-emit.sh"):                 "kit/toolbelt/lib/hook-emit.sh",
+		filepath.Join("registry", "verify-registry-hook.sh"): "home/kit/toolbelt/verify-registry-hook.sh",
+		filepath.Join("lib", "hook-emit.sh"):                 "home/kit/toolbelt/lib/hook-emit.sh",
 	} {
 		b, err := os.ReadFile(filepath.Join("testdata", "legacy", rel))
 		if err != nil {
