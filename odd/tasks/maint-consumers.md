@@ -28,7 +28,9 @@ this unit's, with its evidence in the log.
   Addition (L4, ruling of session 1): a class `assembled` for names built at run time, which no literal names:
   every production literal that is `.sh` or ends in `.sh` and whose last segment is not a live script (format
   strings included), reported with its enclosing expression and gated by the same exact baseline. Literals ending
-  in another script extension are counted and reported as `assembled-other`, not gated (L4 says why).
+  in another script extension are counted and reported as `assembled-other`, not gated (L4 says why). The report
+  itself states that cost on every run: how many live scripts are not `.sh`, and that a run-time assembly of one of
+  them is seen only when a token names it (L5).
 - S5 Limits. "The output states its limits on every run: names that arrive through a flag or an environment
   variable, names built at run time, globs, names without the extension, and everything outside the repository."
 - S6 States. "Absent, empty and no-match are distinct: a kit that cannot be found, a tree with no script, and a class
@@ -73,7 +75,11 @@ this unit's, with its evidence in the log.
 - [ ] T1 (S4, S11, S13) `internal/core/gosrc`: the walker of module files (the union over build tags and platform
   suffixes, skipping `testdata`, `vendor` and names the go tool ignores) moved from `internal/maint/goimpact` with
   its pin, plus a literal visitor that yields value, position and the enclosing expression chain; goimpact imports
-  it · route: inline · BLOCKED on the first pull request of #2613 (session 2) merging
+  it · route: inline · BLOCKED on the first pull request of #2613 (session 2) merging. The import check of
+  `internal/testkit/archtest` (`archtest.Check`) takes its files from the same walker: today it parses every path
+  ending in `.go`, so a dangling editor-lock symlink is a read error there (advisory 4 of the cross-read of #2738,
+  left as a follow-up in that pull request). Assumption: the test-kit tier may import `internal/core`; if the
+  boundary check forbids it, that fix becomes its own change.
 - [ ] T2 (S1, S2, S4-S9, S13) `internal/maint/consumers`: live script list with its typed states, the Go classes,
   the report with its limits, the baseline file, the test that enforces it and the update mode · route: inline ·
   needs T1
@@ -131,4 +137,8 @@ pull requests, one per task; T4 is recorded in this document and in the last pul
   Outside Go source: 6 `//go:embed` directives in production files, 6 files, all `help.txt`, 21 script names
   (text). No text list under the module root names a script. Under the toolbelt two do: `requirements.txt` (8) and
   `tests/writer-check-waivers.txt` (1).
+- L5 Session 1, same day, on L4: "accepted as measured, including the three places where you departed from my
+  wording"; on the ungated extensions: "Keep that sentence in the tool's output, not only in the spec." S4 says so.
+  "No further spec questions from me; go on with the feature document, and send the first PR number when T1
+  unblocks."
 
