@@ -95,8 +95,8 @@ func TestAgeDefaults(t *testing.T) {
 
 func TestNilContextIsATypedRefusal(t *testing.T) {
 	w := newWorld(t)
-	//nolint:staticcheck // the nil context is the case under test
-	r := Check(nil, w.opts())
+	var none context.Context // nil: the case under test
+	r := Check(none, w.opts())
 	if r.Exit != 2 || r.Verdict != Refused || r.Summary != "" || !strings.Contains(r.Stderr(), "context") {
 		t.Errorf("%s", w.dump(r))
 	}
