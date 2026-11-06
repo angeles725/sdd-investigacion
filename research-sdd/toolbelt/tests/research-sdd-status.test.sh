@@ -2185,33 +2185,7 @@ else
   no "T-IDG-TIMEOUT: expected unverified marker + timed-out stderr, got stdout=[$_tmt_got] stderr=[$_tmt_err_got]"
 fi
 
-# T-IDG-TIMEOUT-ABSENT: _IDG_TIMEOUT_BIN="" → fail-closed for liveness:
-# unverified marker returned, 0 reconcile calls made (probe is skipped entirely).
-# R4-unbounded-when-timeout-absent: previously the gate ran each probe unbounded.
-_kit_ta="$TMP/kit-idg-timeout-absent"
-_ta_log="$TMP/timeout-absent-invocations.log"
-rsdd_stage_libs "$_kit_ta"
-cp "$SUT" "$_kit_ta/research-sdd-status.sh"
-cp "$HERE/../verify-state.sh" "$_kit_ta/verify-state.sh"
-# Recording stub: logs its argument (assert 0 calls); returns "tracked" so clean STOP if probe runs.
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$1" >> "%s"\nprintf "tracked: row 1\\n"\nexit 0\n' \
-  "$_ta_log" > "$_kit_ta/reconcile-issues.sh"
-chmod +x "$_kit_ta/reconcile-issues.sh"
-_t_ta="$TMP/target-idg-timeout-absent"; mkstate "$_t_ta" 0 "high|done gap|covered"
-mkdir -p "$_t_ta/retros"
-touch "$_t_ta/retros/2026-09-01-timeout-absent-retro.md"
-_ta_got="$(_IDG_TIMEOUT_BIN="" bash "$_kit_ta/research-sdd-status.sh" "$_t_ta" --next 2>/dev/null)"
-_ta_calls="$(cat "$_ta_log" 2>/dev/null || true)"
-if grep -qF '[issue-coverage: unverified' <<<"$_ta_got"; then
-  ok "T-IDG-TIMEOUT-ABSENT: _IDG_TIMEOUT_BIN=\"\" → unverified marker returned"
-else
-  no "T-IDG-TIMEOUT-ABSENT: expected unverified marker, got [$_ta_got]"
-fi
-if [ -z "$_ta_calls" ]; then
-  ok "T-IDG-TIMEOUT-ABSENT: reconcile not called (0 invocations) — fail-closed for liveness"
-else
-  no "T-IDG-TIMEOUT-ABSENT: reconcile was called [$_ta_calls] — probe not skipped"
-fi
+# T-IDG-TIMEOUT-ABSENT retired: divergence (6), pinned by s8a_divergence_test.go and TestGateNeedsNoTimeoutBinary.
 
 # T-IDG-CONTRACT: parser↔producer contract — real reconcile-issues.sh prints ^untracked: that gate counts.
 # R3-STUB-ONLY: runs REAL reconcile (not a stub); gh is stubbed (auth→exit 0, issue list→empty).
@@ -2389,22 +2363,6 @@ exec /usr/bin/mktemp "$@"
 STUB_MKTEMP_EOF
 chmod +x "$_stub_mktemp_dir/mktemp"
 
-_stub_sort_dir="$TMP/stub-sort"
-mkdir -p "$_stub_sort_dir"
-cat > "$_stub_sort_dir/sort" <<'STUB_SORT_EOF'
-#!/usr/bin/env bash
-# Stub sort: when IDG_SORT_EXIT is set AND called with -o (in-place), exit that code.
-# Regular sort calls (pipelines, etc.) pass through to the real binary so the rest
-# of the SUT flow (verify-state.sh state-file lookup, etc.) is not disrupted.
-if [ -n "${IDG_SORT_EXIT:-}" ]; then
-    for _sa in "$@"; do
-        [ "$_sa" = "-o" ] && exit "${IDG_SORT_EXIT}"
-    done
-fi
-exec /usr/bin/sort "$@"
-STUB_SORT_EOF
-chmod +x "$_stub_sort_dir/sort"
-
 # T-IDG-ENUM-PARTIAL: find exits non-zero + some retros listed + one has untracked → ISSUES-DUE.
 # Verifies retros listed before the error are NOT discarded — coverage cannot be claimed complete
 # but untracked deltas found in the partial set still win.
@@ -2462,19 +2420,7 @@ else
   no "T-IDG-ENUM-MKTEMP: expected unverified marker, got [$_em_got]"
 fi
 
-# T-IDG-ENUM-SORT-FAIL: sort stage of enumeration fails → unverified marker (not bare clean STOP).
-# R4-sort-silent-zero: sort's exit status was previously discarded.
-_kit_sf="$TMP/kit-idg-sort-fail"; mk_kit "$_kit_sf" "tracked"
-_t_sf="$TMP/target-idg-sort-fail"; mkstate "$_t_sf" 0 "high|done gap|covered"
-mkdir -p "$_t_sf/retros"
-touch "$_t_sf/retros/2026-09-01-sort-fail-retro.md"
-_sf_got="$(IDG_SORT_EXIT=1 PATH="$_stub_sort_dir:$PATH" \
-  bash "$_kit_sf/research-sdd-status.sh" "$_t_sf" --next 2>/dev/null)"
-if grep -qF '[issue-coverage: unverified' <<<"$_sf_got"; then
-  ok "T-IDG-ENUM-SORT-FAIL: enumeration sort exits 1 → unverified marker (not bare clean STOP)"
-else
-  no "T-IDG-ENUM-SORT-FAIL: expected unverified marker, got [$_sf_got]"
-fi
+# T-IDG-ENUM-SORT-FAIL retired: divergence (7), pinned by s8a_divergence_test.go.
 
 # T-IDG-PAYLOAD: ISSUES-DUE emitted for the first retro; retro-beta.md is NOT probed (early-exit).
 # Verifies: (1) ISSUES-DUE present, (2) triggering retro named in output, (3) only 1 stub call.
@@ -4872,91 +4818,6 @@ CTR_TEETH_EOF
     fi
   else
     no "teeth-IDG-enum-mktemp-guard: IDG-ENUM-MKTEMP-GUARD sentinel not found in SUT"
-  fi
-
-  # ---- teeth-IDG-sort-exit-unverified: neuter IDG-SORT-EXIT-UNVERIFIED; T-IDG-ENUM-SORT-FAIL must go RED.
-  # A mutant that replaces the _idg_had_unverified=1 flag with a no-op restores the old bug where
-  # sort failure was silently swallowed.  The stub find output is present (stub sort received it
-  # before failing) but the sort-exit guard never fires.  With all-tracked reconcile and no unverified
-  # flag set, unified decision emits bare STOP instead of the unverified marker.
-  echo "-- teeth-IDG-sort-exit-unverified: neuter IDG-SORT-EXIT-UNVERIFIED; T-IDG-ENUM-SORT-FAIL must go RED --"
-  idg_sort_mutant="$TMP/status.IDG-SORT-EXIT-UNVERIFIED.MUTANT.sh"
-  if grep -q '# IDG-SORT-EXIT-UNVERIFIED' "$SUT"; then
-    sed 's/_idg_had_unverified=1  # IDG-SORT-EXIT-UNVERIFIED/: # MUTANT-IDG-SORT-EXIT-UNVERIFIED/' \
-      "$SUT" > "$idg_sort_mutant"
-    if grep -q '# IDG-SORT-EXIT-UNVERIFIED' "$idg_sort_mutant"; then
-      no "teeth-IDG-sort-exit-unverified: could not build mutant (sed did not replace IDG-SORT-EXIT-UNVERIFIED)"
-    else
-      _sort_mut_kit="$TMP/kit-teeth-sort"
-      rsdd_stage_libs "$_sort_mut_kit"
-      cp "$idg_sort_mutant" "$_sort_mut_kit/research-sdd-status.sh"
-      cp "$HERE/../verify-state.sh" "$_sort_mut_kit/verify-state.sh"
-      # tracked stub: all retros tracked → no ISSUES-DUE; bare STOP if unverified flag is neutered.
-      printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
-        > "$_sort_mut_kit/reconcile-issues.sh"
-      chmod +x "$_sort_mut_kit/reconcile-issues.sh"
-      _sort_mut_target="$TMP/target-teeth-sort"
-      mkstate "$_sort_mut_target" 0 "high|done gap|covered"
-      mkdir -p "$_sort_mut_target/retros"
-      touch "$_sort_mut_target/retros/2026-09-01-teeth-sort-retro.md"
-      _sort_mut_got="$(IDG_SORT_EXIT=1 PATH="$_stub_sort_dir:$PATH" \
-        bash "$_sort_mut_kit/research-sdd-status.sh" "$_sort_mut_target" --next 2>/dev/null)"
-      if grep -qF '[issue-coverage: unverified' <<<"$_sort_mut_got"; then
-        no "teeth-IDG-sort-exit-unverified: mutant still returned unverified marker → IDG-SORT-EXIT-UNVERIFIED is THEATER"
-      else
-        case "$_sort_mut_got" in
-          "STOP | read-only-investigable exhausted (0)")
-            ok "teeth-IDG-sort-exit-unverified: neutered mutant → bare STOP → T-IDG-ENUM-SORT-FAIL goes RED → IDG-SORT-EXIT-UNVERIFIED is load-bearing" ;;
-          *)
-            no "teeth-IDG-sort-exit-unverified: mutant returned unexpected [$_sort_mut_got] — fixture or mutant broken" ;;
-        esac
-      fi
-    fi
-  else
-    no "teeth-IDG-sort-exit-unverified: IDG-SORT-EXIT-UNVERIFIED sentinel not found in SUT"
-  fi
-
-  # ---- teeth-IDG-timeout-absent: neuter IDG-TIMEOUT-ABSENT-FAIL-CLOSED; T-IDG-TIMEOUT-ABSENT must go RED.
-  # A mutant that replaces the _idg_had_unverified=1 flag with a no-op means the gate never marks
-  # coverage unverified when no timeout binary is present.  The IDG-TIMEOUT-ABSENT-SKIP guard still
-  # fires (all probes are still skipped), so no reconcile calls happen and no ISSUES-DUE fires either.
-  # The unified decision then emits bare STOP → T-IDG-TIMEOUT-ABSENT (expects unverified marker) goes RED.
-  echo "-- teeth-IDG-timeout-absent: neuter IDG-TIMEOUT-ABSENT-FAIL-CLOSED; T-IDG-TIMEOUT-ABSENT must go RED --"
-  idg_ta_mutant="$TMP/status.IDG-TIMEOUT-ABSENT-FAIL-CLOSED.MUTANT.sh"
-  if grep -q '# IDG-TIMEOUT-ABSENT-FAIL-CLOSED' "$SUT"; then
-    sed 's/_idg_had_unverified=1  # IDG-TIMEOUT-ABSENT-FAIL-CLOSED/: # MUTANT-IDG-TIMEOUT-ABSENT-FAIL-CLOSED/' \
-      "$SUT" > "$idg_ta_mutant"
-    if grep -q '# IDG-TIMEOUT-ABSENT-FAIL-CLOSED' "$idg_ta_mutant"; then
-      no "teeth-IDG-timeout-absent: could not build mutant (sed did not replace IDG-TIMEOUT-ABSENT-FAIL-CLOSED)"
-    else
-      _ta_mut_kit="$TMP/kit-teeth-ta"
-      rsdd_stage_libs "$_ta_mut_kit"
-      cp "$idg_ta_mutant" "$_ta_mut_kit/research-sdd-status.sh"
-      cp "$HERE/../verify-state.sh" "$_ta_mut_kit/verify-state.sh"
-      # tracked stub: probes skipped (ABSENT-SKIP fires), so reconcile is never called; just needs to exist.
-      printf '#!/usr/bin/env bash\nprintf "tracked: row 1\\n"\nexit 0\n' \
-        > "$_ta_mut_kit/reconcile-issues.sh"
-      chmod +x "$_ta_mut_kit/reconcile-issues.sh"
-      _ta_mut_target="$TMP/target-teeth-ta"
-      mkstate "$_ta_mut_target" 0 "high|done gap|covered"
-      mkdir -p "$_ta_mut_target/retros"
-      touch "$_ta_mut_target/retros/2026-09-01-teeth-ta-retro.md"
-      # Mutant: FAIL-CLOSED flag neutered; IDG-TIMEOUT-ABSENT-SKIP still fires → all probes skipped.
-      # No unverified flag + no probes → bare STOP; T-IDG-TIMEOUT-ABSENT expects unverified → RED.
-      _ta_mut_got="$(_IDG_TIMEOUT_BIN="" bash "$_ta_mut_kit/research-sdd-status.sh" "$_ta_mut_target" --next 2>/dev/null)"
-      if grep -qF '[issue-coverage: unverified' <<<"$_ta_mut_got"; then
-        no "teeth-IDG-timeout-absent: mutant still returned unverified marker → IDG-TIMEOUT-ABSENT-FAIL-CLOSED is THEATER"
-      else
-        case "$_ta_mut_got" in
-          "STOP | read-only-investigable exhausted (0)")
-            ok "teeth-IDG-timeout-absent: FAIL-CLOSED neutered → bare STOP → T-IDG-TIMEOUT-ABSENT goes RED → IDG-TIMEOUT-ABSENT-FAIL-CLOSED is load-bearing" ;;
-          *)
-            no "teeth-IDG-timeout-absent: mutant returned unexpected [$_ta_mut_got] — fixture or mutant broken" ;;
-        esac
-      fi
-    fi
-  else
-    no "teeth-IDG-timeout-absent: IDG-TIMEOUT-ABSENT-FAIL-CLOSED sentinel not found in SUT"
   fi
 
   # ---- teeth-IDG-early-exit: neuter IDG-EARLY-EXIT (remove return); T-IDG-PAYLOAD must go RED.
