@@ -9,8 +9,9 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
-// check judges one workflow source against one guard and returns one finding per problem, so the three ways a
-// filter can stop protecting (event gone, filter gone or unreadable, entry narrowed) are told apart.
+// check judges one workflow source against one guard and returns one finding per problem, so the ways a filter
+// can stop protecting are told apart: the event gone, the filter unreadable or replaced by paths-ignore, a required
+// entry missing, or a negation entry that carves changes back out of a required one.
 func check(src string, events, paths []string) []string {
 	var out []string
 	for _, ev := range events {
@@ -23,6 +24,11 @@ func check(src string, events, paths []string) []string {
 		default:
 			for _, m := range Missing(have, paths) {
 				out = append(out, ev+": paths lacks "+m)
+			}
+			for _, h := range have {
+				if strings.HasPrefix(h, "!") {
+					out = append(out, ev+": paths has the negation entry "+h)
+				}
 			}
 		}
 	}
@@ -56,6 +62,9 @@ func TestCheckFindings(t *testing.T) {
 		{"second entry dropped everywhere", strings.ReplaceAll(ok, "      - x.yml\n", ""), []string{"push: paths lacks x.yml", "pull_request: paths lacks x.yml"}},
 		{"event removed", ok[:strings.Index(ok, "  pull_request:")], []string{"pull_request: no such event"}},
 		{"filter removed is wider, not a finding", "on:\n  push:\n    branches: [main]\n  pull_request:\n", nil},
+		{"paths-ignore instead of paths", strings.Replace(ok, "    paths:\n      - \"research-sdd/**\"\n      - x.yml\n", "    paths-ignore:\n      - \"research-sdd/toolbelt/**\"\n", 1), []string{"push: paths-ignore filter"}},
+		{"negation entry after the required ones", strings.Replace(ok, "      - x.yml\n", "      - x.yml\n      - \"!research-sdd/toolbelt/**\"\n", 1), []string{"push: paths has the negation entry !research-sdd/toolbelt/**"}},
+		{"flow-form event hides its filter", strings.Replace(ok, "  push:\n    paths:\n      - \"research-sdd/**\"\n      - x.yml\n", "  push: {paths: [\"research-sdd/rsdd/**\"]}\n", 1), []string{"push: unrecognised form"}},
 		{"unreadable filter", strings.Replace(ok, "    paths:\n      - \"research-sdd/**\"\n      - x.yml\n", "    paths: research-sdd\n", 1), []string{"push: unrecognised form"}},
 		{"no on block", "jobs: {}\n", []string{"push: unrecognised form", "pull_request: unrecognised form"}},
 	}

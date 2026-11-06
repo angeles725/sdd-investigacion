@@ -6,8 +6,8 @@ on:
     # The whole kit, not only the Go module: Go tests read LIVE kit files (toolbelt scripts and libs, registries,
     # docs) as their differential oracle, so a kit-only change can turn the module red. A narrower list would
     # need an enumerator of those reads that nobody maintains; the bridge suite and lib/mutant.sh are inside it.
-    # Both lists are guarded by internal/testkit/ciworkflow (TestWorkflowPathFiltersKeepTheirEntries): narrowing
-    # either one fails that test.
+    # Both lists are guarded by internal/testkit/ciworkflow (TestWorkflowPathFiltersKeepTheirEntries): changing
+    # either entry, adding a negation entry or switching to paths-ignore fails that test.
     paths:
       - "research-sdd/**"
       - ".github/workflows/rsdd-go.yml"

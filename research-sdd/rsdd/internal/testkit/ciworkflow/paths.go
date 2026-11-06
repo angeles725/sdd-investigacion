@@ -5,6 +5,9 @@
 // event, `paths:` followed by `- entry` lines) and the flow form `paths: [a, b]`; any other shape is reported as
 // Unrecognised, never as an empty list.
 //
+// It looks at `paths` and `paths-ignore` only. It does not read `branches` / `branches-ignore`, the `types:` of an
+// event or a job-level `if:` condition, so a pass here says nothing about those.
+//
 // internal/gate has its own scanner (pfScanWorkflow): a byte-parity port of the merge gate's awk that answers
 // "would this check be skipped for this pull request" and reads the pull_request event only. This reader answers
 // a different question (which entries does an event list) for any event, so the two are kept apart.
@@ -18,12 +21,13 @@ type State int
 const (
 	Found        State = iota // the event has a paths list; the entries are returned
 	NoEvent                   // `on:` has no such event
-	NoPaths                   // the event has no `paths:` key (it runs on every change)
-	Unrecognised              // no block-form `on:`, or a `paths:` value this reader does not understand
+	NoPaths                   // the event has neither `paths:` nor `paths-ignore:` (it runs on every change)
+	Ignores                   // the event carries `paths-ignore:` (it excludes changes; the entries are not read)
+	Unrecognised              // no block-form `on:`, a flow-form event, or a `paths:` value this reader does not understand
 )
 
 func (s State) String() string {
-	return [...]string{"found", "no such event", "no paths filter", "unrecognised form"}[s]
+	return [...]string{"found", "no such event", "no paths filter", "paths-ignore filter", "unrecognised form"}[s]
 }
 
 // EventPaths returns the `paths:` entries of event in the workflow source src.
@@ -35,6 +39,12 @@ func EventPaths(src, event string) ([]string, State) {
 	ev, ok := child(on.body, event)
 	if !ok {
 		return nil, NoEvent
+	}
+	if ev.inline != "" {
+		return nil, Unrecognised // `push: {paths: [...]}`: a filter may hide in the flow mapping
+	}
+	if _, ok := child(ev.body, "paths-ignore"); ok {
+		return nil, Ignores
 	}
 	paths, ok := child(ev.body, "paths")
 	if !ok {

@@ -39,7 +39,11 @@ func TestEventPaths(t *testing.T) {
 		{"event with no body", block, "workflow_dispatch", nil, NoPaths},
 		{"event absent", block, "release", nil, NoEvent},
 		{"a job key is not an event", block, "build", nil, NoEvent},
-		{"paths-ignore is not paths", "on:\n  push:\n    paths-ignore:\n      - a\n", "push", nil, NoPaths},
+		{"paths-ignore is its own state", "on:\n  push:\n    paths-ignore:\n      - a\n", "push", nil, Ignores},
+		{"paths-ignore beside paths", "on:\n  push:\n    paths:\n      - a\n    paths-ignore:\n      - b\n", "push", nil, Ignores},
+		{"flow-form event", "on:\n  push: {paths: [a]}\n", "push", nil, Unrecognised},
+		{"flow-form empty event", "on:\n  push: {}\n", "push", nil, Unrecognised},
+		{"negation entries are returned as written", "on:\n  push:\n    paths:\n      - a\n      - \"!a/b\"\n", "push", []string{"a", "!a/b"}, Found},
 		{"list at the key's indent", "on:\n  push:\n    paths:\n    - a\n    - b\n", "push", []string{"a", "b"}, Found},
 		{"last line without newline", "on:\n  push:\n    paths:\n      - a", "push", []string{"a"}, Found},
 		{"single entry", "on:\n  push:\n    paths:\n      - a\n", "push", []string{"a"}, Found},
@@ -81,7 +85,7 @@ func TestMissing(t *testing.T) {
 }
 
 func TestStateNames(t *testing.T) {
-	for s, want := range map[State]string{Found: "found", NoEvent: "no such event", NoPaths: "no paths filter", Unrecognised: "unrecognised form"} {
+	for s, want := range map[State]string{Found: "found", NoEvent: "no such event", NoPaths: "no paths filter", Ignores: "paths-ignore filter", Unrecognised: "unrecognised form"} {
 		if s.String() != want {
 			t.Errorf("State(%d) = %q, want %q", s, s.String(), want)
 		}
