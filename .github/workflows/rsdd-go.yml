@@ -9,10 +9,14 @@ on:
     paths:
       - "research-sdd/**"
       - ".github/workflows/rsdd-go.yml"
+      # core/hookenv's consumer-bound test reads the registered SessionStart hooks here (#2631, #2737).
+      - ".claude/settings.json"
   pull_request:
     paths:
       - "research-sdd/**"
       - ".github/workflows/rsdd-go.yml"
+      # core/hookenv's consumer-bound test reads the registered SessionStart hooks here (#2631, #2737).
+      - ".claude/settings.json"
   # Nightly whole-module run of the bridge suite (whole-module gremlins; RSDD_TEETH_BASE is empty on schedule/dispatch).
   # The toolbelt nightly used to cover this through its core tier; the suite is now `dedicated` (suite-tiers.txt).
   schedule:

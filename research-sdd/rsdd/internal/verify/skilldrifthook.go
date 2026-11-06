@@ -45,7 +45,8 @@ const (
 	installVerifyMaxBytes = 4 << 20
 	hookDriftDetailMore   = "  (+%d more - run research-sdd-install.sh --verify for the full list)"
 	// hdrCannotRun heads the envelope of a hook whose own code panicked (kit issue #2610).
-	hdrCannotRun = "ERROR: research-sdd skill-drift hook could not run (internal error):"
+	hdrCannotRun    = "ERROR: research-sdd skill-drift hook could not run (internal error):"
+	skillDriftRerun = "rsdd verify skill-drift" // the command whose own output a capped failure context points at (#2631)
 )
 
 var (
@@ -124,7 +125,7 @@ func runSkillDriftHook(args []string, s cli.Stdio) int {
 func runSkillDriftHookWith(args []string, s cli.Stdio, b hookBudgets) int {
 	var buf bytes.Buffer // only a panic writes here: the body prints its own envelope
 	if hookenv.Guard(&buf, func() int { return skillDriftHookBody(args, s, b) }) != cli.ExitOK {
-		hookenv.WriteSessionStart(s.Out, hdrCannotRun+"\n"+strings.TrimRight(buf.String(), "\n"))
+		hookenv.WriteSessionStart(s.Out, hookenv.FailureContext(hdrCannotRun, strings.TrimRight(buf.String(), "\n"), skillDriftRerun))
 	}
 	return cli.ExitOK // a hook never fails the session
 }

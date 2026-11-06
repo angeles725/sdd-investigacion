@@ -25,6 +25,7 @@ import (
 const (
 	btHookHeader    = "Research-SDD breakthrough ledger sweep (§22):"
 	btHookFailedFmt = "Research-SDD breakthroughs sweep could not run (exit %d — check TARGETS.md and lib/ helper):"
+	btRerun         = "rsdd sweep breakthroughs" // the command whose own output a capped failure context points at (#2631)
 	btNamedLimit    = 5
 )
 
@@ -46,7 +47,7 @@ func runBreakthroughsHook(o options, s cli.Stdio, read readFunc) int {
 // stripped) and its exit code. A sweep that failed is reported unfiltered under its own header.
 func breakthroughsHookContext(out string, rc int, full bool) string {
 	if rc != 0 {
-		return fmt.Sprintf(btHookFailedFmt, rc) + "\n" + out
+		return hookenv.FailureContext(fmt.Sprintf(btHookFailedFmt, rc), out, btRerun)
 	}
 	if !full {
 		out = strings.TrimRight(breakthroughsSummaryFilter(out), "\n")

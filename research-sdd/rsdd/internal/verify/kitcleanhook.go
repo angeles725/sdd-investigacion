@@ -26,9 +26,10 @@ import (
 // the degraded path when rsdd cannot run.
 
 const (
-	hdrNotClean = "Research-SDD KIT is NOT clean — commit/stash + push before staging §18 retros (else the retro branch/PR mixes unrelated history):"
-	hdrInternal = "Research-SDD kit-clean check could not run (internal error):"
-	hdrCouldNot = "Research-SDD kit-clean check could not run (exit %d — misconfigured path or not a git repo):"
+	hdrNotClean   = "Research-SDD KIT is NOT clean — commit/stash + push before staging §18 retros (else the retro branch/PR mixes unrelated history):"
+	hdrInternal   = "Research-SDD kit-clean check could not run (internal error):"
+	hdrCouldNot   = "Research-SDD kit-clean check could not run (exit %d — misconfigured path or not a git repo):"
+	kitCleanRerun = "rsdd verify kit-clean" // the command whose own output a capped failure context points at (#2631)
 )
 
 // RunKitCleanHook is the `verify kit-clean-hook` command.
@@ -50,6 +51,11 @@ func RunKitCleanHook(args []string, s cli.Stdio) int {
 	case rc != 1:
 		hdr = fmt.Sprintf(hdrCouldNot, rc)
 	}
-	hookenv.WriteSessionStart(s.Out, hdr+"\n"+strings.TrimRight(buf.String(), "\n"))
+	out := strings.TrimRight(buf.String(), "\n")
+	if hdr == hdrNotClean { // a dirty kit is a finding, not a failure: its report is not capped
+		hookenv.WriteSessionStart(s.Out, hdr+"\n"+out)
+		return cli.ExitOK
+	}
+	hookenv.WriteSessionStart(s.Out, hookenv.FailureContext(hdr, out, kitCleanRerun))
 	return cli.ExitOK
 }

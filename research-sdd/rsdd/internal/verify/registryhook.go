@@ -33,6 +33,7 @@ import (
 const (
 	hdrRegistryOK      = "Research-SDD registry check (TARGETS.md vs reality):"
 	hdrRegistryCouldNo = "Research-SDD registry check could not run (exit %d — check TARGETS.md and lib/ helper):"
+	registryRerun      = "rsdd verify registry" // the command whose own output a capped failure context points at (#2631)
 
 	compactMaxWarn = 6
 	compactWarnMax = 100
@@ -63,7 +64,7 @@ func RunRegistryHook(args []string, s cli.Stdio) int {
 	rc := hookenv.Guard(&buf, func() int { return RunRegistry(regArgs, sc) })
 	out := strings.TrimRight(buf.String(), "\n")
 	if rc != 0 {
-		hookenv.WriteSessionStart(s.Out, fmt.Sprintf(hdrRegistryCouldNo, rc)+"\n"+out)
+		hookenv.WriteSessionStart(s.Out, hookenv.FailureContext(fmt.Sprintf(hdrRegistryCouldNo, rc), out, registryRerun))
 		return cli.ExitOK
 	}
 	if !full {
