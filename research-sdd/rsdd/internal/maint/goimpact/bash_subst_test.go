@@ -17,6 +17,7 @@ func TestCommandSubstitutionsAreNewCommandContexts(t *testing.T) {
 		{"unquoted in [[ ]]", `[[ $("$RSDD_BIN" g one) == x ]]`, "C+", "", "g one"},
 		{"quoted rsdd_exec", `x="$(rsdd_exec g one)"`, "C+", "", "g one"},
 		{"nested", `x="$(echo "$("$RSDD_BIN" g one)")"`, "C+", "", "g one"},
+		{"single-quoted paren inside", `out="$("$RSDD_BIN" g one 'a)b')"`, "C+", "", "g one"},
 		{"unclosed", `x="$("$RSDD_BIN" g one`, "unplaceable", "unplaceable", ""},
 		{"plain assignment stays A", `x="$RSDD_BIN"`, "A", "empty-reach", ""},
 		{"plain bracket stays B", `[ -x "$RSDD_BIN" ]`, "B", "empty-reach", ""},

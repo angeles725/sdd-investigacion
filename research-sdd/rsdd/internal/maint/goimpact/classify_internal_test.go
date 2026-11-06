@@ -25,6 +25,8 @@ func TestClassifyPlacesEveryMention(t *testing.T) {
 		{"bash -c", []string{"bash", "-c", "$RSDD_BIN"}, 2, 0, false, false, ClassUnplaceable},
 		{"bash script", []string{"bash", "$RSDD_BIN"}, 1, 0, false, false, ClassD},
 		{"flag after the mention", []string{"bash", "$RSDD_BIN", "-c"}, 1, 0, false, false, ClassD},
+		{"flag after the mention, prefix word", []string{"FOO=1", "bash", "$RSDD_BIN", "-c"}, 2, 1, false, false, ClassD},
+		{"bash -c, prefix word", []string{"FOO=1", "bash", "-c", "$RSDD_BIN"}, 3, 1, false, false, ClassUnplaceable},
 		{"not a shell", []string{"bashx", "-c", "$RSDD_BIN"}, 2, 0, false, false, ClassD},
 		{"executed here-doc", []string{"$RSDD_BIN"}, 0, 0, false, true, ClassUnplaceable},
 		{"command position", []string{"$RSDD_BIN", "g"}, 0, 0, false, false, ClassC},
