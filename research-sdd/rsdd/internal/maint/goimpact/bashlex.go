@@ -2,10 +2,14 @@ package goimpact
 
 import "strings"
 
-// tok is one shell word, or a separator (`;`, `|`, `&`, `(`, `)`, `{`, `}`, a backtick or `$(`) when sep is set.
+// tok is one shell word, or a separator (`;`, `|`, `&`, `(`, `)`, `{`, `}`) when sep is set. A command
+// substitution inside a word, quoted or not, is replaced in text by `$()` and its body kept in subs, to be lexed
+// as a new command context. bad is the rest of the line after a substitution that never closes.
 type tok struct {
 	text string
 	sep  bool
+	subs []string
+	bad  string
 }
 
 // logicalLines joins backslash-continued lines.
@@ -35,15 +39,34 @@ func logicalLines(text string) []string {
 func lex(line string) []tok {
 	var out []tok
 	var cur strings.Builder
+	var subs []string
 	flush := func() {
 		if cur.Len() > 0 {
-			out = append(out, tok{text: cur.String()})
+			out = append(out, tok{text: cur.String(), subs: subs})
 			cur.Reset()
+			subs = nil
 		}
 	}
 	rs := []rune(line)
+	// take consumes a command substitution opening at rs[i], in a quoted word or not.
+	take := func(i int) (next int, hit, bad bool) {
+		sb, ok := substAt(rs, i)
+		if !ok || !sb.ok {
+			return i, ok, ok
+		}
+		subs = append(subs, sb.body)
+		cur.WriteString("$()")
+		return sb.end, true, false
+	}
 	for i := 0; i < len(rs); i++ {
 		r := rs[i]
+		if n, hit, bad := take(i); hit {
+			if bad {
+				return append(out, tok{bad: string(rs[i:])})
+			}
+			i = n
+			continue
+		}
 		switch {
 		case r == '\\' && i+1 < len(rs):
 			cur.WriteRune(r)
@@ -52,6 +75,15 @@ func lex(line string) []tok {
 		case r == '"' || r == '\'':
 			cur.WriteRune(r)
 			for i++; i < len(rs); i++ {
+				if r == '"' { // single quotes hold substitutions as text
+					if n, hit, bad := take(i); hit {
+						if bad {
+							return append(out, tok{bad: string(rs[i:])})
+						}
+						i = n
+						continue
+					}
+				}
 				cur.WriteRune(rs[i])
 				if rs[i] == '\\' && r == '"' && i+1 < len(rs) {
 					i++
@@ -67,16 +99,12 @@ func lex(line string) []tok {
 					break
 				}
 			}
-		case r == '$' && i+1 < len(rs) && rs[i+1] == '(':
-			flush()
-			out = append(out, tok{text: "$(", sep: true})
-			i++
 		case r == ' ' || r == '\t':
 			flush()
 		case r == '#' && cur.Len() == 0:
 			flush()
 			return out
-		case strings.ContainsRune(";|&(){}`", r):
+		case strings.ContainsRune(";|&(){}", r):
 			flush()
 			out = append(out, tok{text: string(r), sep: true})
 		default:

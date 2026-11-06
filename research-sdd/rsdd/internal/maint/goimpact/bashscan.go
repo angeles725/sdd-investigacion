@@ -20,9 +20,12 @@ var (
 var prefixWords = map[string]bool{"if": true, "then": true, "else": true, "elif": true, "do": true, "while": true,
 	"until": true, "!": true, "exec": true, "command": true, "time": true, "builtin": true}
 
-// segment is one simple command: its words, and the separator that ended it.
+// segment is one simple command: its words, the command-substitution bodies inside them, the rest of the line
+// after a substitution that never closed (bad), and the separator that ended it.
 type segment struct {
 	words []string
+	subs  []string
+	bad   string
 	next  string
 }
 
@@ -30,8 +33,13 @@ func segments(toks []tok) []segment {
 	var out []segment
 	var cur segment
 	for _, t := range toks {
+		if t.bad != "" {
+			cur.bad = t.bad
+			continue
+		}
 		if !t.sep {
 			cur.words = append(cur.words, t.text)
+			cur.subs = append(cur.subs, t.subs...)
 			continue
 		}
 		cur.next = t.text
@@ -81,16 +89,19 @@ func scanText(text string, known func(Command) bool) ([]Call, []Mention) {
 			calls = append(calls, Call{Cmd: c, Form: form})
 		}
 	}
-	for _, sl := range sourceLines(text) {
+	// scanLine scans one logical line. The body of every command substitution is scanned as a new line: a fresh
+	// command context, so the assignment, bracket and [[ ]] state of the outer words never applies to it.
+	var scanLine func(text string, exec bool)
+	scanLine = func(text string, exec bool) {
 		inDouble := false
-		for _, seg := range segments(lex(sl.Text)) {
+		for _, seg := range segments(lex(text)) {
 			w0 := commandIndex(seg.words)
 			if w0 >= 0 && norm(seg.words[w0]) == "[[" {
 				inDouble = true
 			}
 			for j, w := range seg.words {
 				if binNameRe.MatchString(w) {
-					class := classify(seg.words, j, w0, inDouble, sl.Exec)
+					class := classify(seg.words, j, w0, inDouble, exec)
 					if class == ClassC || class == ClassD {
 						record(class, mentionForm(w), normAll(seg.words[j+1:]))
 					} else {
@@ -113,7 +124,16 @@ func scanText(text string, known func(Command) bool) ([]Call, []Mention) {
 					inDouble = false
 				}
 			}
+			for _, sub := range seg.subs {
+				scanLine(sub, exec)
+			}
+			if seg.bad != "" && strings.Contains(strings.ToLower(seg.bad), "rsdd") { // never closed: fail closed
+				ms = append(ms, Mention{Class: ClassUnplaceable})
+			}
 		}
+	}
+	for _, sl := range sourceLines(text) {
+		scanLine(sl.Text, sl.Exec)
 	}
 	return calls, ms
 }

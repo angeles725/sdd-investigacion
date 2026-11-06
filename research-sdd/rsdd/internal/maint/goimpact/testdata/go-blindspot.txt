@@ -1,6 +1,7 @@
 # Go blind-spot bash files, derived by the classifier: `<path> <class>` per line, sorted. A file the
 # classifier marks that is missing here fails the test; so does a stale entry. Reviewed on every change.
 research-sdd/install/tests/research-sdd-install.test.sh D
+research-sdd/toolbelt/lib/hook-wiring.sh C
 research-sdd/toolbelt/tests/capa.test.sh D
 research-sdd/toolbelt/tests/check-gap-drift.test.sh D
 research-sdd/toolbelt/tests/corroborate-bacnet.test.sh D
@@ -13,6 +14,7 @@ research-sdd/toolbelt/tests/discriminator-parity.test.sh D
 research-sdd/toolbelt/tests/firmware-carve.test.sh D
 research-sdd/toolbelt/tests/floss.test.sh D
 research-sdd/toolbelt/tests/hook-wiring.test.sh D
+research-sdd/toolbelt/tests/job-budget.test.sh unplaceable
 research-sdd/toolbelt/tests/kit-pr-pipeline.test.sh D
 research-sdd/toolbelt/tests/kit-rdd-drive.test.sh D
 research-sdd/toolbelt/tests/kit-rdd-start.test.sh D
@@ -24,8 +26,9 @@ research-sdd/toolbelt/tests/reconcile-issues-delta-forms.test.sh D
 research-sdd/toolbelt/tests/reconcile-issues-dismissed.test.sh D
 research-sdd/toolbelt/tests/reconcile-issues.test.sh D
 research-sdd/toolbelt/tests/research-sdd-status-deferred-populations.test.sh D
+research-sdd/toolbelt/tests/resume-state.test.sh D
 research-sdd/toolbelt/tests/rsdd-go.test.sh D
-research-sdd/toolbelt/tests/run-all.sh empty-reach
+research-sdd/toolbelt/tests/run-all.sh D
 research-sdd/toolbelt/tests/run-all.test.sh D
 research-sdd/toolbelt/tests/score-loop-transcript.test.sh D
 research-sdd/toolbelt/tests/serial-frame-analyze.test.sh D
