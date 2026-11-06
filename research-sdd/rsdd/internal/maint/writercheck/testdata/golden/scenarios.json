@@ -149,6 +149,16 @@
   "err": "",
   "rc": 1
  },
+ "log-badutf8-banner": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nFindings: 0\n",
+  "err": "",
+  "rc": 0
+ },
+ "log-badutf8-summary": {
+  "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nmissing-teeth research-sdd/toolbelt/tests/a.test.sh (no summary line)\nFindings: 1\n",
+  "err": "",
+  "rc": 1
+ },
  "log-banner-eq": {
   "out": "Required suites: 2\n  research-sdd/toolbelt/tests/a.test.sh\n  research-sdd/toolbelt/tests/multi.test.sh\nFindings: 0\n",
   "err": "",

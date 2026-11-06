@@ -35,6 +35,10 @@ func requiredScenarios() []scenario {
 		logCase("log-failline", "-- teeth --\n  FAIL  one\n== 3 passed · 0 failed ==\n", true, 1),
 		logCase("log-empty", "", false, 1),
 		logCase("log-nosummary", "-- teeth --\nsome text\n", true, 1),
+		// Invalid UTF-8 is not binary to grep: on a non-summary line it is ignored, on the summary line the pattern
+		// itself fails (same under C and C.UTF-8). A NUL is binary: see TestDivergenceNulLogHasNoGrepDiagnostic.
+		logCase("log-badutf8-banner", "-- teeth \xff--\n== 3 passed · 0 failed ==\n", true, 0),
+		logCase("log-badutf8-summary", "-- teeth --\n== 3 passed · 0 failed == \xff\n", true, 1),
 		logCase("log-last-summary", "-- teeth --\n== 1 passed · 2 failed ==\n== 3 passed · 0 failed ==\n", true, 0),
 		logCase("log-double-zero", "-- teeth --\n== 3 passed · 00 failed ==\n", true, 1),
 		logCase("log-padded-zero", "-- teeth --\n== 00 passed · 0 failed ==\n", true, 0),

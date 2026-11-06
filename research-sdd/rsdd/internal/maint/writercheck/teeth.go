@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/textlog"
 )
 
 // A teeth log is a `--prove-teeth` run: the binding header, a teeth banner line (`-- teeth ...` / `== teeth ...`,
@@ -34,19 +36,26 @@ func checkLog(dir, suite, bindHeader string) (kind, reason string) {
 		return missing, "no --teeth-log given"
 	}
 	p := filepath.Join(dir, logName(suite))
-	b, err := os.ReadFile(p)
-	if err != nil {
+	// `[ -f ]` and `[ -s ]` follow symlinks, as os.Stat does.
+	fi, err := os.Stat(p)
+	if err != nil || !fi.Mode().IsRegular() {
 		return missing, "no log " + filepath.Base(p)
 	}
-	if len(b) == 0 {
+	if fi.Size() == 0 {
 		return missing, "log is empty"
 	}
+	// An unreadable log gives head(1) no first line, so the bash reports no header.
+	b, err := os.ReadFile(p)
 	lines := strings.Split(string(b), "\n")
-	if !reHeader.MatchString(lines[0]) {
+	if err != nil || !reHeader.MatchString(lines[0]) {
 		return stale, "no writer-check header (a log not produced by --write-teeth-log is not evidence)"
 	}
 	if treeOf(lines[0]) != treeOf(bindHeader) {
 		return stale, "changed files differ from when the log was written (re-run --write-teeth-log)"
+	}
+	// grep finds no summary line in a log it reads as binary.
+	if textlog.Binary(b) {
+		return missing, "no summary line"
 	}
 	return judgeBody(lines)
 }

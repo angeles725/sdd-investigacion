@@ -158,3 +158,23 @@ func TestImpactFailureIsDegradedWithItsMessage(t *testing.T) {
 		t.Errorf("rc %d err %q", r.rc, r.err)
 	}
 }
+
+// A teeth log holding a NUL byte has no summary line, before or after the summary, as in the legacy (grep reads it as
+// binary). Intended divergence: the legacy also leaks grep's "binary file matches" diagnostic on stderr; Go is silent.
+func TestDivergenceNulLogHasNoGrepDiagnostic(t *testing.T) {
+	for _, body := range []string{
+		"-- teeth --\n== 3 passed · 0 failed ==\n\x00\n",
+		"\x00\n-- teeth --\n== 3 passed · 0 failed ==\n",
+	} {
+		sc := logCase("nul", body, true, 1)
+		k := newKase(t)
+		sc.build(k)
+		g := k.goRun(k.envFor(sc), sc.args(k)...)
+		if g.rc != 1 || !strings.Contains(g.out, "missing-teeth research-sdd/toolbelt/tests/a.test.sh (no summary line)\nFindings: 1\n") {
+			t.Errorf("body %q: rc=%d out=%q, want rc 1 and the no-summary finding", body, g.rc, g.out)
+		}
+		if strings.Contains(g.err, "binary file") {
+			t.Errorf("body %q: stderr %q carries a grep diagnostic", body, g.err)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package writercheck
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -171,6 +172,11 @@ func TestCheckLogVerdicts(t *testing.T) {
 		{"fail line", h + "\n-- teeth --\n  FAIL  x\n== 3 passed · 0 failed ==\n", missing, "log contains a FAIL line"},
 		{"no summary", h + "\n-- teeth --\n", missing, "no summary line"},
 		{"no header", "-- teeth --\n== 3 passed · 0 failed ==\n", stale, "no writer-check header"},
+		// grep reads a log holding a NUL byte as binary and prints no summary; invalid UTF-8 off the summary line is
+		// ignored by it, and on the summary line the pattern fails.
+		{"nul byte", h + "\n-- teeth --\n== 3 passed · 0 failed ==\n\x00\n", missing, "no summary line"},
+		{"invalid utf8 banner", h + "\n-- teeth \xff--\n== 3 passed · 0 failed ==\n", "", ""},
+		{"invalid utf8 summary", h + "\n-- teeth --\n== 3 passed · 0 failed == \xff\n", missing, "no summary line"},
 	}
 	for _, c := range cases {
 		put(c.body)
@@ -184,5 +190,23 @@ func TestCheckLogVerdicts(t *testing.T) {
 	}
 	if kind, why := checkLog("", "s.test.sh", h); kind != missing || why != "no --teeth-log given" {
 		t.Errorf("no dir: %q %q", kind, why)
+	}
+	// A log that exists and is not empty but cannot be read gives head(1) no first line: no header, as the bash.
+	if os.Geteuid() != 0 {
+		put(h + "\n-- teeth --\n== 3 passed · 0 failed ==\n")
+		p := dir + "/" + logName("s.test.sh")
+		if err := os.Chmod(p, 0); err != nil {
+			t.Fatal(err)
+		}
+		if kind, why := checkLog(dir, "s.test.sh", h); kind != stale || !strings.HasPrefix(why, "no writer-check header") {
+			t.Errorf("unreadable log: %q %q", kind, why)
+		}
+	}
+	// A directory at the log path is not a regular file: `[ -f ]` fails, so "no log".
+	if err := os.Mkdir(dir+"/"+logName("d.test.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if kind, why := checkLog(dir, "d.test.sh", h); kind != missing || why != "no log d.test.sh.log" {
+		t.Errorf("directory log: %q %q", kind, why)
 	}
 }
