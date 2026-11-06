@@ -9,4 +9,5 @@ var limits = []string{
 	"names without the extension are not matched",
 	"nothing outside the repository is read: other repositories, installed copies, harness homes, git history",
 	"a match is a whole-name occurrence in text, not proof of a call: prose and comments count",
+	"files ignored by git and the contents of submodules are not listed",
 }

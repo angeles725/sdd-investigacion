@@ -26,10 +26,6 @@ func TestDegradedOutsideAWorkTree(t *testing.T) {
 	if got := runIn(plain, env); got != want {
 		t.Fatalf("cwd outside a work tree: got %+v, want %+v", got, want)
 	}
-	want.err = "DEGRADED: " + root + "/missing is not inside a git work tree; nothing was counted\n"
-	if got := runIn(plain, env, "--repo", "../missing"); got != want {
-		t.Fatalf("--repo that does not exist: got %+v, want %+v", got, want)
-	}
 }
 
 func TestAbsentInput(t *testing.T) {

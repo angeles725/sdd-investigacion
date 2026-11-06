@@ -2,7 +2,7 @@ package consumers
 
 import "strings"
 
-// predKind is one way a rule looks at a path. The rule tables (scriptdata.go, classdata.go) are data; this is
+// predKind is one way a rule looks at a path. The rule tables (scriptdata.go) are data; this is
 // the one place that decides whether a path satisfies a rule.
 type predKind int
 

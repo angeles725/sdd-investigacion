@@ -21,6 +21,6 @@ var exclusions = []exclusion{
 }
 
 // claimOrder is the order in which exclusions claim a file, as indexes into exclusions: a file in a `fixtures`
-// directory is counted there even when its name contains `.test.`, the order of the class table (a fixtures
-// directory comes before the test rule) and the order of the reading of L6 in odd/tasks/maint-consumers.md.
+// directory is counted there even when its name contains `.test.`, the order of the reading of L6 in
+// odd/tasks/maint-consumers.md.
 var claimOrder = []int{1, 0, 2}

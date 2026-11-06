@@ -1,8 +1,9 @@
-// Package consumers is `rsdd maint consumers` (issue #2758): it lists the live kit scripts and reports which
-// files of the repository name them, and says what it cannot see. Read-only: it only runs git and reads files.
+// Package consumers is `rsdd maint consumers` (issue #2758): it lists the live kit scripts and says what it cannot
+// see; the references to them come with the next change. Read-only: it only runs git, and reads no file.
 //
-// Exit codes: 0 report printed, 1 operational (absent-input, empty-input, a listed file that cannot be read),
-// 2 usage error, 3 degraded (no git, or not inside a work tree).
+// Exit codes: 0 report printed, 1 operational (absent-input: no file under the script directories or a --repo
+// that is not a directory; empty-input; a git that failed, timed out or hit its output cap), 2 usage error,
+// 3 degraded (no git, not inside a work tree, or a file listing that git accompanied with stderr).
 package consumers
 
 import (

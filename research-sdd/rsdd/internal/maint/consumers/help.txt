@@ -1,4 +1,4 @@
-rsdd maint consumers - list the live kit scripts and state what names them
+rsdd maint consumers - list the live kit scripts and state what the search cannot see
 
 Usage: rsdd maint consumers [--repo DIR]
   --repo DIR   the repository to read (default: the work tree that holds the working directory)
@@ -17,7 +17,12 @@ Every run prints its limits and states that the Go module is not enumerated by t
 
 Exit codes:
   0  report printed
-  1  absent-input (no file under the three directories), empty-input (files there, no live script),
-     or a file listed by git could not be read
+  1  absent-input (no file under the three directories, or a --repo that is not a directory), empty-input
+     (files there, no live script), or an error: git failed, timed out or produced more output than the cap
   2  usage error
-  3  degraded: git is not on PATH, or the directory is not inside a git work tree (no count is printed)
+  3  degraded, no count is printed: git is not on PATH, the directory is not inside a git work tree, or
+     `git ls-files` wrote anything on stderr with exit code 0 (the file list may be incomplete; the first line
+     of stderr is printed, with how many lines follow it)
+
+GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR and GIT_INDEX_FILE are removed from the environment of the git children,
+so --repo, or the working directory, names the repository.
