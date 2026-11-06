@@ -512,8 +512,8 @@ func (r *retroRun) visit(f, p string) (row pendingRow, counted, pending bool) {
 		}
 	}
 	if !haveEpoch {
-		if st, err := os.Stat(f); err == nil {
-			epoch = st.ModTime().Unix()
+		if m, ok := lmtime(f); ok {
+			epoch = m
 		} else {
 			epoch = r.now
 		}
@@ -618,8 +618,8 @@ func (r *retroRun) epochOf(m map[string]string, p, f string) int64 {
 	if v := m[rel]; v != "" {
 		return atoi(v)
 	}
-	if st, err := os.Stat(f); err == nil {
-		return st.ModTime().Unix()
+	if m, ok := lmtime(f); ok {
+		return m
 	}
 	return 0
 }
