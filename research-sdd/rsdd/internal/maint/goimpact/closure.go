@@ -1,6 +1,10 @@
 package goimpact
 
-import "sort"
+import (
+	"maps"
+	"slices"
+	"sort"
+)
 
 // Registry is the package that assembles the command table; reaching it means reaching the binary.
 const Registry = "internal/commands"
@@ -43,15 +47,27 @@ func (m *Module) ReverseClosure(dir string) []string {
 func (m *Module) ClosureCommands(closure []string) []Command {
 	seen := map[Command]bool{}
 	var out []Command
-	for _, d := range closure {
-		if d == Registry {
-			continue
+	visited := map[string]bool{}
+	var add func(d string)
+	add = func(d string) { // a package's own commands, then those of the packages its slices reference
+		p := m.Pkgs[d]
+		if visited[d] || p == nil {
+			return
 		}
-		for _, c := range m.Pkgs[d].Commands {
+		visited[d] = true
+		for _, c := range p.Commands {
 			if !seen[c] {
 				seen[c] = true
 				out = append(out, c)
 			}
+		}
+		for _, r := range slices.Sorted(maps.Keys(p.Refs)) {
+			add(r)
+		}
+	}
+	for _, d := range closure {
+		if d != Registry {
+			add(d)
 		}
 	}
 	return out

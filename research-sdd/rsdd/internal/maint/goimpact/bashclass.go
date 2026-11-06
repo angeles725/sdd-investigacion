@@ -13,6 +13,7 @@ const (
 	ClassC           = "C"           // command position: a call
 	ClassD           = "D"           // argument position after another command word: treated as a call
 	ClassUnplaceable = "unplaceable" // inside eval, a `bash -c` string or an executed here-doc
+	ClassAlias       = "alias"       // file-level: a variable assigned from the binary is used (`r="$RSDD_BIN"; "$r" ...`)
 	ClassEmptyReach  = "empty-reach" // file-level: mentions the binary, reaches no command by any route
 )
 

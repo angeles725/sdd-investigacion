@@ -9,6 +9,7 @@ package goimpact
 // The kit's traced-run check (static reach must contain traced reach, issue #2613 task T2) is what proves an
 // exemption hides no real edge.
 var exemptBlind = map[string]string{
+	"research-sdd/toolbelt/lib/rsdd-exec.sh":        "the shim library: its `_RSDD_EXEC_BIN=\"$RSDD_BIN\"` alias runs whatever <group> <name> the calling shim passes, and every such call is already an edge of that shim's `rsdd_exec` / `rsdd_exec_hook` line",
 	"research-sdd/toolbelt/tests/rsdd-exec.test.sh": "writes generic `rsdd_exec \"$@\"` / `rsdd_exec_hook \"$@\"` shim templates into a fixture kit and runs them against stub binaries; the commands it really reaches are named explicitly in the same file",
 }
 

@@ -60,6 +60,7 @@ type Package struct {
 	TestImports map[string]bool // in-module dirs imported only by _test.go files
 	Commands    []Command       // cli.Command literals with constant Group and Name
 	Unresolved  []string        // cli.Command literals the parser cannot read, as file:line
+	Refs        map[string]bool // in-module dirs whose commands a []cli.Command element names (`sub.Command`)
 	ParseErrors []string        // non-test files that did not parse
 }
 

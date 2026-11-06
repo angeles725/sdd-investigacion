@@ -1,7 +1,9 @@
 package goimpact
 
 import (
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -80,6 +82,7 @@ func literalForm(w string) (form string, skip int) {
 // rsdd_exec / rsdd / rsdd_exec_hook call counts as a class C mention.
 func scanText(text string, known func(Command) bool) ([]Call, []Mention) {
 	seen := map[Command]bool{}
+	aliases := map[string]bool{}
 	var calls []Call
 	var ms []Mention
 	record := func(class, form string, args []string) {
@@ -108,6 +111,9 @@ func scanText(text string, known func(Command) bool) ([]Call, []Mention) {
 					} else {
 						ms = append(ms, Mention{Class: class})
 					}
+					if class == ClassA {
+						noteAlias(aliases, norm(w))
+					}
 				} else if form, skip := literalForm(norm(w)); form != "" && j == w0 {
 					args := normAll(seg.words[j+1:])
 					if len(args) == 0 && seg.next == "(" {
@@ -132,7 +138,25 @@ func scanText(text string, known func(Command) bool) ([]Call, []Mention) {
 	for _, sl := range sourceLines(text) {
 		scanLine(sl.Text, sl.Exec)
 	}
+	for _, a := range slices.Sorted(maps.Keys(aliases)) {
+		if regexp.MustCompile(`\$\{?` + a + `\b`).MatchString(text) {
+			ms = append(ms, Mention{Class: ClassAlias})
+		}
+	}
 	return calls, ms
+}
+
+// noteAlias records the variable an assignment word stores the binary in (`r="$RSDD_BIN"`), unless it is one
+// of the binary variables themselves. A use of that variable is a call the classifier cannot follow.
+func noteAlias(aliases map[string]bool, word string) {
+	if !assignRe.MatchString(word) {
+		return
+	}
+	name, _, _ := strings.Cut(word, "=")
+	name = strings.TrimSuffix(name, "+")
+	if name != "RSDD_BIN" && name != "RSDD_REAL_BIN" {
+		aliases[name] = true
+	}
 }
 
 func normAll(ws []string) []string {

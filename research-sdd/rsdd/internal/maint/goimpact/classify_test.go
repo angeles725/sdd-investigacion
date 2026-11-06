@@ -165,7 +165,7 @@ func TestWideThresholdIgnoresBlindSpots(t *testing.T) {
 
 func TestClassesLineIsPrintedOnceAfterTheFileBlocks(t *testing.T) {
 	r := run("--repo", repo(t, nil), mod+"internal/alpha/alpha.go", mod+"internal/testonly/t.go")
-	want := "CLASSES\tA=0\tB=0\tC=6\tD=0\tunplaceable=0\tempty-reach=0\tblindspot-files=0"
+	want := "CLASSES\tA=0\tB=0\tC=6\tD=0\tunplaceable=0\talias=0\tempty-reach=0\tblindspot-files=0"
 	ls := strings.Split(strings.TrimSuffix(r.out, "\n"), "\n")
 	if r.summary() != want || ls[len(ls)-1] != want || strings.Count(r.out, "CLASSES") != 1 {
 		t.Errorf("%+v", r)

@@ -64,6 +64,9 @@ func Run(args []string, s cli.Stdio) int {
 	if err != nil {
 		return degrade(s, err.Error())
 	}
+	if len(bash) == 0 { // an absent or empty bash tree is not a measured zero (kit §7)
+		return degrade(s, "no bash file found under research-sdd (empty input): nothing was classified")
+	}
 	a := NewAnalysis(m, bash, *wide)
 	var out strings.Builder
 	for _, f := range files {

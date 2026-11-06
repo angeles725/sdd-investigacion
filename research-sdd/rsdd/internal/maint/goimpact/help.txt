@@ -8,7 +8,7 @@ source (go/parser only); nothing is built. One block per FILE, in input order, t
   SHIM      FILE BASH GROUP NAME   one line per bash file that reaches a command built from FILE
   UNREACHED FILE GROUP NAME        a command in the closure that no bash file calls (informational)
   BLIND     FILE BASH CLASS        a Go blind-spot bash file, added for every change built into the binary;
-                                   CLASS is C, D, unplaceable or empty-reach; never makes FILE FULL
+                                   CLASS is C, D, unplaceable, alias or empty-reach; never makes FILE FULL
   NONE      FILE no-bash-caller    commands in the closure, none called by bash, and no BLIND line
   NONE      FILE no-command        built into the binary, defines no command, and no BLIND line
   CLOSURE   FILE PACKAGES COMMANDS closure size, last line of a block
@@ -20,16 +20,17 @@ source (go/parser only); nothing is built. One block per FILE, in input order, t
 
 After all blocks, one line counts every RSDD_BIN / RSDD_REAL_BIN mention class over the scanned bash tree:
 
-  CLASSES   A=n B=n C=n D=n unplaceable=n empty-reach=n blindspot-files=n
+  CLASSES   A=n B=n C=n D=n unplaceable=n alias=n empty-reach=n blindspot-files=n
 
-(mentions for A to unplaceable; files for empty-reach and blindspot-files). A assignment/export/env prefix and
+(mentions for A to unplaceable; used aliases; files for empty-reach and blindspot-files). A assignment/export/env prefix and
 B operand of [ ], [[ ]], test are not calls; C command position and D argument position are calls; a C or D
 mention whose next two words are not a registered group and name, and anything inside eval, a bash -c string or
-an executed here-doc, is a blind spot.
+an executed here-doc, is a blind spot. So is a file that assigns the binary to another variable
+(r="$RSDD_BIN") and then uses that variable (class alias). GROUP NAME is one field, space-joined.
 
 options:
   --repo DIR   repository root (default: the working directory)
   --wide N     FULL when a closure reaches more than N distinct SHIM bash files (default 12)
 
-Exit 0 when classification ran, 2 on a usage error or an unreadable module
+Exit 0 when classification ran, 2 on a usage error, an unreadable module or a bash tree with no bash file
 ("degraded: go-impact: <reason>" on stderr).

@@ -7,6 +7,7 @@ research-sdd/toolbelt/tests/check-gap-drift.test.sh D
 research-sdd/toolbelt/tests/corroborate-bacnet.test.sh D
 research-sdd/toolbelt/tests/corroborate-firmware.test.sh D
 research-sdd/toolbelt/tests/corroborate-ghidra.test.sh D
+research-sdd/toolbelt/tests/corroborate-java.test.sh alias
 research-sdd/toolbelt/tests/corroborate-native-r2.test.sh D
 research-sdd/toolbelt/tests/corroborate-pcap.test.sh D
 research-sdd/toolbelt/tests/detect-tools.test.sh D
@@ -33,6 +34,7 @@ research-sdd/toolbelt/tests/run-all.test.sh D
 research-sdd/toolbelt/tests/score-loop-transcript.test.sh D
 research-sdd/toolbelt/tests/serial-frame-analyze.test.sh D
 research-sdd/toolbelt/tests/serial-frame-capture.test.sh D
+research-sdd/toolbelt/tests/squashfs-extract.test.sh alias
 research-sdd/toolbelt/tests/stage-retro-issues-delta-forms.test.sh D
 research-sdd/toolbelt/tests/stage-retro-issues-dismissed.test.sh D
 research-sdd/toolbelt/tests/stage-retro-issues-unclassifiable.test.sh D

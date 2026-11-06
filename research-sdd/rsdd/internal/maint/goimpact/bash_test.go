@@ -170,11 +170,11 @@ func TestCountClassesOnAKnownTree(t *testing.T) {
 		tb + "cu.sh": "eval \"$RSDD_BIN\"\n",
 	})
 	// the six C+ calls of the base tree, one C-; A and B files are empty-reach, so five blind files
-	want := "CLASSES\tA=1\tB=1\tC=7\tD=1\tunplaceable=1\tempty-reach=2\tblindspot-files=5"
+	want := "CLASSES\tA=1\tB=1\tC=7\tD=1\tunplaceable=1\talias=0\tempty-reach=2\tblindspot-files=5"
 	if got := goimpact.CountClasses(files).Line(); got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
-	if got := goimpact.CountClasses(nil).Line(); got != "CLASSES\tA=0\tB=0\tC=0\tD=0\tunplaceable=0\tempty-reach=0\tblindspot-files=0" {
+	if got := goimpact.CountClasses(nil).Line(); got != "CLASSES\tA=0\tB=0\tC=0\tD=0\tunplaceable=0\talias=0\tempty-reach=0\tblindspot-files=0" {
 		t.Errorf("empty scan: %s", got)
 	}
 }

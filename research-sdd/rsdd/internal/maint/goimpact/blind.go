@@ -7,13 +7,13 @@ import (
 )
 
 // Blind returns the file's Go blind-spot class, or "" when it is none. A file is a blind spot when it has an
-// unresolved class unplaceable, C or D mention (the first found in that order names the class), or when it is
+// unresolved class unplaceable, C or D mention or a used alias (the first found in that order names the class), or when it is
 // empty-reach. A declared exemption is never a blind spot.
 func (f BashFile) Blind() string {
 	if f.Exempt != "" {
 		return ""
 	}
-	for _, class := range []string{ClassUnplaceable, ClassC, ClassD} {
+	for _, class := range []string{ClassUnplaceable, ClassC, ClassD, ClassAlias} {
 		for _, m := range f.Mentions {
 			if m.Class == class && !m.Resolved {
 				return class
@@ -62,9 +62,9 @@ func namesAny(text string, names []string, self string) bool {
 	return false
 }
 
-// Counts are the per-class totals over every scanned bash file: mentions for A to unplaceable, files for the
+// Counts are the per-class totals over every scanned bash file: mentions for A to unplaceable, used aliases, files for the
 // last two. A zero here is a measured zero, not a scan that saw nothing.
-type Counts struct{ A, B, C, D, Unplaceable, Empty, Files int }
+type Counts struct{ A, B, C, D, Unplaceable, Alias, Empty, Files int }
 
 // CountClasses totals the mentions by class, the empty-reach files and the blind-spot files.
 func CountClasses(files []BashFile) Counts {
@@ -82,6 +82,8 @@ func CountClasses(files []BashFile) Counts {
 				c.D++
 			case ClassUnplaceable:
 				c.Unplaceable++
+			case ClassAlias:
+				c.Alias++
 			}
 		}
 		if f.Empty {
@@ -96,6 +98,6 @@ func CountClasses(files []BashFile) Counts {
 
 // Line is the aggregate CLASSES output line.
 func (c Counts) Line() string {
-	return fmt.Sprintf("CLASSES\tA=%d\tB=%d\tC=%d\tD=%d\tunplaceable=%d\tempty-reach=%d\tblindspot-files=%d",
-		c.A, c.B, c.C, c.D, c.Unplaceable, c.Empty, c.Files)
+	return fmt.Sprintf("CLASSES\tA=%d\tB=%d\tC=%d\tD=%d\tunplaceable=%d\talias=%d\tempty-reach=%d\tblindspot-files=%d",
+		c.A, c.B, c.C, c.D, c.Unplaceable, c.Alias, c.Empty, c.Files)
 }
