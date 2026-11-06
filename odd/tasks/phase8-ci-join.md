@@ -104,8 +104,8 @@ known to be clean (8.3 measures it first).
 
 ## Tasks
 
-- [ ] T0 · S3 · merge gate: a required check must conclude success · route: inline or one writer · commit: —
-- [ ] T1 · S4 · `ciworkflow.Jobs` + three guards · route: delegated (one Sonnet writer) · commit: —
+- [x] T0 · S3 · merge gate: a required check must conclude success · route: one writer · commit: 1302652b (PR #2759)
+- [x] T1 · S4 · `ciworkflow.Jobs` + three guards, `merge.go` split · route: delegated (one Sonnet writer; 2+ non-trivial files) · commit: the slice 8.1 PR
 - [ ] T2 · S5 · `internal/maint/cishard` plan + manifest, `PKGS` in the Makefile · route: delegated · commit: —
 - [ ] T3 · S6 · wire the Go shards into the `toolbelt-tests` join · route: inline (workflow + fixture + tables) · commit: —
 - [ ] T4 · S7 · `shellcheck` scope and floor · route: inline · commit: —
@@ -156,3 +156,26 @@ corroborate/ghidra, install); (C) the tag set a shard runs must be stated; (D) t
 status, never a pipeline's; (E) test-level skips were invisible to the join; (F) an empty share of one shard; (G)
 unknown stream actions; (H) who enforces the empty expected list. The ceiling on skipped tests waits for the
 only-shrink check (session 10).
+
+L7 (2026-11-06, T1 writer, S4, on main 1302652b): `Jobs` and the three guards are green on the real workflow
+files; 52 hand mutants through `go test -overlay`, all red after four added cases (a list item with a key, a quoted
+scalar `needs`, an expression name, an unreadable workflow directory). Two choices of the writer, kept: a "shard
+job" is any matrix job of the file and every `needs` entry of the join must be one; a matrix job whose name equals
+a required name is a finding (its checks are named `name (1)`). The default list of required checks is now the
+constant `mergeDefaultRequired`, read by the guard. `merge.go` (376 lines) is split into `merge.go`,
+`mergeargs.go`, `mergebind.go` and `mergeassess.go` (declarations moved whole) and its file-size line is deleted.
+
+L8 (2026-11-06, decision, teeth of `internal/gate`): this slice repoints only the merge-gate fixtures through
+`kitroot`. Two more tests of the package still read outside the module (`returntoken_test.go:33`,
+`retrogate_harness_test.go:30`), so the package's baseline still fails in a module-only copy and the CI bridge keeps
+skipping it as DEBT (`teeth-debt.txt`, #2592). Not repointed here on purpose: a changed `_test.go` makes every
+production file of the package a mutation unit (about 5,000 lines, tests of about 9 s per mutant), which does not
+fit the 25-minute teeth job, and the debt rule is one package per change with its lived mutants killed. Paying the
+debt of `internal/gate` is its own unit after the weighted teeth shards (session 2).
+
+L9 (2026-11-06, notes for later slices): 8.2b surfaces the `modularity:` line of the file-size test from the
+`-json` stream. 8.5 (the Go guard, rule from session 4): the document inputs are `git ls-files --cached --others
+--exclude-standard`, existing files only; outside a work tree it walks and prints a typed NOTE; a failed git read is
+a harness error; git runs with GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR and GIT_INDEX_FILE unset. Slice 2 (#2770):
+`retrogate.go:136` (anchor) and the runs at `retrogate.go:269` and `retrogateseed.go:151` are converted by this
+lane after the two core helpers land.
