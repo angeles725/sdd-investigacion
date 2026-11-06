@@ -134,3 +134,31 @@ Forecast: about 250 changed lines for T1, about 500 for T2.
   and prints the line once; (4) the hook mode of the four sweeps skipped the warning: it goes to the process's
   stderr, outside the context the hook hands the model. Not in this pull request, sent to session 1 to rank:
   `verify registry-hook` already merged the warning into its context before this change.
+- L7 Correction batch for L6, 2026-11-06 15:02Z, commits `11b08c14` and `930805ca` (head of T1). Checked by session 10:
+  no production file imports `internal/testkit/kitsite` (grep over `internal` and `cmd`, zero non-test importers outside
+  the package); against `origin/main` no line of `modularity-debt.txt` rises (`retros.go` 634 to 615, `session.go` 391
+  to 379, `fidelity.go` 306 to 294, `audits.go` 275 to 263, `tools.go` 221 to 209, `breakthroughs.go` leaves the list);
+  the tests of `testkit/kitsite`, `core/kit`, `corroborate/fidelity`, `retro/stage` and `testkit/archtest` pass.
+  - The harness `internal/testkit/kitsite` (compare.go 32, kit.go 49, run.go 48, scenarios.go 92 lines) replaces the
+    seven copied `kitroot_site_test.go` harnesses; test and subtest names are unchanged.
+  - The kit lookups moved to `sweep/kitdir.go` (33), `budget/kitdir.go` (23) and `corroborate/fidelity/toolbelt.go` (29).
+  - `java-fidelity` resolves the kit once per run (`sync.OnceValues`) and prints the invalid-kit warning once.
+  - In hook mode the four sweeps print the warning on the process's stderr; stdout stays the same JSON, byte for byte,
+    as with a valid variable (writer's differential against the base binary).
+  - Writer's runs: thirteen bash suites, 0 failed; `go test` on the eight package sets in both tag sets; vet,
+    staticcheck and both cross builds clean. Two notes from them: setting `GOTMPDIR` breaks
+    `TestRegistryQuietUnderALongTMPDIR` in `internal/verify` (use `TMPDIR` for scratch), and
+    `TestDifferentialPiDegradedWithoutSandbox` in `internal/budget` failed twice under load (the frozen script exits
+    141) and passed alone; it was not run on the base, so it is not established as a flake of the base.
+  - NOT done, in this order, before the pull request of T1 exists: (1) one sentence in the registry note, required by
+    session 1: `verify registry-hook` is the one SessionStart hook that hands the invalid-kit warning to the model
+    (declared intended; the hook budget is 7,983 of 8,000 characters), and the four sweep hooks keep it on the process's
+    stderr; session 3 pins it inside #2773; (2) mutation at CI scope on the changed packages; (3) pre-push; (4) the
+    review assessment after a rebase on the current main; (5) the pull request, `Refs #2770`, with the three states, the
+    table of warnings, the `sweep all` observation (the parent prints the warning once, the children print no copy), the
+    intended differences and the RED lines.
+  - The branch is on the remote as `park/s10-kit-root-2770`. T2 (the self-subcommand helper on `core/proc`, call sites
+    carrying group and name as literal arguments, no in-process dispatch) starts after T1 merges. After T2, one issue of
+    session 10 with `status:approved`: an archtest rule for fixtures that commit without `gitfixture.Env` (the four
+    packages `internal/core/kitgate`, `internal/hygiene`, `internal/maint/sizecheck`, `internal/maint/writercheck` as a
+    list that only shrinks), plus the read-only count of the bash suites exposed to the same race.
