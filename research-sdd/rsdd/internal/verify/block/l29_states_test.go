@@ -121,7 +121,17 @@ func TestEveryTypedStatePinned(t *testing.T) {
 		}
 		elsewhere++
 	}
-	t.Logf("%d typed states declared, %d goldens read: %d pinned by a golden, %d by a named test", len(states), len(goldens), inGolden, elsewhere)
+	named := map[string]bool{}
+	for _, test := range pinnedElsewhere {
+		if _, ok := tests[test]; ok {
+			named[test] = true
+		}
+	}
+	t.Logf("%d typed states declared in code, %d goldens read, %d named tests found: %d pinned by a golden, %d by a named test",
+		len(states), len(goldens), len(named), inGolden, elsewhere)
+	if inGolden+elsewhere != len(states) && !t.Failed() {
+		t.Errorf("%d golden + %d named != %d declared", inGolden, elsewhere, len(states))
+	}
 	if len(states) == 0 || len(goldens) == 0 {
 		t.Fatalf("%d typed states, %d goldens: an empty side proves nothing", len(states), len(goldens))
 	}
