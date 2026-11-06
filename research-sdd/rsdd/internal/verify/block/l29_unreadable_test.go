@@ -98,12 +98,15 @@ func TestBlockUnreadablePreservedScriptIsManifestFail(t *testing.T) {
 }
 
 // A correction sentence whose earlier block cannot be read, or whose candidate directory cannot be listed, leaves the
-// back-pointer unchecked and says why, per line.
+// back-pointer unchecked and says why, per line. The back-pointer pass is advisory (exit unchanged), so the run exits 0; the DEGRADED line is the signal.
 func TestBlockUnreadableBackptrIsDegraded(t *testing.T) {
 	t.Parallel()
 	run := func(root string, want string) {
 		t.Helper()
 		got := bkGo(root, []string{"d/x-block3.md", "e"}, []string{"HOME=" + root, "LC_ALL=C.UTF-8"})
+		if got.RC != 0 {
+			t.Errorf("rc = %d, want 0 (the back-pointer pass never changes the exit code)", got.RC)
+		}
 		if w := strings.ReplaceAll(want, "{T}", root); !strings.Contains(got.Stdout, w) {
 			t.Errorf("stdout lacks %q\n%s", w, got.Stdout)
 		}

@@ -47,8 +47,9 @@ func TestBlockSpawnsOnlyGitRevParse(t *testing.T) {
 	}
 }
 
-// TestBlockSpawnsOnlyThroughTheSeam makes the recording above complete: in this package and every module package it
-// imports, the only file that can start a process is blockgit.go, through gitCommand.
+// TestBlockSpawnsOnlyThroughTheSeam backs the recording above: in this package and every module package it imports,
+// blockgit.go is the only file importing os/exec, and no file calls StartProcess, ForkExec or Exec by those names.
+// It is a static check of those spellings (not of the standard library, nor of a call through another name).
 func TestBlockSpawnsOnlyThroughTheSeam(t *testing.T) {
 	root, module := l29Module(t)
 	var spawners []string

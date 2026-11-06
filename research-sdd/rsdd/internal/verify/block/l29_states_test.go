@@ -104,11 +104,15 @@ func TestEveryTypedStatePinned(t *testing.T) {
 			inGolden++
 			continue
 		}
-		name, frag := "", ""
+		name, frag, hits := "", "", 0
 		for key, test := range pinnedElsewhere {
 			if strings.Contains(s.format, key) {
-				name, frag = test, longestFragment(key)
+				name, frag, hits = test, longestFragment(key), hits+1
 			}
+		}
+		if hits > 1 {
+			t.Errorf("%s: typed state %q matches %d pinnedElsewhere keys; make the keys disjoint", s.at, s.format, hits)
+			continue
 		}
 		src, ok := tests[name]
 		if name == "" || !ok || !strings.Contains(src, frag) {
