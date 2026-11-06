@@ -75,12 +75,13 @@ func judgeBody(lines []string) (kind, reason string) {
 			summary, passed, failed = l, m[1], m[2]
 		}
 	}
-	switch {
-	case summary == "":
+	if summary == "" {
 		return missing, "no summary line"
-	case failed != "0":
+	}
+	if failed != "0" {
 		return missing, fmt.Sprintf("summary reports failures: %s", summary)
-	case passed == "0":
+	}
+	if passed == "0" {
 		return missing, "summary reports zero passed cases"
 	}
 	if anyMatch(lines, reFail) {

@@ -44,29 +44,19 @@ func (c *ctx) writeLogs(dir, header string, limit int64) int {
 		if strings.HasPrefix(s, "/") {
 			path, rel = s, strings.TrimPrefix(s, c.repo+"/")
 		}
-		switch {
-		case !isFile(path):
+		if !isFile(path) {
 			fmt.Fprintf(c.s.Err, "FAIL  %s: suite not found\n", s)
 			bad++
 			continue
-		case !strings.HasSuffix(s, ".test.sh"):
+		}
+		if !strings.HasSuffix(s, ".test.sh") {
 			fmt.Fprintf(c.s.Err, "FAIL  %s: only *.test.sh suites take --prove-teeth\n", s)
 			bad++
 			continue
 		}
 		log := filepath.Join(dir, logName(rel))
 		rc, err := c.runSuite(path, log, header, limit)
-		switch {
-		case err != nil:
-			fmt.Fprintf(c.s.Err, "FAIL  %s: cannot write the log: %v\n", s, err)
-			bad++
-		case rc == 0:
-			fmt.Fprintf(c.s.Out, "PASS  %s -> %s\n", s, log)
-		case rc == timedOutRC:
-			fmt.Fprintf(c.s.Err, "FAIL  %s: timed out after %ds -> %s\n", s, limit, log)
-			bad++
-		default:
-			fmt.Fprintf(c.s.Err, "FAIL  %s: exit %d -> %s\n", s, rc, log)
+		if !c.reportSuite(s, log, rc, limit, err) {
 			bad++
 		}
 	}
@@ -74,6 +64,24 @@ func (c *ctx) writeLogs(dir, header string, limit int64) int {
 		return exitFindings
 	}
 	return exitOK
+}
+
+// reportSuite prints one suite's outcome line and says whether it was good.
+func (c *ctx) reportSuite(s, log string, rc int, limit int64, err error) bool {
+	if err != nil {
+		fmt.Fprintf(c.s.Err, "FAIL  %s: cannot write the log: %v\n", s, err)
+		return false
+	}
+	if rc == 0 {
+		fmt.Fprintf(c.s.Out, "PASS  %s -> %s\n", s, log)
+		return true
+	}
+	if rc == timedOutRC {
+		fmt.Fprintf(c.s.Err, "FAIL  %s: timed out after %ds -> %s\n", s, limit, log)
+		return false
+	}
+	fmt.Fprintf(c.s.Err, "FAIL  %s: exit %d -> %s\n", s, rc, log)
+	return false
 }
 
 // runSuite runs `bash suite --prove-teeth` in the repository with its output (stdout and stderr, interleaved) after

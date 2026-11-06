@@ -14,18 +14,14 @@ import (
 // this order and the first that matches decides.
 func isProduction(p string) bool {
 	const tests = "research-sdd/toolbelt/tests/"
-	switch {
-	case strings.HasPrefix(p, tests+"fixtures/"):
+	if strings.HasPrefix(p, tests+"fixtures/") {
 		return false
-	case strings.HasPrefix(p, tests+"lib/"): // test infrastructure counts: skip the suite and sub-directory rules
-	case strings.HasPrefix(p, tests) && strings.Contains(p[len(tests):], ".test."): // suites
+	}
+	// test infrastructure (tests/lib/) counts: it skips the suite and sub-directory rules
+	if !strings.HasPrefix(p, tests+"lib/") && isTestFile(p, tests) {
 		return false
-	case strings.HasPrefix(p, tests) && strings.Contains(p[len(tests):], "/"): // any other tests/ sub-directory
-		return false
-	case strings.HasPrefix(p, "research-sdd/install/tests/"):
-		return false
-	case strings.HasPrefix(p, "research-sdd/toolbelt/"), strings.HasPrefix(p, "research-sdd/install/"), strings.HasPrefix(p, "research-sdd/templates/"):
-	default:
+	}
+	if !inScriptRoots(p) {
 		return false
 	}
 	for _, ext := range productionExts {
@@ -34,6 +30,22 @@ func isProduction(p string) bool {
 		}
 	}
 	return false
+}
+
+// isTestFile is the suite rule (tests/*.test.*), the other-tests/-sub-directory rule and install/tests/**.
+func isTestFile(p, tests string) bool {
+	if strings.HasPrefix(p, tests) {
+		rest := p[len(tests):]
+		if strings.Contains(rest, ".test.") || strings.Contains(rest, "/") {
+			return true
+		}
+	}
+	return strings.HasPrefix(p, "research-sdd/install/tests/")
+}
+
+// inScriptRoots is whether p is under one of the three script roots.
+func inScriptRoots(p string) bool {
+	return strings.HasPrefix(p, "research-sdd/toolbelt/") || strings.HasPrefix(p, "research-sdd/install/") || strings.HasPrefix(p, "research-sdd/templates/")
 }
 
 // productionExts are the extensions of a script.

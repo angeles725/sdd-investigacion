@@ -17,11 +17,11 @@ func (c *ctx) bindingHeader(r rangeSpec, changes []change) string {
 	var lines []string
 	for _, ch := range changes {
 		p := ch.path
-		switch {
-		case ch.status[0] == 'D':
+		if ch.status[0] == 'D' {
 			lines = append(lines, ch.path+" DELETED")
 			continue
-		case ch.status[0] == 'R':
+		}
+		if ch.status[0] == 'R' {
 			lines = append(lines, ch.old+" DELETED")
 		}
 		lines = append(lines, p+" "+c.blobID(r, p))

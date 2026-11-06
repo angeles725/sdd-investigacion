@@ -15,20 +15,21 @@ func (c *ctx) execute() int {
 	s := c.s
 	script := ""
 	if o.write {
-		switch {
-		case len(o.positional) == 0:
+		if len(o.positional) == 0 {
 			return usage(s, "--write-teeth-log needs at least one suite")
-		case o.base == "":
+		}
+		if o.base == "" {
 			return usage(s, "--write-teeth-log needs --base (the log is bound to the changed files against it)")
 		}
 		o.worktree, o.headGiven = true, false // the log binds the WORKTREE contents against --base
 	} else {
-		switch {
-		case o.base == "":
+		if o.base == "" {
 			return usage(s, "")
-		case len(o.positional) > 0:
+		}
+		if len(o.positional) > 0 {
 			return usage(s, "unexpected argument: "+o.positional[0])
-		case o.worktree && o.headGiven:
+		}
+		if o.worktree && o.headGiven {
 			return usage(s, "--worktree and --head are mutually exclusive")
 		}
 		if o.logDir != "" {
@@ -54,11 +55,11 @@ func (c *ctx) execute() int {
 		return degrade(s, why)
 	}
 	header := c.bindingHeader(r, d.changes)
-	switch {
-	case o.printBinding:
+	if o.printBinding {
 		fmt.Fprintln(s.Out, header)
 		return exitOK
-	case o.write:
+	}
+	if o.write {
 		return c.write(header)
 	}
 	return c.check(r, d, header, script)

@@ -64,18 +64,24 @@ func (c *ctx) runImpact(script string, r rangeSpec) (impact, string) {
 		}
 		return impact{}, "suite-impact.sh could not run: " + err.Error()
 	}
-	rc := res.ReturnCode
-	switch {
-	case res.Reason != "":
-		rc = 124
-	case rc < 0:
-		rc = 128 - rc
-	}
+	rc := exitCodeOf(res.ReturnCode, res.Reason)
 	if rc != 0 {
 		msg := strings.ReplaceAll(string(res.Stderr[:min(len(res.Stderr), 300)]), "\n", " ")
 		return impact{}, "suite-impact.sh exited " + strconv.Itoa(rc) + ": " + msg
 	}
 	return parseImpact(string(res.Stdout)), ""
+}
+
+// exitCodeOf maps a finished run to the shell exit code: a timeout or other stop reason is 124, a signal death
+// (negative return code) is 128 plus the signal.
+func exitCodeOf(rc int, reason string) int {
+	if reason != "" {
+		return 124
+	}
+	if rc < 0 {
+		return 128 - rc
+	}
+	return rc
 }
 
 // parseImpact reads the report: the first `Escalated to FULL: <reason>` line and every `<changed file> → <suite>`
