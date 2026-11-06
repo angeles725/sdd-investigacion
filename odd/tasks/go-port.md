@@ -101,7 +101,9 @@ Merges decided now (each removes a family of near-identical entry points):
 ### 4.4 Compatibility: strangler with shims
 
 Callers are hooks (`.claude/settings.json`, the pi extension, `templates/hook-*`), CI, installed target
-corpora that call `toolbelt/<name>.sh` through `hook-kit-run.sh`, and ~440 mentions in doctrine.
+corpora that call `toolbelt/<name>.sh` through `hook-kit-run.sh`, and the mentions in doctrine and
+registries (measured about 1,250 on 2026-11-06 at 512db127: about 500 in doctrine, about 750 in the
+registries; the earlier figure of about 440 counted doctrine only).
 Therefore every ported path keeps a small shim until phase 8. The two canonical shim templates
 (CLI and HOOK) live in the header of `toolbelt/lib/rsdd-exec.sh` and are executed verbatim by its
 suite (symlinked, and with the lib absent), so a shim can never drift from them. Both resolve their own
@@ -340,11 +342,18 @@ core/proc; `_write_json`/`_sha256_fd`/`_open_wo_new` in 9 standalone readers →
 43 argparse CLIs → the cli flag table.
 
 ### Phase 8 — Retirement and cutover
-Rewrite doctrine references to `rsdd <group> <cmd>` (~440 mentions, one PR per document), re-wire
-`.claude/settings.json`, the pi extension and `hook-kit-run.sh` to call `rsdd` directly, give corpora
-a migration note (the kit never edits them), delete the shims, delete the bash-only lints and
-`lib/mutant.sh`, replace run-all/shard-join with `go test` + per-package sharding in CI (keep the
-`toolbelt-tests` check name), retire `teeth-helper-waivers.txt`, re-run every enumerator (§7).
+Slice plan, owners and traps: `odd/tasks/phase8-cutover.md` (2026-11-06). In short: first remove the Go
+module's own dependence on the shims (`core/kit` refuses to resolve a script that is not a file, and
+several packages still run scripts), then rewrite doctrine and registry references to
+`rsdd <group> <cmd>` (measured about 1,250 mentions on 2026-11-06 at 512db127, one PR per document),
+re-wire `.claude/settings.json` and the pi extension through ONE dispatcher (the promoted
+`templates/hook-kit-run.sh`; a direct `rsdd` call would lose the typed missing-binary and stale-binary
+signals), keep six small stubs for already-initialised corpora and give them a migration note (the kit
+never edits them), delete the shims, delete the bash-only lints and `lib/mutant.sh`, replace
+run-all/shard-join with `go test` + per-package sharding in CI (keep the `toolbelt-tests` and
+`shellcheck` check names, which `internal/gate/merge.go` requires), retire
+`teeth-helper-waivers.txt`, re-run every enumerator (§7). There is no `BOOTSTRAP.md` in the tree
+(checked on 2026-11-06 at 512db127); a document that names it is stale.
 
 ## 6. Team and lanes
 
@@ -370,10 +379,17 @@ shellcheck stays green for the remaining shell; both harnesses usable at every m
 - Every in-scope entry point is served by `rsdd`; no production `.sh`/`.py` remains except the declared drivers and the bootstrap installer.
   Declared driver exceptions: `toolbelt/lib/kaitai_driver.py` (Stage 2 of `rsdd corroborate kaitai`: `ksc --target python` emits
   parsers that only the Python `kaitaistruct` runtime can execute; accepted by session 1, 2026-11-02, PR #2492).
+  Declared bash exceptions (accepted by session 1, 2026-11-06; conditions in `odd/tasks/phase8-cutover.md` section 6a):
+  the hook dispatcher (the promoted `templates/hook-kit-run.sh`: it only locates the binary, checks freshness and
+  rebuilds, prints the typed degraded output per event, and execs; about 250 lines at most; tested from Go), and six
+  compatibility stubs of at most three lines each for already-initialised corpora, byte-pinned by a Go test and
+  deleted once a read-only sweep of every `TARGETS.md` row finds no reference. The bootstrap installer is the one
+  of section 4.8.
 - Differential parity green over all fixtures and every corpus on disk; every divergence declared.
 - openspec scenarios and invariants pass as Go tests; mutation efficacy gate passes per package.
 - Performance targets in 4.6 met against the recorded baseline.
-- Doctrine references updated; shims and bash-only lints deleted; CI green with the `toolbelt-tests` name.
+- Doctrine references updated; shims and bash-only lints deleted; CI green with the `toolbelt-tests` and
+  `shellcheck` check names.
 
 ## 9. Progress, evidence and next step
 

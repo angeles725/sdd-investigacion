@@ -1,0 +1,11 @@
+uninstall harness=claude mode=apply
+  removed  <ROOT>/home/.claude/skills/research-sdd/SKILL.md  [skill]
+  removed  <ROOT>/home/.claude/research-sdd/.installed-skill-state  [state]
+  kept (outside config root)  <ROOT>/home/.claude/agents/research-sdd-readability.md  [read-only agent definition]
+  kept (outside config root)  <ROOT>/home/.claude/agents/research-sdd-risk.md  [read-only agent definition]
+  removed  <ROOT>/home/.claude/CLAUDE.md  [launcher block]  (the prompt file holds nothing else and is removed with it)
+  absent  <ROOT>/home/.claude/research-sdd/profile  [rendered profile]
+  kept (in use)  <ROOT>/home/.claude/research-sdd/.installed-bundle-state  [state]  (kept files still need it as proof)
+  removed  <ROOT>/home/.claude/skills/research-sdd  [empty directory]
+  kept (not empty)  <ROOT>/home/.claude/research-sdd  [directory]
+  summary harness=claude removed=4 kept=4 absent=1 failed=0

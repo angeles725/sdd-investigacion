@@ -1,0 +1,16 @@
+harness=claude
+  profile=claude (source=default)
+  INSTALL <ROOT>/home/.claude/skills/research-sdd/SKILL.md (from kit skills/research-sdd/SKILL.md)
+  BACKUP  <ROOT>/home/.claude/skills/research-sdd/SKILL.md → <ROOT>/home/.claude/skills/research-sdd/SKILL.md.local-backup
+  SPLICE  <ROOT>/home/.claude/CLAUDE.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
+  | <!-- research-sdd:start -->
+  | ## Research-SDD
+  | 
+  | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
+  | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
+  | Skill file: <ROOT>/home/.claude/skills/research-sdd/SKILL.md
+  | Kit path: <ROOT>/kit
+  | <!-- research-sdd:end -->
+  INSTALL <ROOT>/home/.claude/agents/research-sdd-readability.md (read-only agent definition)
+  INSTALL <ROOT>/home/.claude/agents/research-sdd-risk.md (read-only agent definition)
+  slash_commands=false
