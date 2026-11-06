@@ -1,38 +1,42 @@
 package show
 
 import (
-	"os"
+	"context"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/cleancheck"
 )
 
 // The terminal no-garbage warning (terminal_clean_warn, kit #1277 slice 2; METHODOLOGY §15, contract
 // clean-check.v1.md). An exhausted STOP, with or without the issue-coverage marker, runs clean-check.sh over the
 // target and echoes its findings to STDERR as a loud WARN. Report-only: stdout, the verdict line, the --emit-token
 // mapping and the exit code are unchanged. Three states (§7): clean (one INFO line), findings (a WARN per line) and
-// unverifiable (a typed WARN for a missing script, a timeout or exit 2/3) — never a silent zero.
+// unverifiable (a typed WARN for a timeout or exit 2/3) — never a silent zero.
 // RSDD_STATUS_NO_CLEAN_CHECK=1 skips it (the caller already ran clean-check).
 
 const cleanCheckDefaultSecs = 20
 
-// cleanCheckGrace is the kill grace of `timeout -k 5`.
-const cleanCheckGrace = 5 * time.Second
-
+// terminalCleanWarn runs core/cleancheck in process (tool-registry.d/research-sdd-status.md divergence rows (22)-(24)):
+// there is no clean-check.sh to look up, and the deadline of the context stops the git children it starts.
 func (c *ctx) terminalCleanWarn() {
 	if c.s.Env("RSDD_STATUS_NO_CLEAN_CHECK") == "1" {
 		return
 	}
-	script, ok := c.toolbeltFile("clean-check.sh")
-	if st, err := os.Stat(script); !ok || err != nil || !st.Mode().IsRegular() {
-		c.warnf("WARN: clean-check: unverifiable (clean-check.sh not found beside research-sdd-status.sh) — terminal no-garbage check NOT run\n")
-		return
-	}
 	secs := c.cleanCheckSecs()
-	r := cleanCheckRun(script, c.target, time.Duration(secs)*time.Second, c.s)
-	out := strings.TrimRight(r.out+r.err, "\n") // `$(... 2>&1)`: both streams, trailing newlines dropped
-	switch r.rc {
-	case 124, 137:
+	now := c.s.Clock
+	if now == nil {
+		now = time.Now
+	}
+	// Tmp, Scratchpad and UID stay empty: Check reads TMPDIR, CLEAN_CHECK_SCRATCHPAD and CLEAN_CHECK_UID from Env.
+	o := cleancheck.Options{Target: c.target, Env: c.s.Environment(), Cwd: c.s.Cwd, Now: now}
+	cx, cancel := context.WithTimeout(context.Background(), time.Duration(secs)*time.Second)
+	defer cancel()
+	r := cleanCheckRun(cx, o)
+	out := strings.TrimRight(r.Merged(), "\n") // `$(... 2>&1)`: both streams in print order, trailing newlines dropped
+	switch r.Exit {
+	case 124:
 		c.warnf("WARN: clean-check: unverifiable (timed out after %ds) — terminal no-garbage check NOT confirmed\n", secs)
 	case 0:
 		c.warnf("INFO: clean-check: clean at terminal STOP\n")
@@ -43,7 +47,7 @@ func (c *ctx) terminalCleanWarn() {
 		}
 	default:
 		last := out[strings.LastIndex(out, "\n")+1:]
-		c.warnf("WARN: clean-check: unverifiable (exit %d: %s) — terminal no-garbage check NOT confirmed\n", r.rc, last)
+		c.warnf("WARN: clean-check: unverifiable (exit %d: %s) — terminal no-garbage check NOT confirmed\n", r.Exit, last)
 	}
 }
 

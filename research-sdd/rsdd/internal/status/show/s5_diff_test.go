@@ -218,7 +218,8 @@ func TestDifferentialS5(t *testing.T) {
 				tb := filepath.Join(dir, sc.toolbeltName())
 				goRoot, bashRoot := sc.build(t), sc.build(t)
 				goLog, bashLog := t.TempDir(), t.TempDir()
-				goOuts := runGoS5(t, sc, goRoot, s5Env{sc.environ(goRoot, goLog, bin), tb}, s5Drive{reconcileFake: filepath.Join(tb, "reconcile-issues.sh")})
+				ccr := &s5Replay{root: goRoot, calls: &s5Calls{}}
+				goOuts := runGoS5(t, sc, goRoot, s5Env{sc.environ(goRoot, goLog, bin), tb}, s5Drive{reconcileFake: filepath.Join(tb, "reconcile-issues.sh"), ccReplay: ccr})
 				bashOuts := runBashS5(t, sc, bashRoot, bashLog)
 				for i := range sc.runs {
 					want, got := render("", bashOuts[i], bashRoot), render("", goOuts[i], goRoot)
@@ -231,6 +232,7 @@ func TestDifferentialS5(t *testing.T) {
 				}
 				bashCalls, bashExtra := readS5Log(t, bashLog, bashRoot)
 				goCalls, goExtra := readS5Log(t, goLog, goRoot)
+				goCalls.cc = ccr.calls.cc // the in-process check logs no script call: its replay records the target
 				if !reflect.DeepEqual(bashCalls, goCalls) {
 					t.Errorf("subprocess calls differ from the frozen script\nbash: %+v\ngo:   %+v", bashCalls, goCalls)
 				}
@@ -259,8 +261,5 @@ func TestDifferentialS5(t *testing.T) {
 
 // toolbeltName is the staged toolbelt directory the scenario runs in.
 func (sc s5Scenario) toolbeltName() string {
-	if sc.noCC {
-		return "toolbelt-nocc"
-	}
 	return "toolbelt"
 }

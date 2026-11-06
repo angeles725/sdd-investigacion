@@ -196,45 +196,6 @@ blocks_since_retro: 0
 --- calls
 clean-check: --target <ROOT>/corpus
 --- end calls
-=== cc-exit-137-is-a-timeout
-run 1: <ROOT>/corpus --next
-rc: 0
---- stdout
-STOP | read-only-investigable exhausted (0)
---- stderr
-WARN: clean-check: unverifiable (timed out after 20s) — terminal no-garbage check NOT confirmed
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 0
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | covered |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 0
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- file spec/cc.rc mode=0644
-137
---- end
---- calls
-clean-check: --target <ROOT>/corpus
---- end calls
 === cc-findings
 run 1: <ROOT>/corpus --next
 rc: 0
@@ -718,42 +679,6 @@ blocks_since_retro: 0
 --- end
 --- calls
 clean-check: --target <ROOT>/corpus
---- end calls
-=== cc-script-not-beside-the-status-script
-run 1: <ROOT>/corpus --next
-rc: 0
---- stdout
-STOP | read-only-investigable exhausted (0)
---- stderr
-WARN: clean-check: unverifiable (clean-check.sh not found beside research-sdd-status.sh) — terminal no-garbage check NOT run
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 0
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | the root gap | web | covered |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 0
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- calls
 --- end calls
 === cc-skipped-by-the-switch
 run 1: <ROOT>/corpus --next

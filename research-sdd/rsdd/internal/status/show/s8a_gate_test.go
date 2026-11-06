@@ -5,10 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 )
 
 // S8a: the RETRO-DUE coverage, issues gate and terminal clean-check cases of the main suite and the clean-warn /
@@ -98,22 +94,5 @@ func TestS8aCleanCheckIsAdditive(t *testing.T) {
 				t.Errorf("stdout/rc differ with the check on and off\non:  %+v\noff: %+v", res[0], res[1])
 			}
 		})
-	}
-}
-
-// cleanwarn 10: a TERM-ignoring clean-check is killed shortly after the timeout (the 5 s kill grace of the
-// script's `timeout -k 5`), not waited on. The real execCleanCheck runs a real script.
-func TestS8aTermIgnoringCleanCheckIsKilled(t *testing.T) {
-	dir := t.TempDir()
-	script := filepath.Join(dir, "clean-check.sh")
-	execfile.Write(t, script, "#!/usr/bin/env bash\ntrap \"\" TERM\nexec sleep 40\n")
-	s := cli.Stdio{Cwd: dir, Environ: func() []string { return []string{"PATH=" + os.Getenv("PATH")} }, Clock: time.Now}
-	t0 := time.Now()
-	r := execCleanCheck(script, dir, time.Second, s)
-	if el := time.Since(t0); el > 20*time.Second {
-		t.Errorf("waited %v for a TERM-ignoring child", el)
-	}
-	if r.rc != 137 && r.rc != 124 {
-		t.Errorf("rc %d, want a timeout (124/137)", r.rc)
 	}
 }

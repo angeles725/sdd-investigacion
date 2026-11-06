@@ -253,7 +253,6 @@ func s5Scenarios() []s5Scenario {
 		g("cc-unverifiable-exit-2-names-the-last-line", stopLine, nil, spec("cc.rc", "2", "cc.out", "first line\nlast line\n"), on),
 		g("cc-unverifiable-exit-3-without-output", stopLine, nil, spec("cc.rc", "3"), on),
 		g("cc-unverifiable-exit-127", stopLine, nil, spec("cc.rc", "127", "cc.out", "bash: boom\n"), on),
-		g("cc-exit-137-is-a-timeout", stopLine, nil, spec("cc.rc", "137"), on),
 		g("cc-exit-124-is-a-timeout", stopLine, nil, spec("cc.rc", "124"), on),
 		g("cc-timeout-bound-fires", stopLine, nil, spec("cc.sleep", "3"), cc(map[string]string{"RSDD_STATUS_CLEAN_CHECK_TIMEOUT": "1"})),
 		g("cc-invalid-timeout-word", stopLine, nil, nil, cc(map[string]string{"RSDD_STATUS_CLEAN_CHECK_TIMEOUT": "abc"})),
@@ -267,7 +266,6 @@ func s5Scenarios() []s5Scenario {
 		g("cc-only-the-exact-switch-value-skips", stopLine, nil, spec("cc.rc", "1", "cc.out", "ran\n"), map[string]string{"RSDD_STATUS_NO_CLEAN_CHECK": "true"}),
 		g("cc-scoped-stop-runs-it", stopLine, nil, nil, on, "--root"),
 	)
-	add(g("cc-script-not-beside-the-status-script", stopLine, nil, nil, on).withoutCC())
 
 	// worlds with an unreadable directory or file, and a link: set after the table is built
 	for i := range scs {

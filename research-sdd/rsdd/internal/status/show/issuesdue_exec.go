@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/cleancheck"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/gh"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
@@ -17,7 +18,8 @@ import (
 //
 //	gh issue list ...            the one batch prefetch of the open issue bodies (core/gh, bounded)
 //	rsdd retro reconcile ...     one probe per retro, and one re-verify per untracked retro (this binary, bounded)
-//	bash clean-check.sh ...      the terminal no-garbage check of an exhausted STOP (bounded)
+//
+// The terminal no-garbage check of an exhausted STOP is no child any more: core/cleancheck runs in process.
 //
 // The script ran timeout(1)/gtimeout around gh and reconcile-issues.sh; the bound is core/proc's here, so the
 // "no timeout binary" states of the script do not exist. The script ran reconcile-issues.sh through bash and the
@@ -26,7 +28,7 @@ var (
 	ghList          = gh.Run
 	reconcileRun    = execReconcile
 	reconcilePrefix = defaultReconcilePrefix
-	cleanCheckRun   = execCleanCheck
+	cleanCheckRun   = cleancheck.Check
 )
 
 // execMaxBytes caps the joint output of a probe, as core/gh does for gh.
@@ -62,11 +64,6 @@ func execReconcile(args []string, timeout time.Duration, s cli.Stdio) probeResul
 		return probeResult{err: "cannot locate the rsdd binary: " + err.Error(), rc: 127}
 	}
 	return boundedRun(append(prefix, args...), timeout, 0, s)
-}
-
-// execCleanCheck runs `bash script --target dir` bounded by timeout, with the 5 s kill grace of `timeout -k 5`.
-func execCleanCheck(script, target string, timeout time.Duration, s cli.Stdio) probeResult {
-	return boundedRun([]string{"bash", script, "--target", target}, timeout, cleanCheckGrace, s)
 }
 
 // boundedRun is core/proc over argv in the caller's directory and environment.

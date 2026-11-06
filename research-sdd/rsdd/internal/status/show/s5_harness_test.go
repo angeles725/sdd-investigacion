@@ -2,6 +2,7 @@ package show
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/cleancheck"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/gh"
 )
 
@@ -32,12 +34,8 @@ const goldenS5 = goldenS2Dir + "s5.golden"
 
 type s5Scenario struct {
 	s4Scenario
-	env  map[string]string // extra environment of the run
-	noCC bool              // the toolbelt has no clean-check.sh
+	env map[string]string // extra environment of the run
 }
-
-// withoutCC marks a scenario whose toolbelt lacks clean-check.sh.
-func (sc s5Scenario) withoutCC() s5Scenario { sc.noCC = true; return sc }
 
 // n5 is the one-state-file scenario over a corpus: corpus/RESEARCH-STATE.md plus extra files.
 func n5(name, want, state string, extra files, env map[string]string, flags ...string) s5Scenario {
@@ -116,7 +114,8 @@ func (k s5Calls) render() string {
 // s5Drive is how the port reaches its children in one run: the production path with the fake reconcile in place of
 // the rsdd binary (the differential), or a replay that answers from the spec and records what was asked.
 type s5Drive struct {
-	reconcileFake string // differential: the fake script, run through the production runner
+	reconcileFake string    // differential: the fake script, run through the production runner
+	ccReplay      *s5Replay // differential: clean-check answers from the spec (the check is in process, no script runs)
 	replay        *s5Replay
 }
 
@@ -179,16 +178,18 @@ func (r *s5Replay) reconcile(args []string, _ time.Duration, _ cli.Stdio) probeR
 	return probeResult{out: out, err: errs, rc: r.rc(p)}
 }
 
-func (r *s5Replay) cleanCheck(_, target string, _ time.Duration, _ cli.Stdio) probeResult {
-	r.calls.cc = append(r.calls.cc, r.calls.scrub("--target "+target, r.root))
+func (r *s5Replay) cleanCheck(_ context.Context, o cleancheck.Options) cleancheck.Result {
+	r.calls.cc = append(r.calls.cc, r.calls.scrub("--target "+o.Target, r.root))
 	if _, ok := r.spec("cc.sleep"); ok {
-		return probeResult{rc: 124}
+		return cleancheck.Result{Verdict: cleancheck.TimedOut, Exit: 124}
 	}
-	out, ok := r.spec("cc.out")
-	if ok {
-		out += "\n"
+	res := cleancheck.Result{Exit: r.rc("cc")}
+	if out, ok := r.spec("cc.out"); ok {
+		for _, l := range strings.Split(out, "\n") {
+			res.Lines = append(res.Lines, cleancheck.Line{Text: l})
+		}
 	}
-	return probeResult{out: out, rc: r.rc("cc")}
+	return res
 }
 
 // runGoS5 runs the port over one world. The seams are swapped for the run and restored after it.
@@ -210,6 +211,7 @@ func runGoS5(t testing.TB, sc s5Scenario, root string, e s5Env, d s5Drive) []out
 	case d.replay != nil:
 		ghList, reconcileRun, cleanCheckRun = d.replay.ghList, d.replay.reconcile, d.replay.cleanCheck
 	case d.reconcileFake != "":
+		cleanCheckRun = d.ccReplay.cleanCheck
 		reconcilePrefix = func(string, func() (string, error)) ([]string, error) { return []string{d.reconcileFake}, nil }
 	}
 	var res []outcome

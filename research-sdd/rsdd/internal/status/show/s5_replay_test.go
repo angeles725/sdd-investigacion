@@ -2,7 +2,6 @@ package show
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -30,9 +29,6 @@ func TestReplayS5(t *testing.T) {
 			root := sc.build(t)
 			calls := &s5Calls{}
 			tb := t.TempDir()
-			if !sc.noCC {
-				must(t, os.WriteFile(filepath.Join(tb, "clean-check.sh"), []byte("#!/bin/sh\n"), 0o755))
-			}
 			e := s5Env{environ: sc.environ(root, t.TempDir(), "/nonexistent-bin"), toolbelt: tb}
 			outs := runGoS5(t, sc, root, e, s5Drive{replay: &s5Replay{root: root, calls: calls}})
 			got := renderS5(t, sc, outs, root, *calls)

@@ -2,6 +2,7 @@ package show
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/cleancheck"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/gh"
 )
 
@@ -23,7 +25,9 @@ import (
 type gateStubs struct {
 	gh  func(o gh.Options, args ...string) (gh.RunResult, error)
 	rec func(args []string, timeout time.Duration, s cli.Stdio) probeResult
-	cc  func(script, target string, timeout time.Duration, s cli.Stdio) probeResult
+	// marker, when set, is a file the toolbelt's clean-check.sh creates if anything ever runs it.
+	marker string
+	cc     func(ctx context.Context, o cleancheck.Options) cleancheck.Result
 }
 
 // runStubbed runs `--next` over an exhausted corpus holding the retros, with the given extra environment and the
@@ -33,13 +37,13 @@ func runStubbed(t *testing.T, retroFiles files, env map[string]string, st gateSt
 	sc := n5("unit", "", one("root", "covered", 0, "0"), retroFiles, env)
 	root := sc.build(t)
 	tb := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(tb, "clean-check.sh"), []byte("#!/bin/sh\n"), 0o755))
+	must(t, os.WriteFile(filepath.Join(tb, "clean-check.sh"), []byte("#!/bin/sh\n"+ifSet("touch '", st.marker, "'\n")), 0o755))
 	oldV, oldG, oldR, oldC := verifyState, ghList, reconcileRun, cleanCheckRun
 	t.Cleanup(func() { verifyState, ghList, reconcileRun, cleanCheckRun = oldV, oldG, oldR, oldC })
 	verifyState = func([]string, cli.Stdio) int { return 0 }
 	okGH := func(gh.Options, ...string) (gh.RunResult, error) { return gh.RunResult{State: gh.StateOK}, nil }
 	okRec := func([]string, time.Duration, cli.Stdio) probeResult { return probeResult{} }
-	okCC := func(string, string, time.Duration, cli.Stdio) probeResult { return probeResult{} }
+	okCC := func(context.Context, cleancheck.Options) cleancheck.Result { return cleancheck.Result{} }
 	ghList, reconcileRun, cleanCheckRun = orFunc(st.gh, okGH), orFunc(st.rec, okRec), orFunc(st.cc, okCC)
 	e := s5Env{sc.environ(root, t.TempDir(), "/nonexistent-bin"), tb}
 	var out, errb bytes.Buffer
@@ -126,50 +130,6 @@ func TestGateCacheFileFailure(t *testing.T) {
 	}
 	if ghCalled || !reflect.DeepEqual(calls, [][]string{{filepath.Join(root, "corpus/retros/a.md")}}) {
 		t.Errorf("gh called %v, probes %v: want no batch and one cacheless probe", ghCalled, calls)
-	}
-}
-
-// RSDD_STATUS_CLEAN_CHECK_TIMEOUT: an exact positive integer, normalised (010 is 10); anything else is named and 20.
-func TestCleanCheckTimeoutNormalised(t *testing.T) {
-	for _, c := range []struct {
-		val  string
-		want time.Duration
-	}{{"", 20}, {"abc", 20}, {"0", 20}, {"00", 20}, {"-1", 20}, {"1.5", 20}, {"1e3", 20}, {"5", 5}, {"010", 10}, {"007", 7}, {"99999999999999999999", 1 << 30}, {"1073741823", 1<<30 - 1}, {"1073741824", 1 << 30}, {"1073741825", 1 << 30}} {
-		var got time.Duration
-		st := gateStubs{cc: func(_, _ string, to time.Duration, _ cli.Stdio) probeResult { got = to; return probeResult{} }}
-		runStubbed(t, nil, map[string]string{"RSDD_STATUS_NO_CLEAN_CHECK": "0", "RSDD_STATUS_CLEAN_CHECK_TIMEOUT": c.val}, st)
-		if got != c.want*time.Second {
-			t.Errorf("RSDD_STATUS_CLEAN_CHECK_TIMEOUT=%q: bound %v, want %v", c.val, got, c.want*time.Second)
-		}
-	}
-}
-
-// clean-check's two streams are read as `2>&1` did: stdout then stderr, one text.
-func TestCleanCheckReadsBothStreams(t *testing.T) {
-	st := gateStubs{cc: func(string, string, time.Duration, cli.Stdio) probeResult {
-		return probeResult{out: "from stdout\n", err: "from stderr\n", rc: 1}
-	}}
-	o, _ := runStubbed(t, nil, map[string]string{"RSDD_STATUS_NO_CLEAN_CHECK": "0"}, st)
-	if !strings.Contains(o.err, "WARN: clean-check: from stdout\nWARN: clean-check: from stderr\n") {
-		t.Errorf("stderr %q", o.err)
-	}
-}
-
-// A signal-killed clean-check (rc 128+N other than 137) is an unverifiable exit, not a timeout.
-func TestCleanCheckSignalExit(t *testing.T) {
-	st := gateStubs{cc: func(string, string, time.Duration, cli.Stdio) probeResult { return probeResult{rc: 143, out: "x\ny\n"} }}
-	o, _ := runStubbed(t, nil, map[string]string{"RSDD_STATUS_NO_CLEAN_CHECK": "0"}, st)
-	if want := "WARN: clean-check: unverifiable (exit 143: y) — terminal no-garbage check NOT confirmed\n"; o.err != want {
-		t.Errorf("stderr %q, want %q", o.err, want)
-	}
-}
-
-// With no toolbelt directory (RSDD_TOOLBELT_DIR unset) the script cannot be found: the typed unverifiable WARN.
-func TestCleanCheckWithoutToolbelt(t *testing.T) {
-	verifyWith(t, 0, "")
-	_, _, errb := runWorld(t, st4("", "0", 0, "", row("high", "G1 done", "covered")), "--next")
-	if want := "WARN: clean-check: unverifiable (clean-check.sh not found beside research-sdd-status.sh) — terminal no-garbage check NOT run\n"; errb != want {
-		t.Errorf("stderr %q, want %q", errb, want)
 	}
 }
 
@@ -585,4 +545,11 @@ func TestIssuesGateAggregateBudgetOnAnAdvancingClock(t *testing.T) {
 			t.Errorf("%s: exceeded line %v unverified %v probes %d, want %v %v %d\n%s", c.name, has, g.unverified, probes, c.exceeded, c.exceeded, c.wantProbe, errb.String())
 		}
 	}
+}
+
+func ifSet(pre, v, post string) string {
+	if v == "" {
+		return ""
+	}
+	return pre + v + post
 }
