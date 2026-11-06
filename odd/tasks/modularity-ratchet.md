@@ -233,4 +233,11 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   walk-error mutants die on that test alone). RED, executed before the change:
   `TestCountOverTheHardLimitIsExact` (accepted 450 at 420 and at 401: the lowered line instead of "split the file")
   and `TestSummaryLineFormat` (against a stub that returned an empty line). Dry run: 113 runnable, 0 not covered.
+- L17 Before merging, main (b4a1c9fb) was merged into the branch (b4539b83; the branch was already pushed and a
+  forced push is not available, so a merge and not a rebase). #2747 had merged first and took
+  internal/core/fsx/publish.go from 228 to 198 lines; the real-tree test named exactly that line ("no longer over
+  200") and update mode deleted it. The files #2747 added under internal/sources/fetchdoc and
+  internal/core/srcregistry are all at 200 lines or less. Real tree after the merge: scanned=655 generated=3
+  over200=151 entries=151 lowerable=0. The commit after 84866923 (48d05c61, L16) was assessed against that boundary
+  as medium and under the review budget, so it was not reviewed.
 
