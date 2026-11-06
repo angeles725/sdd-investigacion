@@ -5,17 +5,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // The largest real table source in the repo is research-sdd/TARGETS.md (the registry). Go side: read once,
 // then time parse + touching every cell. Bash side: the real gap_rows_parse over the same file via the driver
 // (process start included, as every kit invocation pays it); BenchmarkBashStartup runs the same driver on an
 // empty file so the per-process floor can be subtracted.
-const targetsRel = "../../../../TARGETS.md"
-
 func targetsBytes(b *testing.B) string {
 	b.Helper()
-	p, err := os.ReadFile(filepath.Clean(targetsRel))
+	p, err := os.ReadFile(kitroot.Path(b, "TARGETS.md"))
 	if err != nil {
 		b.Fatalf("TARGETS.md not readable (%v): benchmark input moved", err)
 	}
@@ -59,7 +59,7 @@ func benchBash(b *testing.B, file string) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		b.Skip("bash not found in PATH; bash side of the comparison not measured")
 	}
-	tb, _ := filepath.Abs(toolbeltRel)
+	tb := kitroot.Path(b, "toolbelt")
 	script, _ := filepath.Abs(filepath.Join("testdata", "diff-driver.sh"))
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -70,8 +70,7 @@ func benchBash(b *testing.B, file string) {
 }
 
 func BenchmarkBashGapRowsTargets(b *testing.B) {
-	p, _ := filepath.Abs(targetsRel)
-	benchBash(b, p)
+	benchBash(b, kitroot.Path(b, "TARGETS.md"))
 }
 
 func BenchmarkBashStartup(b *testing.B) {

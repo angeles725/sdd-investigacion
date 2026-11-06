@@ -1,7 +1,8 @@
 // Package show is `rsdd status show`, the port of toolbelt/research-sdd-status.sh (issue #2549). It lands in
-// slices; this one carries the argument parsing and validation, --emit-token, the state-file pick with its
-// BOOTSTRAP answers, and the is_blocked reader. The script stays authoritative until the last slice: every
-// section after the pick is reported as not yet ported (typed, exit 1), never answered silently.
+// slices. Ported so far: argument parsing and validation, --emit-token, the state-file pick with its BOOTSTRAP
+// answers, the is_blocked reader, and the default report body (S6). The script stays authoritative until the
+// last slice: a section not yet wired into liveSections (the campaign block and document-cycle outline, S7) is
+// reported as not yet ported (typed, exit 1), never answered silently.
 package show
 
 import (
@@ -35,7 +36,7 @@ type tail func(c *ctx) int
 
 // Run is `rsdd status show <target-dir> [flags]`.
 func Run(args []string, s cli.Stdio) int {
-	return run(args, s, syncOr(nextOr(liveSeams, notPorted)))
+	return run(args, s, syncOr(nextOr(liveSeams, defaultOr(liveSections, notPorted))))
 }
 
 // notPorted answers a run that got past the pick: the later sections are not in Go yet.

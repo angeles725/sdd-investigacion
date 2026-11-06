@@ -141,3 +141,19 @@ func TestRowsTargetsProseNeverRows(t *testing.T) {
 		t.Fatalf("rows = %q want %q", got, want)
 	}
 }
+
+func TestParseHeaderOnlyTable(t *testing.T) {
+	// The smallest headed table is exactly two lines, a header and its delimiter row, with no data rows
+	// (kit issue #2592: the `len(block) >= 2` edge).
+	d := Parse("| a | b |\n|---|---|\n")
+	if len(d.Tables) != 1 {
+		t.Fatalf("want 1 table, got %d", len(d.Tables))
+	}
+	tb := d.Tables[0]
+	if tb.Header == nil || tb.Separator == nil || len(tb.Rows) != 0 {
+		t.Fatalf("header-only table = %+v", d.Tables)
+	}
+	if got := tb.Header.Padded; !reflect.DeepEqual(got, []string{" a ", " b "}) {
+		t.Errorf("header cells = %q", got)
+	}
+}

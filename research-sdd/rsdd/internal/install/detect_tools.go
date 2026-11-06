@@ -41,11 +41,7 @@ func runDetect(args []string, s cli.Stdio, tweak func(*detector)) int {
 	if len(args) >= 2 && args[0] == "--prog" {
 		prog, args = args[1], args[2:]
 	}
-	var environ []string
-	if s.Environ != nil {
-		environ = s.Environ()
-	}
-	d := newDetector(environ, s.Cwd)
+	d := newDetector(s.Environment(), s.Cwd)
 	if tweak != nil {
 		tweak(d)
 	}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 )
 
 // TestMain lets the test binary stand in for rsdd: started with the hidden helper command it becomes the rlimit
@@ -126,9 +127,7 @@ func newRig(t testing.TB) *rig {
 		t.Fatal(err)
 	}
 	for name, body := range map[string]string{"bwrap": fakeBwrap, "capinfos": fakeCapinfos, "tshark": fakeTshark} {
-		if err := os.WriteFile(filepath.Join(r.dir, name), []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		execfile.Write(t, filepath.Join(r.dir, name), body) // parallel subtests build rigs: no fork may leak the open descriptor (ETXTBSY)
 	}
 	for _, util := range []string{"cat", "dirname", "sleep", "cp"} { // what the fakes run; PATH is the rig alone
 		path, err := exec.LookPath(util)

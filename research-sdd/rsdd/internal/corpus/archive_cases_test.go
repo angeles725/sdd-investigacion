@@ -7,6 +7,7 @@ package corpus
 import (
 	"errors"
 	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parity"
 	"os"
 	"path/filepath"
@@ -45,12 +46,7 @@ func archiveWith(extra ...string) func(f *archiveFx, d string) []string {
 
 func archiveStubDir(f *archiveFx, name, file, body string) string {
 	dir := filepath.Join(f.root, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		f.t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o755); err != nil {
-		f.t.Fatal(err)
-	}
+	execfile.Write(f.t, filepath.Join(dir, file), body)
 	return dir
 }
 

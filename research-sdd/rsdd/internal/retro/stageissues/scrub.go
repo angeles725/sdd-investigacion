@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-// The pre-mutation privacy scrub (kit issue #1707): a Go port of lib/scrub-issue-text.sh, kept inside this
-// package because only stage-issues uses it (no other Go package needs it yet; the bash lib stays for its other
-// callers). Every title, body and comment is scrubbed BEFORE the first gh call. Redaction classes, each
+// The pre-mutation privacy scrub (kit issue #1707): a Go port of lib/scrub-issue-text.sh (retired with kit issue #2717;
+// the frozen copy under testdata/legacy/lib is the differential oracle), kept inside this package because only
+// stage-issues uses it. Every title, body and comment is scrubbed BEFORE the first gh call. Redaction classes, each
 // replacement counting once: bare credential tokens, Authorization/Bearer credentials, credential-named
 // KEY=VALUE assignments, emails, absolute home paths.
 //
