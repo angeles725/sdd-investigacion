@@ -40,7 +40,7 @@ func (c *ctx) syncState() int {
 	if c.opts.focus != "" || c.opts.root {
 		focused := c.state // ROOT-SYNC-SELECT: the root was resolved (and vetted) at startup
 		if !c.opts.root {
-			p, err := kit.ResolveStateFile(c.abs(c.target), kit.ResolveOptions{FocusSet: true, Focus: c.opts.focus})
+			p, err := resolveState(c.abs(c.target), kit.ResolveOptions{FocusSet: true, Focus: c.opts.focus})
 			if rc := stateRC(err); rc > 2 {
 				fmt.Fprintf(c.s.Err, "research-sdd-status: state-file resolution failed (rc %d)\n", rc)
 				return 1

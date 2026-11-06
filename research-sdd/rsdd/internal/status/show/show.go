@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 )
 
 // ctx is what the later sections of the script read once the pick is done: the target as the caller wrote it
@@ -58,7 +57,7 @@ func run(args []string, s cli.Stdio, t tail) int {
 	if o.emitToken {
 		return emitToken(args, s, t)
 	}
-	if rc, done := c.pick(kit.ResolveStateFile); done {
+	if rc, done := c.pick(resolveState); done {
 		return rc
 	}
 	return t(c)
