@@ -38,7 +38,7 @@ func TestRegistrySessionBudgetThroughRunner(t *testing.T) {
 		k := newVRKit(t)
 		k.blocks("alpha", 1)
 		k.put("alpha/.claude/settings.json", "{}\n")
-		k.write("kit/toolbelt/verify-session-budget.sh", "#!/bin/sh\n")
+		k.write("home/kit/toolbelt/verify-session-budget.sh", "#!/bin/sh\n")
 		k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")))
 		return k
 	}

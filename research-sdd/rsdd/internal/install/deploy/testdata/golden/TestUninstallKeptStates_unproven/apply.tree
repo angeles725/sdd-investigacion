@@ -1,0 +1,10 @@
+home:
+D 0755 .claude
+D 0755 .claude/agents
+D 0755 .claude/research-sdd
+D 0755 .claude/skills
+D 0755 .claude/skills/research-sdd
+F 0600 .claude/research-sdd/.installed-bundle-state 221 4793cf210c8c0768
+F 0644 .claude/skills/research-sdd/SKILL.md 81 ab7582a5fbeb66c8
+tmp:
+cwd:
