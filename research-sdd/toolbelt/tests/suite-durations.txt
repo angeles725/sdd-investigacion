@@ -92,9 +92,6 @@ research-sdd/toolbelt/tests/research-sdd-init-hook-exec.test.sh 9
 research-sdd/toolbelt/tests/research-sdd-status-clean-warn.test.sh 89
 research-sdd/toolbelt/tests/research-sdd-status-deferred-populations.test.sh 206
 research-sdd/toolbelt/tests/research-sdd-status-focus-scope.test.sh 10
-research-sdd/toolbelt/tests/research-sdd-status-inplace-blocked.test.sh 13
-research-sdd/toolbelt/tests/research-sdd-status-next-scope.test.sh 16
-research-sdd/toolbelt/tests/research-sdd-status-queue.test.sh 46
 research-sdd/toolbelt/tests/research-sdd-status-root-pick.test.sh 12
 research-sdd/toolbelt/tests/research-sdd-status-unreadable-stop.test.sh 19
 research-sdd/toolbelt/tests/research-sdd-status-visibility.test.sh 67
