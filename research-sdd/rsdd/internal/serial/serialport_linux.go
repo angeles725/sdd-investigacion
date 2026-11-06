@@ -151,14 +151,16 @@ func (p *ttyPort) Read(n int, timeout time.Duration) ([]byte, error) {
 		calls := 0
 		err := rc.Read(func(fd uintptr) bool {
 			calls++
-			for {
-				got, rerr = syscall.Read(int(fd), buf[:n-len(out)])
-				if rerr != syscall.EINTR {
-					break
+			var done bool
+			got, rerr, done = readStep(calls, func() bool { return fdReadable(int(fd)) }, func() (int, error) {
+				for {
+					g, e := syscall.Read(int(fd), buf[:n-len(out)])
+					if e != syscall.EINTR {
+						return g, e
+					}
 				}
-			}
-			// The first call is made before any readiness wait: an empty read there only means "no data yet".
-			return rerr != syscall.EAGAIN && (got > 0 || rerr != nil || calls > 1)
+			})
+			return done
 		})
 		switch {
 		case errors.Is(err, os.ErrDeadlineExceeded):
@@ -177,6 +179,36 @@ func (p *ttyPort) Read(n int, timeout time.Duration) ([]byte, error) {
 		}
 	}
 	return out, nil
+}
+
+// readStep is one rc.Read callback call. The first call is made before any readiness wait, so an empty read
+// there only means "no data yet". Later calls follow a poller wake; Go's poller is edge-triggered and a wake
+// may be stale, so the level-triggered readable() is asked first and nothing is read on a stale wake. As with
+// pyserial's select-then-read, "readable, and the read after it is empty" is the real disconnect.
+func readStep(calls int, readable func() bool, read func() (int, error)) (got int, rerr error, done bool) {
+	if calls > 1 && !readable() {
+		return 0, nil, false
+	}
+	got, rerr = read()
+	return got, rerr, rerr != syscall.EAGAIN && (got > 0 || rerr != nil || calls > 1)
+}
+
+// fdReadable is a zero-timeout level-triggered poll: is there input (or a hangup/error) on fd right now?
+func fdReadable(fd int) bool {
+	const pollin = 0x1
+	pfd := struct {
+		fd      int32
+		events  int16
+		revents int16
+	}{fd: int32(fd), events: pollin}
+	var ts syscall.Timespec
+	for {
+		_, _, en := syscall.Syscall6(syscall.SYS_PPOLL, uintptr(unsafe.Pointer(&pfd)), 1, uintptr(unsafe.Pointer(&ts)), 0, 0, 0)
+		if en == syscall.EINTR {
+			continue
+		}
+		return en == 0 && pfd.revents != 0 // no ready descriptor leaves revents at 0
+	}
 }
 
 func (p *ttyPort) Close() error { return p.f.Close() }
