@@ -1,0 +1,112 @@
+research-sdd-install: --yes confirms a removal and requires --uninstall
+Usage:
+  research-sdd-install.sh [--harness claude|pi|gentle-shell|all] [--home <dir>] [--dry-run] [--force-skill] [--backup-unrecorded] [--profile <name>]
+  research-sdd-install.sh --verify [--harness claude|pi|gentle-shell|all] [--home <dir>]
+  research-sdd-install.sh --uninstall [--yes] [--harness claude|pi|gentle-shell|all] [--home <dir>]
+
+  --harness     which harness(es) to install into (default: all, in registration order)
+  --home        the home dir whose config roots are targeted (default: $HOME)
+  --dry-run     print the exact plan (files + rendered section) WITHOUT touching the filesystem
+  --force-skill when a deployed file this installer manages has diverged (the skill, the slash-command
+                prompt template, the pi extension under <config_root>/extensions/, AND the shipped read-only
+                agent definitions under <config_root>/agents/),
+                back it up as <file>.local-backup and overwrite it with the kit source
+  --backup-unrecorded  a re-install replaces the rendered profile dir (<config_root>/research-sdd/profile/<name>/).
+                Any regular file in it that the bundle record does not name (e.g. a session-written TARGETS.md) makes
+                the re-install REFUSE (typed, exit 1, nothing removed; a dir with files but no record is refused too).
+                With this flag those files are first MOVED to <config_root>/research-sdd/backups/unrecorded-<profile>-<UTC>/
+                (outside the render dir) and the backup path is printed. Not valid with --verify or --uninstall.
+  --profile     prompt profile to install (claude|general|...): flag > $RESEARCH_SDD_PROFILE env
+                > per-harness default (adapters.sh _RSDD_DEFAULT_PROFILE); unknown profile exits 2
+  --verify      READ-ONLY drift check (kit issue #1702): recompute a sorted-path whole-bundle sha256 over what
+                this installer manages for each harness (the deployed SKILL.md, the slash-command prompt
+                template, the pi extension (pi + gentle-shell), the claude read-only agent definitions, the marked research-sdd launcher block inside the shared prompt file, and the
+                regular files of a rendered profile) and compare it with the bundle digest the last
+                successful install recorded in <config_root>/research-sdd/.installed-bundle-state. Prints
+                ONE typed line per harness and writes NOTHING (no temp files, no state):
+                The comparison set is the recorded members PLUS the kit's CURRENT agent definitions (#1761), so a
+                pre-#1714 record shows undeployed agents as drift (missing), never match; the same holds for the
+                pi extension (#2123) on pi and gentle-shell.
+                  verify harness=<h> status=match bundle_sha256=<hex> files=<n>
+                  verify harness=<h> status=drift drifted=<path (modified|missing|extra)>,...
+                  verify harness=<h> status=absent (not installed)
+                  verify harness=<h> status=degraded reason=<why>   (no sha256 tool, no/corrupt record, unreadable file, kit agent source missing)
+                On pi and gentle-shell (kit issue #2124) the install deploys three read-only TIER agents
+                (research-sdd-mechanical|structural|reasoning, no `model:`) to <config_root>/agents/, PRINTS a
+                ready-to-merge model_profiles snippet (placeholder models, a clean JSON block between two marker lines; never written:
+                model selection is user-owned), and --verify adds one INFORMATIONAL line per tier agent of an
+                installed harness (never changes the exit code; the project <cwd>/.pi/subagents.json wins over
+                the global <config_root>/subagents.json):
+                  verify tier-profile harness=<h> agent=<name> status=configured|placeholder source=project|global file=<path>
+                  (project wins when its entry has a model string, placeholder or not - the runtime merge rule)
+                  verify tier-profile harness=<h> agent=<name> status=unconfigured looked=<global>,<project>
+                  verify tier-profile harness=<h> agent=<name> status=degraded reason=<unreadable / invalid JSON>
+                  verify tier-profile-note harness=<h> not-checked=profile pins and session bindings (they replace model_profiles)
+                After the harness lines, ONE kit-checkout staleness line (advisory: it never changes the exit
+                code), because deployed Stop hooks exec toolbelt scripts from THIS checkout:
+                  verify kit status=current ref=<upstream> behind=0
+                  verify kit status=behind ref=<upstream> behind=<n> ... fix: git -C <kit> pull --ff-only
+                  verify kit status=degraded reason=<why>   (no git, not a git checkout, no upstream ref)
+                It compares HEAD with the LOCALLY KNOWN upstream ref (@{upstream}, else origin/main) and
+                never fetches: the ref itself is only as fresh as the last fetch, and the line says so.
+                $RESEARCH_SDD_KIT_DIR overrides the checkout inspected (test seam; default: this kit's root).
+                Exit: 0 = every harness match or absent · 1 = drift in at least one harness and none
+                degraded · 2 = at least one harness degraded, or an operational/usage error (degraded
+                outranks drift: the instrument could not look, so it must not read as a clean 1).
+                Combining --verify with --dry-run, --force-skill or --profile is a usage error (exit 2).
+                An install that KEEPS a hand-edited SKILL.md/template records the SOURCE digest for that
+                member plus a kept-hand-edit=<path> line: the hand-edit is never baselined, verify reports
+                it as drift and prints kept-hand-edit=<path> so the cause is named.
+
+  --uninstall   remove what this installer deployed (kit issue #1033). DRY-RUN BY DEFAULT: it lists what it
+                would remove and changes nothing; removal happens only with --yes. Only artifacts the installer
+                can PROVE it wrote are removed: a skill / slash-command template / pi extension / agent definition whose sha256
+                still equals its install marker, the marked launcher block inside the shared prompt file (its
+                hash must equal the bundle record; the user's other lines are kept), a rendered profile dir that
+                holds exactly the recorded files, then the state files and the emptied installer directories.
+                Anything else is kept. ONE typed line per artifact, "  <status>  <path>  [<kind>]":
+                  would-remove | removed | absent | failed
+                  kept (modified)   the file/block/dir differs from what the installer recorded (hand-edit or extra file)
+                  kept (unproven)   no marker/record vouches for it (the user's own file, or state already gone)
+                  kept (unverifiable)   a hash could not be computed, so ownership is neither proven nor disproven
+                  kept (outside config root)   a parent directory is a symlink that resolves outside <config_root>
+                  kept (symlink)   a symlinked prompt file is never written through during uninstall
+                  kept (not a regular file) · kept (unreadable) · kept (not empty) · kept (in use)
+                  kept (rmdir failed: <reason>)
+                A launcher block whose markers are malformed or CRLF-terminated is reported kept (modified), and
+                the bundle record is kept with it. A render dir holding any unrecorded entry (extra file, empty
+                subdir, FIFO, a symlink that is not a kit-view link) is kept (modified).
+                then a per-harness summary line. A second run reports absent. --harness scopes it (default all);
+                every removal and rmdir is checked to resolve inside <config_root> (realpath), so nothing outside
+                it is touched. Exit: 0 ok · 1 a removal failed · 2 usage error, or degraded (no sha256 tool or no
+                python3, in dry-run and apply alike: ownership/containment cannot be proven, so nothing is removed).
+                --home needs a non-empty value (an empty or missing one is a usage error, exit 2).
+                --yes requires --uninstall; --uninstall cannot be combined with --verify, --dry-run --yes,
+                --force-skill or --profile (usage error, exit 2).
+  --yes         confirm the removal --uninstall would otherwise only list
+
+pi / gentle-shell (Pi, and Pi with an isolated agent dir): the skill lands under <agent-dir>/skills/
+and a slash-command prompt template under <agent-dir>/prompts/research-sdd.md, so /research-sdd works
+(the template follows the same hand-edit protection as the skill). Pi has no settings.json hooks, so the
+kit deploys the extension research-sdd-hooks.ts to <agent-dir>/extensions/ (kit issue #2123: SessionStart
+sweeps + drift check injected into the model context, the retro / return-token gates on a completed
+settle, the pkill guard on bash tool calls; same hand-edit protection); the manual sweep block stays
+documented in <agent-dir>/AGENTS.md as the fallback; the kit registers no MCP servers.
+
+Idempotent: re-running is a clean update, never a duplicate. markdown-sections splices a marked
+block into a SHARED prompt file, preserving all surrounding user content (including the harness's
+own global system prompt, e.g. Pi's <agent-dir>/AGENTS.md).
+
+Managed overwrite (kit issue #1024 F4 + round 3 item 2): a deployed skill that still matches the
+sha256 the installer itself last recorded is a MANAGED overwrite, not a hand-edit — it is
+silently updated to the new source, no --force-skill needed. This covers TWO cases identically,
+since the marker-hash check cannot (and need not) distinguish them: a profile SWITCH (deployed
+is the previous profile's unedited render) and a SAME-profile kit update (deployed is unedited,
+but the kit's own content has since moved forward — e.g. a newer kit checkout). Either way the
+dry-run plan says "[will update — managed content (matches last install)]". A deployed file that
+does NOT match the recorded hash is a genuine hand-edit and keeps the existing protected
+behaviour (warn + keep, or --force-skill backup + overwrite) unchanged — EXCEPT: if this was an
+attempted profile SWITCH (the marker names a different profile than the one just requested) and
+the hand-edit blocks it, the overall run exits non-zero (round 3 item 3) instead of the usual
+exit 0 — the launcher's "Kit path:" would otherwise be rewritten to the NEW profile while the
+kept SKILL.md stays the OLD profile's content, a mixed state that must never report success.

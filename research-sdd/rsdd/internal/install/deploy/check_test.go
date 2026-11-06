@@ -43,7 +43,7 @@ func (w *world) text(label, kind, got, want string) {
 		}
 		return
 	}
-	p := filepath.Join("testdata", "golden", strings.ReplaceAll(w.t.Name(), "/", "_"), label+"."+kind)
+	p := filepath.Join("testdata", "golden", strings.ReplaceAll(w.t.Name(), "/", "_"), strings.ReplaceAll(label, " ", "-")+"."+kind)
 	if *updateGolden {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			w.t.Fatal(err)

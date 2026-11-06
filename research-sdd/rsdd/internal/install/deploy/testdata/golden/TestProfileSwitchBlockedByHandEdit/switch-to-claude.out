@@ -1,0 +1,23 @@
+harness=pi
+  profile=claude (source=flag)
+  INSTALL <ROOT>/home/.pi/agent/skills/research-sdd/SKILL.md (from kit skills/research-sdd/SKILL.md)
+  SKIP    <ROOT>/home/.pi/agent/AGENTS.md (launcher rewrite skipped — profile switch blocked by a hand-edit, mixed state avoided)
+  INSTALL <ROOT>/home/.pi/agent/prompts/research-sdd.md (slash-command prompt template)
+  INSTALL <ROOT>/home/.pi/agent/agents/research-sdd-mechanical.md (read-only agent definition)
+  INSTALL <ROOT>/home/.pi/agent/agents/research-sdd-reasoning.md (read-only agent definition)
+  INSTALL <ROOT>/home/.pi/agent/agents/research-sdd-structural.md (read-only agent definition)
+  model profiles: NOT written (model selection is user-owned). Merge the JSON block below into your project's .pi/subagents.json
+  (or the global <ROOT>/home/.pi/agent/subagents.json); if it already has a model_profiles object, add these three keys to it. Replace every <placeholder> first:
+--- model_profiles snippet: begin ---
+{
+  "model_profiles": {
+    "research-sdd-mechanical": { "model": "<provider>/<lowest-cost-model>", "effort": "low" },
+    "research-sdd-structural": { "model": "<provider>/<mid-cost-model>", "effort": "medium" },
+    "research-sdd-reasoning": { "model": "<provider>/<strongest-model>", "effort": "high" }
+  }
+}
+--- model_profiles snippet: end ---
+  A model left as a <placeholder> is spawned literally (--verify reports status=placeholder). Dispatch a tier with subagent_run agent=research-sdd-<tier>.
+  INSTALL <ROOT>/home/.pi/agent/extensions/research-sdd-hooks.ts (pi extension: session hooks)
+  INSTALL <ROOT>/home/.pi/agent/extensions/research-sdd-hooks.ts (pi extension: session hooks)
+  slash_commands=true

@@ -1,0 +1,2 @@
+verify harness=claude status=drift drifted=skills/research-sdd/SKILL.md (modified) kept-hand-edit=skills/research-sdd/SKILL.md
+verify kit status=degraded reason=kit dir is not a git checkout (<ROOT>/kit); cannot tell whether it is behind its upstream

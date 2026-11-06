@@ -1,0 +1,1 @@
+research-sdd-install: ERROR <ROOT>/home/.claude/skills/research-sdd/SKILL.md.local-backup already exists — rename or remove it before re-running --force-skill (it may contain deltas you have not merged)

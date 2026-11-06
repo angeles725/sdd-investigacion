@@ -48,9 +48,3 @@ func assertEq(t *testing.T, what, got, want string) {
 		t.Errorf("%s differs\n%s", what, firstDiff(want, got))
 	}
 }
-
-// ok runs a legacy-success step: exit 0 and the given inline stdout/stderr (fromGolden for long text).
-func (w *world) ok(label string, r result, out, errText string) {
-	w.t.Helper()
-	w.check(label, r, 0, out, errText)
-}

@@ -1,0 +1,7 @@
+home:
+D 0755 .claude
+D 0755 .claude/agents
+D 0755 .claude/skills
+F 0600 .claude/CLAUDE.md 7 49cf24c707d61fd3
+tmp:
+cwd:

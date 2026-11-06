@@ -1,0 +1,2 @@
+verify harness=claude status=degraded reason=installed files present but no bundle record (<ROOT>/home/.claude/research-sdd/.installed-bundle-state) — re-run the installer to record one
+verify kit status=degraded reason=kit dir is not a git checkout (<ROOT>/kit); cannot tell whether it is behind its upstream

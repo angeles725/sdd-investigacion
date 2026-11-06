@@ -1,0 +1,67 @@
+harness=pi
+  profile=general (source=default)
+  RENDER  <ROOT>/home/.pi/agent/research-sdd/profile/general (profile=general)
+  INSTALL <ROOT>/home/.pi/agent/skills/research-sdd/SKILL.md (from rendered profile 'general')
+  SPLICE  <ROOT>/home/.pi/agent/AGENTS.md  [markdown-sections: marker <!-- research-sdd:start/end -->]
+  | <!-- research-sdd:start -->
+  | ## Research-SDD
+  | 
+  | Run the `research-sdd` skill to drive the investigation loop. It is a THIN launcher; the
+  | single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).
+  | Skill file: <ROOT>/home/.pi/agent/skills/research-sdd/SKILL.md
+  | Kit path: ~/.pi/agent/research-sdd/profile/general
+  | Kit checkout: <ROOT>/kit
+  | Read the prompts from Kit path; registry/ledger edits (TARGETS.md, BREAKTHROUGHS.md,
+  | INSTALLED-TOOLS.md) and toolbelt runs go to Kit checkout, never the profile copy.
+  | 
+  | Session hooks: the research-sdd-hooks extension (installed with this launcher) runs the session-start
+  | sweeps and the skill-drift check and injects their output into your context (system prompt section
+  | `research-sdd-session`), and it gates the end of a turn with the retro and return-token gates (a block
+  | comes back once as a message to act on). While that section is present do NOT re-run the sweeps by hand.
+  | 
+  | Session-start sweep FALLBACK (only when that section is absent, says DEGRADED, or says the sweeps
+  | are still pending after your first reply): run MANUALLY; all read-only, degrade to silence on failure:
+  |   Single command (recommended): `<ROOT>/kit/toolbelt/sweep-all.sh`
+  |   Individual scripts (canonical; sweep-all.sh runs these in sequence):
+  |   - `<ROOT>/kit/toolbelt/sweep-retros.sh`        — pending section 18 self-retrospective proposals
+  |   - `<ROOT>/kit/toolbelt/sweep-audits.sh`        — pending section 13 audit reports
+  |   - `<ROOT>/kit/toolbelt/sweep-breakthroughs.sh` — unindexed/drifted section 22 breakthrough ledger entries
+  |   - `<ROOT>/kit/toolbelt/verify-registry.sh`     — TARGETS.md master-table drift
+  |   - `<ROOT>/kit/toolbelt/verify-kit-clean.sh`    — kit dirty / unpushed warning
+  |   - `<ROOT>/kit/toolbelt/sweep-tools.sh`         — unrecorded tools across all targets
+  |   - `<ROOT>/kit/toolbelt/verify-tool-catalog.sh` — installed tools missing a capability-catalog entry
+  |   - `<ROOT>/kit/toolbelt/verify-skill-drift.sh`  — deployed SKILL.md(s) diverged from kit source
+  | 
+  | Session-end retro (MANDATORY — the extension blocks a finished run ONCE when the retro is missing, and
+  | says so when it could not check): the run is not over until the retro exists. Once it is written,
+  | seed its deltas by hand:
+  |   `<ROOT>/kit/toolbelt/stage-retro-issues.sh <retro> --apply`
+  | <!-- research-sdd:end -->
+  INSTALL <ROOT>/home/.pi/agent/prompts/research-sdd.md (slash-command prompt template)
+  | ---
+  | description: Run the research-sdd investigation loop
+  | argument-hint: "<target or question>"
+  | ---
+  | Read the research-sdd skill at <ROOT>/home/.pi/agent/skills/research-sdd/SKILL.md and follow it exactly to run the
+  | investigation loop. Treat the text below as the target or question to investigate
+  | (if it is empty, ask which target to investigate):
+  | 
+  | $ARGUMENTS
+  INSTALL <ROOT>/home/.pi/agent/agents/research-sdd-mechanical.md (read-only agent definition)
+  INSTALL <ROOT>/home/.pi/agent/agents/research-sdd-reasoning.md (read-only agent definition)
+  INSTALL <ROOT>/home/.pi/agent/agents/research-sdd-structural.md (read-only agent definition)
+  model profiles: NOT written (model selection is user-owned). Merge the JSON block below into your project's .pi/subagents.json
+  (or the global <ROOT>/home/.pi/agent/subagents.json); if it already has a model_profiles object, add these three keys to it. Replace every <placeholder> first:
+--- model_profiles snippet: begin ---
+{
+  "model_profiles": {
+    "research-sdd-mechanical": { "model": "<provider>/<lowest-cost-model>", "effort": "low" },
+    "research-sdd-structural": { "model": "<provider>/<mid-cost-model>", "effort": "medium" },
+    "research-sdd-reasoning": { "model": "<provider>/<strongest-model>", "effort": "high" }
+  }
+}
+--- model_profiles snippet: end ---
+  A model left as a <placeholder> is spawned literally (--verify reports status=placeholder). Dispatch a tier with subagent_run agent=research-sdd-<tier>.
+  INSTALL <ROOT>/home/.pi/agent/extensions/research-sdd-hooks.ts (pi extension: session hooks)
+  INSTALL <ROOT>/home/.pi/agent/extensions/research-sdd-hooks.ts (pi extension: session hooks)
+  slash_commands=true

@@ -1,0 +1,2 @@
+verify harness=claude status=drift drifted=agents/research-sdd-risk.md (modified)
+verify kit status=degraded reason=kit dir is not a git checkout (<ROOT>/kit); cannot tell whether it is behind its upstream

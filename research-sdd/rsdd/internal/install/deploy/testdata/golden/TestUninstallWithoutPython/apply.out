@@ -1,0 +1,2 @@
+uninstall harness=claude mode=apply
+uninstall harness=claude status=degraded reason=python3 not found: cannot prove that removals stay inside <ROOT>/home/.claude, nothing removed

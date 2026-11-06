@@ -1,0 +1,37 @@
+home:
+D 0755 .pi
+D 0755 .pi/agent
+D 0755 .pi/agent/agents
+D 0755 .pi/agent/extensions
+D 0755 .pi/agent/prompts
+D 0755 .pi/agent/research-sdd
+D 0755 .pi/agent/research-sdd/profile
+D 0755 .pi/agent/research-sdd/profile/general
+D 0755 .pi/agent/research-sdd/profile/general/skills
+D 0755 .pi/agent/research-sdd/profile/general/skills/research-sdd
+D 0755 .pi/agent/skills
+D 0755 .pi/agent/skills/research-sdd
+F 0600 .pi/agent/AGENTS.md 2345 cdb69bcf2623ca76
+F 0600 .pi/agent/prompts/research-sdd.md 359 ecd1b1b90c9c92a8
+F 0600 .pi/agent/research-sdd/.installed-agent-research-sdd-mechanical-state 30 0f73790d215653fd
+F 0600 .pi/agent/research-sdd/.installed-agent-research-sdd-reasoning-state 30 0f73790d215653fd
+F 0600 .pi/agent/research-sdd/.installed-agent-research-sdd-structural-state 30 0f73790d215653fd
+F 0600 .pi/agent/research-sdd/.installed-bundle-state 553 4610e0b7109f8f60
+F 0600 .pi/agent/research-sdd/.installed-extension-state 34 cf8bb9d2da2a880d
+F 0600 .pi/agent/research-sdd/.installed-skill-state 32 e22e9642daf2390a
+F 0600 .pi/agent/research-sdd/.installed-template-state 33 0a0255caeddbfc45
+F 0644 .pi/agent/agents/research-sdd-mechanical.md 80 05c21f16d3d721d7
+F 0644 .pi/agent/agents/research-sdd-reasoning.md 78 f6f88ff8213bcc5c
+F 0644 .pi/agent/agents/research-sdd-structural.md 80 c2b1c3febd780ad9
+F 0644 .pi/agent/extensions/research-sdd-hooks.ts 49 80aaa9ba45260b71
+F 0644 .pi/agent/research-sdd/profile/general/METHODOLOGY.md 14 9f4efb3900c58349
+F 0644 .pi/agent/research-sdd/profile/general/PROMPT-LOOP.md 21 f9f34277ee0f9a36
+F 0644 .pi/agent/research-sdd/profile/general/skills/research-sdd/SKILL.md 49 27a4b4db12aac035
+F 0644 .pi/agent/skills/research-sdd/SKILL.md 49 27a4b4db12aac035
+L .pi/agent/research-sdd/profile/general/TARGETS.md -> <ROOT>/kit/TARGETS.md
+L .pi/agent/research-sdd/profile/general/agents -> <ROOT>/kit/agents
+L .pi/agent/research-sdd/profile/general/install -> <ROOT>/kit/install
+L .pi/agent/research-sdd/profile/general/profiles -> <ROOT>/kit/profiles
+L .pi/agent/research-sdd/profile/general/toolbelt -> <ROOT>/kit/toolbelt
+tmp:
+cwd:

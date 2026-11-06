@@ -1,0 +1,11 @@
+uninstall harness=claude mode=apply
+  absent  <ROOT>/home/.claude/skills/research-sdd/SKILL.md  [skill]
+  absent  <ROOT>/home/.claude/research-sdd/.installed-skill-state  [state]
+  absent  <ROOT>/home/.claude/agents/research-sdd-readability.md  [read-only agent definition]
+  absent  <ROOT>/home/.claude/research-sdd/.installed-agent-research-sdd-readability-state  [state]
+  absent  <ROOT>/home/.claude/agents/research-sdd-risk.md  [read-only agent definition]
+  absent  <ROOT>/home/.claude/research-sdd/.installed-agent-research-sdd-risk-state  [state]
+  absent  <ROOT>/home/.claude/CLAUDE.md  [launcher block]
+  absent  <ROOT>/home/.claude/research-sdd/profile  [rendered profile]
+  absent  <ROOT>/home/.claude/research-sdd/.installed-bundle-state  [state]
+  summary harness=claude removed=0 kept=0 absent=9 failed=0

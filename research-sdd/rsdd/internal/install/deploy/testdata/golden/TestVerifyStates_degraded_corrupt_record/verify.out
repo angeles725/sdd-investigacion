@@ -1,0 +1,2 @@
+verify harness=claude status=degraded reason=bundle record corrupt (missing bundle_sha256, profile or file lines)
+verify kit status=degraded reason=kit dir is not a git checkout (<ROOT>/kit); cannot tell whether it is behind its upstream

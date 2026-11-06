@@ -1,0 +1,8 @@
+verify harness=claude status=drift drifted=agents/research-sdd-risk.md (modified)
+verify harness=pi status=degraded reason=installed files present but no bundle record (<ROOT>/home/.pi/agent/research-sdd/.installed-bundle-state) — re-run the installer to record one
+verify harness=gentle-shell status=match bundle_sha256=<sha256> files=10
+verify tier-profile harness=gentle-shell agent=research-sdd-mechanical status=unconfigured looked=<ROOT>/home/.gentle-shell/agent/subagents.json,<ROOT>/cwd/.pi/subagents.json (informational: set model_profiles["research-sdd-mechanical"]; see the snippet the install prints)
+verify tier-profile harness=gentle-shell agent=research-sdd-structural status=unconfigured looked=<ROOT>/home/.gentle-shell/agent/subagents.json,<ROOT>/cwd/.pi/subagents.json (informational: set model_profiles["research-sdd-structural"]; see the snippet the install prints)
+verify tier-profile harness=gentle-shell agent=research-sdd-reasoning status=unconfigured looked=<ROOT>/home/.gentle-shell/agent/subagents.json,<ROOT>/cwd/.pi/subagents.json (informational: set model_profiles["research-sdd-reasoning"]; see the snippet the install prints)
+verify tier-profile-note harness=gentle-shell not-checked=profile pins and session bindings (they replace model_profiles wholesale at runtime); status=placeholder means the literal placeholder model would be spawned
+verify kit status=degraded reason=kit dir is not a git checkout (<ROOT>/kit); cannot tell whether it is behind its upstream

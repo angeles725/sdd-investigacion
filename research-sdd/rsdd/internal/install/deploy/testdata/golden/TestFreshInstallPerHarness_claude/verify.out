@@ -1,0 +1,2 @@
+verify harness=claude status=match bundle_sha256=<sha256> files=4
+verify kit status=degraded reason=kit dir is not a git checkout (<ROOT>/kit); cannot tell whether it is behind its upstream
