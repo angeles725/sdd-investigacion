@@ -264,7 +264,12 @@ func TestArchiveNoToolbeltIsOperational(t *testing.T) {
 	env := map[string]string{"HOME": root}
 	s := cli.Stdio{In: strings.NewReader(""), Out: &o, Err: &e, Env: func(k string) string { return env[k] },
 		Environ: func() []string { return nil }, Clock: func() time.Time { return archiveClock }, Cwd: root}
-	if code := archiveRun([]string{root}, s); code != 1 || !strings.Contains(e.String(), "cannot find the toolbelt") {
-		t.Errorf("code %d, stderr %q", code, e.String())
+	// The target with and without its trailing slash (the slash is trimmed once, never indexed past the end).
+	for _, target := range []string{root, root + "/"} {
+		o.Reset()
+		e.Reset()
+		if code := archiveRun([]string{target}, s); code != 1 || !strings.Contains(e.String(), "cannot find the toolbelt") {
+			t.Errorf("%s: code %d, stderr %q", target, code, e.String())
+		}
 	}
 }

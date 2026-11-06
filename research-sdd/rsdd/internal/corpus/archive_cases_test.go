@@ -173,6 +173,14 @@ func archiveCases() []archiveCase {
 			f.mkdir(filepath.Join(d, "CATALOG.md"))
 		}), want: archiveWant{rc: 0, has: []string{`ERROR — kit generator \(rsdd corpus catalog\) failed`, `run: rsdd corpus catalog `}, lacks: []string{`gen-catalog.py failed`}, errHas: []string{`CATALOG regen failed`}}},
 		archiveCase{name: "dry", legacy: "6", build: good, args: archiveWith("--dry-run"), want: archiveWant{rc: 0, noFiles: []string{"CATALOG.md"}}},
+		// kit issue #2592: exactly ONE trailing slash is trimmed. "dir/" and "dir//" both close the corpus; "/" trims to ""
+		// and so names the working directory (here the corpus itself, dry run so nothing is written).
+		archiveCase{name: "slash", legacy: "new", build: good, args: func(_ *archiveFx, d string) []string { return []string{d + "/"} },
+			want: archiveWant{rc: 0, has: []string{`archived`}}},
+		archiveCase{name: "slash2", legacy: "new", build: good, args: func(_ *archiveFx, d string) []string { return []string{d + "//"} },
+			want: archiveWant{rc: 0, has: []string{`archived`}}},
+		archiveCase{name: "root-slash", legacy: "new", build: good, args: func(_ *archiveFx, _ string) []string { return []string{"/", "--dry-run"} },
+			cwd: func(_ *archiveFx, d string) string { return d }, want: archiveWant{rc: 0, noFiles: []string{"CATALOG.md"}}},
 		archiveCase{name: "empty", legacy: "7", build: func(f *archiveFx) string { d := f.path("c"); f.mkdir(d); return d }, want: archiveWant{rc: 2}},
 		archiveCase{name: "nested", legacy: "8", build: func(f *archiveFx) string {
 			d := f.path("c")

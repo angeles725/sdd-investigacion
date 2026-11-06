@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
@@ -102,7 +103,7 @@ func archiveRunWith(args []string, s cli.Stdio, hook func(*archiveHooks)) int {
 	if hook != nil {
 		hook(&e.hooks)
 	}
-	raw := a.target[:len(a.target)-boolInt(a.target[len(a.target)-1] == '/')]
+	raw := strings.TrimSuffix(a.target, "/")
 	abs, ok := archiveAbsTarget(s.Cwd, raw)
 	if !ok {
 		fmt.Fprintf(s.Err, "research-sdd-archive: not a directory: %s\n", raw)
@@ -127,12 +128,5 @@ func archiveRunWith(args []string, s cli.Stdio, hook func(*archiveHooks)) int {
 	}
 	e.archiveConsolidate()
 	e.archiveReport()
-	return 0
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
 	return 0
 }
