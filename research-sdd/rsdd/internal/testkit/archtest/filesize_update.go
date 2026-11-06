@@ -27,7 +27,8 @@ func UpdateDebtIfRequested(request, root, debtPath string) (bool, error) {
 // still over SoftLimit, and deletes the line of a file at SoftLimit or less or
 // that is not a production file. It never raises a count and never adds an
 // entry; comments, blank lines and order are kept. It reports whether the file
-// was rewritten, and writes nothing when nothing changes.
+// was rewritten (false when the write failed), and writes nothing when nothing
+// changes.
 func UpdateDebt(root, debtPath string) (bool, error) {
 	files, _, err := scanProduction(root)
 	if err != nil {
@@ -58,7 +59,10 @@ func UpdateDebt(root, debtPath string) (bool, error) {
 	if bytes.Equal(next, data) {
 		return false, nil
 	}
-	return true, writeAtomic(debtPath, next)
+	if err := writeAtomic(debtPath, next); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // writeAtomic replaces path via a temp file in the same directory, keeping

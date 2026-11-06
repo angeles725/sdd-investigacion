@@ -49,7 +49,8 @@ func CheckFileSizes(root, debtPath string) (SizeResult, error) {
 }
 
 // scanProduction returns root-relative slash path -> line count for every
-// production Go file, plus how many generated files were exempted.
+// production Go file, plus how many generated files were exempted. It does
+// not enter testdata or a directory the go tool ignores.
 func scanProduction(root string) (map[string]int, int, error) {
 	files := map[string]int{}
 	generated := 0
@@ -58,12 +59,12 @@ func scanProduction(root string) (map[string]int, int, error) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "testdata" {
+			if path != root && skipDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		if goIgnores(d.Name()) || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
 		b, err := os.ReadFile(path)
@@ -89,6 +90,14 @@ func scanProduction(root string) (map[string]int, int, error) {
 	}
 	return files, generated, nil
 }
+
+// skipDir reports a directory the scan does not enter: testdata, and the names the go tool ignores. The root
+// itself is always entered, whatever it is called.
+func skipDir(name string) bool { return name == "testdata" || goIgnores(name) }
+
+// goIgnores reports a file or directory name the go tool ignores, one starting with "." or "_": such a path is
+// not part of the module (a scratch copy, a draft, an editor's lock symlink).
+func goIgnores(name string) bool { return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") }
 
 // countLines is the number of \n bytes, plus one for a non-empty file that
 // does not end in \n.

@@ -1,6 +1,6 @@
-# A production Go file over 200 lines needs an entry here; a recorded count is a ceiling, and above 400 lines a file may not grow.
-# An "accepted" entry is never above 400 lines; a "legacy" entry may only go down (delete the line once the file is at 200 or less).
-# Tests and testdata are exempt, as are files with a "// Code generated ... DO NOT EDIT." line before the package clause.
+# A production Go file over 200 lines needs an entry here. Its recorded count is a ceiling: the file may shrink freely, and may pass the count only up to 400 lines and only with its line raised in the same change.
+# Above 400 lines a file may not grow and nothing new is admitted: an "accepted" entry is never above 400, and "legacy" entries (the files recorded when this list was created) are never added. Delete a line once its file is at 200 or less.
+# Tests, testdata and the paths the go tool ignores (a name starting with "." or "_") are exempt, as are files with a "// Code generated ... DO NOT EDIT." line before the package clause.
 #
 # Format: <path> <lines> <legacy|accepted> <reason of at least 10 characters>, one entry per line, sorted by path (LC_ALL=C).
 # Update after shrinking files: RSDD_MODULARITY_UPDATE=1 go test -run TestFileSizesRealTree ./internal/testkit/archtest/

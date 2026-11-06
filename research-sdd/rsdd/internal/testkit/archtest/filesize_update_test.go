@@ -66,7 +66,7 @@ func TestUpdateKeepsMalformedLines(t *testing.T) {
 
 func TestUpdateWritesNothingWhenUnchangedAndKeepsMode(t *testing.T) {
 	root, dp := tree(t, map[string]string{"a.go": gen(300)}, debtLine("a.go", 300, "legacy"))
-	if err := os.Chmod(dp, 0o600); err != nil {
+	if err := os.Chmod(dp, 0o640); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.Stat(dp)
@@ -77,14 +77,15 @@ func TestUpdateWritesNothingWhenUnchangedAndKeepsMode(t *testing.T) {
 	if !after.ModTime().Equal(before.ModTime()) {
 		t.Error("an unchanged debt file must not be rewritten")
 	}
-	if err := os.WriteFile(dp, []byte(debtLine("a.go", 400, "legacy")), 0o600); err != nil {
+	if err := os.WriteFile(dp, []byte(debtLine("a.go", 400, "legacy")), 0o640); err != nil {
 		t.Fatal(err)
 	}
 	if changed, err := UpdateDebt(root, dp); err != nil || !changed {
 		t.Fatalf("changed=%v err=%v", changed, err)
 	}
-	if st, _ := os.Stat(dp); st.Mode().Perm() != 0o600 {
-		t.Errorf("mode = %v, want 0600", st.Mode().Perm())
+	// 0640 is not the mode os.CreateTemp gives the temp file (0600), so this fails when the mode is not copied.
+	if st, _ := os.Stat(dp); st.Mode().Perm() != 0o640 {
+		t.Errorf("mode = %v, want 0640", st.Mode().Perm())
 	}
 	if ents, _ := os.ReadDir(root); len(ents) != 2 {
 		t.Errorf("temp file left behind: %v", ents)

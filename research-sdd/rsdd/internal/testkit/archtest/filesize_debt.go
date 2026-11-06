@@ -7,7 +7,12 @@ import (
 	"unicode/utf8"
 )
 
+// minReason is the shortest reason an entry may carry.
 const minReason = 10
+
+// reasonPlaceholder is what the not-listed message prints where the reason goes. A line pasted with it is refused
+// by name, so the refusal does not depend on the placeholder being shorter than minReason.
+const reasonPlaceholder = "<reason>"
 
 // debtEntry is one parsed line of the debt file.
 type debtEntry struct {
@@ -38,44 +43,52 @@ func parseLine(line string) (e debtEntry, isEntry bool, problem string) {
 		return e, true, fmt.Sprintf("unknown kind %q", f[2])
 	}
 	reason := strings.Join(f[3:], " ")
+	if reason == reasonPlaceholder {
+		return e, true, "replace " + reasonPlaceholder + " with the reason this file is accepted"
+	}
 	if utf8.RuneCountInString(reason) < minReason {
 		return e, true, fmt.Sprintf("reason is shorter than %d characters", minReason)
 	}
 	return debtEntry{Path: f[0], Lines: n, Kind: f[2], Reason: reason, Raw: line}, true, ""
 }
 
-// orderProblem reports why path may not follow prev. Entries are in strictly
-// increasing byte order, so an equal path is a duplicate.
-func orderProblem(prev, path string) string {
+// placeProblem reports why path may not follow prev, the path of the entry line before it, and whether the entry
+// is still read. Entries are in strictly increasing byte order. A path already listed is a duplicate and is
+// dropped; any other path out of order is reported and kept, so one misplaced line costs one message and no
+// listed file is taken for an unlisted one.
+func placeProblem(prev, path string, seen map[string]bool) (problem string, keep bool) {
 	if path > prev {
-		return ""
+		return "", true
 	}
-	if path == prev {
-		return "duplicate path " + path
+	if seen[path] {
+		return "duplicate path " + path, false
 	}
-	return fmt.Sprintf("%s is not after %s (unsorted)", path, prev)
+	return fmt.Sprintf("%s is not after %s (unsorted)", path, prev), true
 }
 
-// parseDebt returns the well-formed entries and a message for every bad line.
+// parseDebt returns the entries it read and a message for every bad line.
 func parseDebt(text string) ([]debtEntry, []string) {
 	var entries []debtEntry
 	var bad []string
-	prev := ""
+	prev, seen := "", map[string]bool{}
 	for i, line := range strings.Split(text, "\n") {
 		e, isEntry, problem := parseLine(line)
 		if !isEntry {
 			continue
 		}
+		keep := false
 		if problem == "" {
-			problem = orderProblem(prev, e.Path)
+			problem, keep = placeProblem(prev, e.Path, seen)
 		}
 		if problem != "" {
 			bad = append(bad, fmt.Sprintf(msgMalformed, DebtFileName, i+1, problem, minReason))
+		}
+		if !keep {
 			continue
 		}
 		e.LineNo = i + 1
 		entries = append(entries, e)
-		prev = e.Path
+		prev, seen[e.Path] = e.Path, true
 	}
 	return entries, bad
 }

@@ -7,7 +7,9 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
 ## Specs
 
 - S1 Scope. Every `.go` file under the module root (`research-sdd/rsdd`) is a production file, except: a name ending
-  `_test.go`; a path with a `testdata` directory component (relative to the scanned root); a generated file. A file is
+  `_test.go`; a path with a `testdata` directory component (relative to the scanned root); a path with a component
+  the go tool ignores, a directory or file name starting with `.` or `_` (L12; the root itself is always scanned,
+  whatever its name); a generated file. A file is
   generated only when a line matching `^// Code generated .* DO NOT EDIT\.$` appears before its `package` clause.
   Paths are root-relative with forward slashes (`internal/verify/state.go`).
 - S2 Line count. The number of `\n` bytes, plus one when the file is non-empty and does not end with `\n`.
@@ -16,7 +18,9 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
 - S4 Debt file `research-sdd/rsdd/modularity-debt.txt`. Blank lines and lines starting with `#` are ignored. Every
   other line is `<path> <lines> <kind> <reason>`: whitespace-separated, `<lines>` a positive integer, `<kind>` one of
   `legacy` (recorded when the ratchet was created) or `accepted` (a later, reasoned exception), `<reason>` the rest of
-  the line, at least 10 characters. Entries are in strictly increasing byte order of `<path>` (so a duplicate fails).
+  the line, at least 10 characters; the placeholder `<reason>` is refused by name. Entries are in strictly increasing
+  byte order of `<path>`: a path listed twice is a duplicate and its second line is dropped; any other line out of
+  order is reported and still read, so one misplaced line yields one message (L12).
   The header states the rule in three lines, so a writer who meets a failure needs no other document.
 - S5 Violations. Each message carries the exact line to add, change or delete:
   a. unlisted, 200 < n <= 400: `<path>: <n> lines, over 200 and not listed. Split it, or add this line to modularity-debt.txt:` then `<path> <n> accepted <reason>`
@@ -37,7 +41,8 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   a recorded count to the current count when the file shrank and is still over 200, and deletes the line of a file
   that is at 200 or less or is not a production file. It never raises a count and never adds an entry. Comments, blank
   lines and order are kept. The write is atomic (temp file in the same directory, same mode, rename) and is skipped
-  when nothing changes. Without the variable the test never writes.
+  when nothing changes; a failed write is an error and is not reported as a rewrite. Without the variable the test
+  never writes.
 - S10 Initial list. Every production file over 200 lines on this branch is recorded as `legacy` with the reason
   `recorded when the ratchet was created (#2738)`.
 - S11 Self-compliance. Every Go file this change adds is at 200 lines or less; standard library only; package
@@ -56,6 +61,9 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
 - [x] T2 (S10, S12) debt list + real-tree test + header · route: same writer · commits: ecfe48c3 (list, real-tree
   test), 185721df (known-limit wording) · observed: real-tree test, update mode byte-identical on a clean tree,
   scratch-copy probe (L8), independent count of the list (L11)
+- [x] T3 (S1, S4, S9) correction after the review (L12) · route: inline · commit: the one after b824c098 · observed:
+  six tests red before the change, package tests under both tag sets, 18 hand mutants killed, dry run 106 runnable
+  and 0 not covered, pre-push checks
 
 ## Log
 
@@ -118,3 +126,24 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   before `:8`: cosmetic, left; (4) a malformed entry also yields message a for its file: redundant but correct, left;
   (5) out of domain, left: `+250` and `0250` parse as counts, a generated marker ending in CRLF is exempt, the
   atomic write would replace a symlinked list with a regular file. Not probed: a CRLF list in update mode.
+- L12 Review and correction, 2026-11-06. Native review of b824c098 (lenses readability and reliability): approved and
+  acknowledged, ten advisories, none blocking. Eight were applied before the push because every lane meets this
+  check: (1) the header said a `legacy` entry "may only go down" while message c tells the writer to raise it: the
+  three header lines are rewritten to the rule as ruled in L4; (2) the scan read paths the go tool ignores, so a
+  scratch copy under a dot directory read as unlisted files and an editor's dangling lock symlink ending in `.go`
+  turned the run into a read error: S1 now exempts them; (3) one misplaced debt line made every later entry read
+  as unsorted and then as unlisted (about 300 messages on the real list): an out-of-order line is now reported
+  once and still read, and a duplicate is named a duplicate wherever it stands; (4) the mode test used 0600, the
+  temp file's own default, so it could not fail: it uses 0640; (5) the `<reason>` placeholder was refused only
+  because it is shorter than ten characters: it is refused by name; (6) `UpdateDebt` returned true with a write
+  error: it returns false; (7) and (8) two test readability fixes. Left as advisories: the update loop restates
+  the delete and lower rules of the judge; a CRLF list comes out of update mode with mixed endings. RED, executed
+  before the change: `TestScanSkipsPathsTheGoToolIgnores` (`an ignored path was read: ... .#lock.go: no such file`),
+  `TestScanReadsARootWhateverItsOwnName` (root named `testdata`: `scanned=0 ... no production Go files`),
+  `TestOneMisplacedLineYieldsOneMessage` (three "not listed" messages, `entries = 1, want all 4 read`),
+  `TestDuplicateFarFromItsFirstLine` (`a.go is not after b.go (unsorted)`), `TestThePrintedLineIsRefusedUntilItHasAReason`
+  (`reason is shorter than 10 characters`), `TestUpdateReportsNoRewriteWhenTheWriteFails` (`changed=true err=...
+  permission denied`). Teeth: 18 hand mutants through `go test -overlay`, all killed (among them the mode not
+  copied, the root exemption dropped or inverted, each ignore prefix, order `>=`, a kept duplicate, a dropped
+  unsorted line, the placeholder test inverted or removed); `gremlins unleash --dry-run`: 106 runnable, 0 not
+  covered. The full mutation run of the package is CI's (three heavy slots were held).

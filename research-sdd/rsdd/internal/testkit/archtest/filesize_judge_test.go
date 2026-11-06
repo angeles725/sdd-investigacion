@@ -3,6 +3,7 @@ package archtest
 import (
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -98,18 +99,18 @@ func TestAcceptedEntryAboveHardLimit(t *testing.T) {
 
 func TestListedEntryAtFirstMiddleLastPosition(t *testing.T) {
 	files := map[string]string{"a.go": gen(300), "b.go": gen(300), "c.go": gen(300)}
-	for name, bad := range map[string]string{"a.go": "first", "b.go": "middle", "c.go": "last"} {
-		t.Run(bad, func(t *testing.T) {
+	for grown, position := range map[string]string{"a.go": "first", "b.go": "middle", "c.go": "last"} {
+		t.Run(position, func(t *testing.T) {
 			debt := ""
 			for _, p := range []string{"a.go", "b.go", "c.go"} {
 				n := 300
-				if p == name {
-					n = 299 // file grew past the recorded count
+				if p == grown {
+					n = 299 // the file is one line over its recorded count
 				}
 				debt += debtLine(p, n, "legacy")
 			}
 			r := check(t, files, debt)
-			if len(r.Violations) != 1 || r.Violations[0][:len(name)+10] != name+": grew fro" {
+			if len(r.Violations) != 1 || !strings.HasPrefix(r.Violations[0], grown+": grew from 299 to 300 lines.") {
 				t.Errorf("violations = %q", r.Violations)
 			}
 		})
