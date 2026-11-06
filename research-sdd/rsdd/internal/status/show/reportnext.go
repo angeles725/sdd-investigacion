@@ -72,12 +72,17 @@ func (c *ctx) gapRun() string {
 
 // consistency is `verify-state.sh "$corpus" 2>&1 | sed -n '/summary\|FAIL\|WARN\|ok /p' | sed 's/^/  /'`: the
 // report lines that carry a verdict, indented. A last line without a newline stays without one, as sed leaves it.
+// A verify-state that could not run (126, 127) gets a typed DEGRADED line instead of an empty block (#2736);
+// the report still exits 0, as it always has.
 func (c *ctx) consistency() {
 	fmt.Fprintln(c.s.Out, "  --- consistency (verify-state.sh) ---")
 	var buf bytes.Buffer
 	s := c.s
 	s.Out, s.Err = &buf, &buf
-	verifyState([]string{c.corpus}, s)
+	rc := verifyState([]string{c.corpus}, s)
+	if c.noteVerifyRC(rc); (rc == 126 || rc == 127) && c.verifyDown != "" {
+		fmt.Fprintf(c.s.Out, "  consistency: DEGRADED — verify state could not run (%s)\n", c.verifyDown)
+	}
 	for _, l := range strings.SplitAfter(buf.String(), "\n") {
 		for _, key := range [...]string{"summary", "FAIL", "WARN", "ok "} {
 			if strings.Contains(l, key) {
