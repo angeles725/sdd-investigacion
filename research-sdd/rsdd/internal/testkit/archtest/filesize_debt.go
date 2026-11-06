@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"cmp"
 	"fmt"
 	"strconv"
 	"strings"
@@ -54,14 +55,16 @@ func parseLine(line string) (e debtEntry, isEntry bool, problem string) {
 
 // placeProblem reports why path may not follow prev, the path of the entry line before it, and whether the entry
 // is still read. Entries are in strictly increasing byte order. A path already listed is a duplicate and is
-// dropped; any other path out of order is reported and kept, so one misplaced line costs one message and no
-// listed file is taken for an unlisted one.
+// dropped, wherever its second line stands; any other path out of order is reported and kept, so one misplaced
+// line costs one message and no listed file is taken for an unlisted one.
 func placeProblem(prev, path string, seen map[string]bool) (problem string, keep bool) {
-	if path > prev {
-		return "", true
-	}
+	// Duplicates first: a misplaced line lowers prev, so a second listing can sort after it.
 	if seen[path] {
 		return "duplicate path " + path, false
+	}
+	// prev was read, so a path equal to it is a duplicate and never reaches this comparison.
+	if cmp.Less(prev, path) {
+		return "", true
 	}
 	return fmt.Sprintf("%s is not after %s (unsorted)", path, prev), true
 }

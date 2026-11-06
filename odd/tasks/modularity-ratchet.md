@@ -61,9 +61,12 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
 - [x] T2 (S10, S12) debt list + real-tree test + header · route: same writer · commits: ecfe48c3 (list, real-tree
   test), 185721df (known-limit wording) · observed: real-tree test, update mode byte-identical on a clean tree,
   scratch-copy probe (L8), independent count of the list (L11)
-- [x] T3 (S1, S4, S9) correction after the review (L12) · route: inline · commit: the one after b824c098 · observed:
+- [x] T3 (S1, S4, S9) correction after the review (L12) · route: inline · commit: 604a16a1 · observed:
   six tests red before the change, package tests under both tag sets, 18 hand mutants killed, dry run 106 runnable
   and 0 not covered, pre-push checks
+- [x] T4 (S4) a duplicate after a misplaced line is named (L13) · route: inline · commit: the one after 604a16a1 ·
+  observed: one test red before the change, package tests under both tag sets, 21 hand mutants killed, dry run 104
+  runnable and 0 not covered, pre-push checks
 
 ## Log
 
@@ -147,3 +150,16 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   copied, the root exemption dropped or inverted, each ignore prefix, order `>=`, a kept duplicate, a dropped
   unsorted line, the placeholder test inverted or removed); `gremlins unleash --dry-run`: 106 runnable, 0 not
   covered. The full mutation run of the package is CI's (three heavy slots were held).
+- L13 Second review, 2026-11-06. Native review of 604a16a1 against b824c098 (lenses reliability and readability):
+  approved and acknowledged, no blocker. Both lenses reported the same defect in the correction: the duplicate
+  check ran only for a line out of order, and a kept misplaced line lowers what the next line is compared with, so
+  for entries `z, a, b, z` the second `z` sorted after `b` and was accepted and judged twice; L12's "named a
+  duplicate wherever it stands" was not true for that order. The run still failed, on the misplaced line. Fixed:
+  duplicates are checked first. Once they are, a path equal to the previous one never reaches the order
+  comparison, so that comparison is `cmp.Less` and not `>`: with `>` the `>=` mutant would be equivalent and the
+  mutation run could never kill it. RED, executed before the change: `TestDuplicateAfterAMisplacedLine` (only the
+  unsorted message, `entries = 4, want 3`). The third finding, a suggestion, is applied too: the write-failure
+  test skips where a file can be created in a read-only directory, and the scan test logs instead of failing
+  where a symlink cannot be created; on Linux as a non-root user neither path is taken. Teeth after the change: 21
+  hand mutants through `go test -overlay`, all killed (among them duplicates checked only for a line out of
+  order, the review's own case); dry run 104 runnable, 0 not covered.

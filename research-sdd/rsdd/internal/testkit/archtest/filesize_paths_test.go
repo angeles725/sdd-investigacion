@@ -22,7 +22,7 @@ func TestScanSkipsPathsTheGoToolIgnores(t *testing.T) {
 	}, "")
 	// What Emacs leaves beside an unsaved buffer: a dangling symlink whose name ends in .go.
 	if err := os.Symlink("nowhere", filepath.Join(root, "pkg", ".#lock.go")); err != nil {
-		t.Fatal(err)
+		t.Logf("no symlink here, the lock-file case is not exercised: %v", err)
 	}
 	r, err := CheckFileSizes(root, dp)
 	if err != nil {
@@ -81,6 +81,21 @@ func TestDuplicateFarFromItsFirstLine(t *testing.T) {
 	}
 }
 
+// A second listing is named a duplicate even when a misplaced line stands between the two: the misplaced line
+// lowers what the next line is compared with, and the second listing sorts after it.
+func TestDuplicateAfterAMisplacedLine(t *testing.T) {
+	files := map[string]string{"a.go": gen(300), "b.go": gen(300), "z.go": gen(300)}
+	debt := debtLine("z.go", 300, "legacy") + debtLine("a.go", 300, "legacy") + debtLine("b.go", 300, "legacy") + debtLine("z.go", 300, "legacy")
+	r := check(t, files, debt)
+	want := []string{badMsg(2, "a.go is not after z.go (unsorted)"), badMsg(4, "duplicate path z.go")}
+	if !sameStrings(r.Violations, want) {
+		t.Errorf("violations = %q, want %q", r.Violations, want)
+	}
+	if r.Entries != 3 {
+		t.Errorf("entries = %d, want 3: the second z.go line is dropped", r.Entries)
+	}
+}
+
 // The line the not-listed message prints is refused until its placeholder is replaced, by name and not by the
 // accident of its length.
 func TestThePrintedLineIsRefusedUntilItHasAReason(t *testing.T) {
@@ -109,6 +124,10 @@ func TestUpdateReportsNoRewriteWhenTheWriteFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(root, 0o755) })
+	if probe, err := os.CreateTemp(root, "probe"); err == nil {
+		probe.Close()
+		t.Skip("this file system lets a file be created in a read-only directory")
+	}
 	changed, err := UpdateDebt(root, dp)
 	got, _ := os.ReadFile(dp)
 	if err == nil || changed || string(got) != stale {
