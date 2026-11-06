@@ -1,5 +1,6 @@
 # Scripts exercised by lib-resolution-lint.test.sh (planted lib/ behavioural fixture). Paths relative to research-sdd/toolbelt; install/ prefix = research-sdd/install.
 check-gap-drift.sh
+clean-check.sh
 corroborate-bacnet.sh
 corroborate-capa.sh
 corroborate-firmware.sh
