@@ -242,7 +242,10 @@ func (r *diffRig) ciGate() {
 	both := "shellcheck,toolbelt-tests"
 	green := []string{"shellcheck:completed:success", "toolbelt-tests:completed:success", "pr-validation:completed:success"}
 	run("green", both, green)
-	run("skipped neutral", both, []string{"shellcheck:completed:success", "toolbelt-tests:completed:skipped", "pr-validation:completed:neutral"})
+	// A skipped or neutral check OUTSIDE the required list stays green in both; the required case is a declared
+	// divergence, pinned by TestCISkippedRequiredDiverges.
+	run("skipped neutral not required", both, []string{"shellcheck:completed:success", "toolbelt-tests:completed:success", "pr-validation:completed:neutral", "toolbelt-extras:completed:skipped"})
+	run("skipped neutral opt-out", "", []string{"toolbelt-tests:completed:skipped", "pr-validation:completed:neutral"})
 	names := []string{"shellcheck", "toolbelt-tests", "pr-validation"}
 	for _, st := range []string{"queued:", "in_progress:", "waiting:", "completed:failure", "completed:cancelled", "completed:timed_out", "completed:action_required", "completed:stale", "completed:"} {
 		for pos, n := range names {

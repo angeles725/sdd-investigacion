@@ -25,6 +25,9 @@ import (
 // nothing there.
 //
 // Deliberate differences from the bash, each pinned by a test:
+//   - a REQUIRED check must conclude `success`: one whose latest run concluded skipped or neutral is refused as
+//     `ci_skipped (names)` where the bash allowed it (skipped and neutral stay green for non-required checks);
+//     precedence ci_failed, ci_pending, ci_skipped, ci_missing (mergeciverdict.go, TestCISkippedRequiredDiverges);
 //   - jq is still probed (a missing jq stays `degraded: jq not found on PATH`) but the JSON is read in-process;
 //   - mktemp is not needed, so the `degraded: mktemp failed` verdict has no counterpart;
 //   - the closure-evidence step needs no lib/gh-visibility.sh: `degraded: lib/gh-visibility.sh not found`, the
