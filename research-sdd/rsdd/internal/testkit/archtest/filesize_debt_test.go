@@ -16,7 +16,7 @@ func TestParseDebtAcceptsEntriesCommentsAndBlanks(t *testing.T) {
 	if len(bad) != 0 || len(es) != 2 {
 		t.Fatalf("es=%v bad=%v", es, bad)
 	}
-	if e := es[1]; e.Path != "b.go" || e.Lines != 250 || e.Kind != "accepted" || e.Reason != "spaced   reason text" || e.LineNo != 4 {
+	if e := es[1]; e.Path != "b.go" || e.Lines != 250 || e.Kind != "accepted" || e.Reason != "spaced reason text" || e.LineNo != 4 {
 		t.Errorf("entry 2 = %+v", e)
 	}
 }

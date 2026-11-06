@@ -14,6 +14,29 @@ const (
 	msgMalformed    = "%s:%d: %s; expected \"<path> <lines> <legacy|accepted> <reason of at least %d characters>\", entries sorted by path"
 )
 
+// judgeEntry returns the violation for one listed entry whose file measures n
+// lines (isProd false: not a production file of the tree), or "" when it
+// passes. Plain if statements, not a tagless switch: the mutation tool does
+// not exercise conditions written as case expressions.
+func judgeEntry(e debtEntry, n int, isProd bool) string {
+	if e.Kind == "accepted" && e.Lines > HardLimit {
+		return fmt.Sprintf(msgAcceptedHigh, DebtFileName, e.LineNo, HardLimit, e.Path, e.Lines)
+	}
+	if !isProd {
+		return fmt.Sprintf(msgNotProd, e.Path, DebtFileName, e.Raw)
+	}
+	if n <= SoftLimit {
+		return fmt.Sprintf(msgNotOver, e.Path, n, SoftLimit, DebtFileName, e.Raw)
+	}
+	if n <= e.Lines {
+		return ""
+	}
+	if n > HardLimit {
+		return fmt.Sprintf(msgGrewHard, e.Path, e.Lines, n, HardLimit, HardLimit)
+	}
+	return fmt.Sprintf(msgGrew, e.Path, e.Lines, n, DebtFileName, e.Path, n, e.Kind, e.Reason)
+}
+
 // judge compares measured sizes with the debt entries (S5, S6). It fills
 // r.Over and r.Lowerable and returns the violation messages.
 func judge(files map[string]int, entries []debtEntry, r *SizeResult) []string {
@@ -22,18 +45,9 @@ func judge(files map[string]int, entries []debtEntry, r *SizeResult) []string {
 	for _, e := range entries {
 		listed[e.Path] = true
 		n, isProd := files[e.Path]
-		switch {
-		case e.Kind == "accepted" && e.Lines > HardLimit:
-			out = append(out, fmt.Sprintf(msgAcceptedHigh, DebtFileName, e.LineNo, HardLimit, e.Path, e.Lines))
-		case !isProd:
-			out = append(out, fmt.Sprintf(msgNotProd, e.Path, DebtFileName, e.Raw))
-		case n <= SoftLimit:
-			out = append(out, fmt.Sprintf(msgNotOver, e.Path, n, SoftLimit, DebtFileName, e.Raw))
-		case n > e.Lines && n > HardLimit:
-			out = append(out, fmt.Sprintf(msgGrewHard, e.Path, e.Lines, n, HardLimit, HardLimit))
-		case n > e.Lines:
-			out = append(out, fmt.Sprintf(msgGrew, e.Path, e.Lines, n, DebtFileName, e.Path, n, e.Kind, e.Reason))
-		case n < e.Lines:
+		if msg := judgeEntry(e, n, isProd); msg != "" {
+			out = append(out, msg)
+		} else if n < e.Lines {
 			r.Lowerable++
 		}
 	}

@@ -14,7 +14,7 @@ type debtEntry struct {
 	Path   string
 	Lines  int
 	Kind   string // "legacy" or "accepted"
-	Reason string
+	Reason string // runs of white space collapsed to one space
 	LineNo int
 	Raw    string
 }
@@ -26,38 +26,37 @@ func parseLine(line string) (e debtEntry, isEntry bool, problem string) {
 	if t == "" || strings.HasPrefix(t, "#") {
 		return e, false, ""
 	}
-	path, rest := cutField(t)
-	lines, rest := cutField(rest)
-	kind, rest := cutField(rest)
-	reason := strings.TrimSpace(rest)
-	if path == "" || lines == "" || kind == "" || reason == "" {
+	f := strings.Fields(t)
+	if len(f) < 4 {
 		return e, true, "malformed line, fewer than four fields"
 	}
-	n, err := strconv.Atoi(lines)
+	n, err := strconv.Atoi(f[1])
 	if err != nil || n <= 0 {
-		return e, true, fmt.Sprintf("%q is not a positive line count", lines)
+		return e, true, fmt.Sprintf("%q is not a positive line count", f[1])
 	}
-	if kind != "legacy" && kind != "accepted" {
-		return e, true, fmt.Sprintf("unknown kind %q", kind)
+	if f[2] != "legacy" && f[2] != "accepted" {
+		return e, true, fmt.Sprintf("unknown kind %q", f[2])
 	}
+	reason := strings.Join(f[3:], " ")
 	if utf8.RuneCountInString(reason) < minReason {
 		return e, true, fmt.Sprintf("reason is shorter than %d characters", minReason)
 	}
-	return debtEntry{Path: path, Lines: n, Kind: kind, Reason: reason, Raw: line}, true, ""
+	return debtEntry{Path: f[0], Lines: n, Kind: f[2], Reason: reason, Raw: line}, true, ""
 }
 
-// cutField splits off the first whitespace-separated field.
-func cutField(s string) (field, rest string) {
-	s = strings.TrimLeft(s, " \t")
-	i := strings.IndexAny(s, " \t")
-	if i < 0 {
-		return s, ""
+// orderProblem reports why path may not follow prev. Entries are in strictly
+// increasing byte order, so an equal path is a duplicate.
+func orderProblem(prev, path string) string {
+	if path > prev {
+		return ""
 	}
-	return s[:i], strings.TrimLeft(s[i:], " \t")
+	if path == prev {
+		return "duplicate path " + path
+	}
+	return fmt.Sprintf("%s is not after %s (unsorted)", path, prev)
 }
 
 // parseDebt returns the well-formed entries and a message for every bad line.
-// Entries must be in strictly increasing byte order of path.
 func parseDebt(text string) ([]debtEntry, []string) {
 	var entries []debtEntry
 	var bad []string
@@ -67,13 +66,8 @@ func parseDebt(text string) ([]debtEntry, []string) {
 		if !isEntry {
 			continue
 		}
-		if problem == "" && len(entries) > 0 {
-			switch {
-			case e.Path == prev:
-				problem = "duplicate path " + e.Path
-			case e.Path < prev:
-				problem = fmt.Sprintf("%s is not after %s (unsorted)", e.Path, prev)
-			}
+		if problem == "" {
+			problem = orderProblem(prev, e.Path)
 		}
 		if problem != "" {
 			bad = append(bad, fmt.Sprintf(msgMalformed, DebtFileName, i+1, problem, minReason))

@@ -46,14 +46,13 @@ func UpdateDebt(root, debtPath string) (bool, error) {
 			continue
 		}
 		n, isProd := files[e.Path]
-		switch {
-		case !isProd || n <= SoftLimit:
-			// drop the line
-		case n < e.Lines:
-			out = append(out, fmt.Sprintf("%s %d %s %s", e.Path, n, e.Kind, e.Reason))
-		default:
-			out = append(out, line)
+		if !isProd || n <= SoftLimit {
+			continue // the line is deleted
 		}
+		if n < e.Lines {
+			line = fmt.Sprintf("%s %d %s %s", e.Path, n, e.Kind, e.Reason)
+		}
+		out = append(out, line)
 	}
 	next := []byte(strings.Join(out, "\n"))
 	if bytes.Equal(next, data) {
@@ -73,25 +72,11 @@ func writeAtomic(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	name := tmp.Name()
-	fail := func(e error) error {
-		tmp.Close()
-		os.Remove(name)
-		return errors.Join(errors.New("archtest: cannot write debt file"), e)
+	defer os.Remove(tmp.Name()) // a no-op once the rename below has succeeded
+	_, werr := tmp.Write(data)
+	merr := tmp.Chmod(info.Mode().Perm())
+	if err := errors.Join(werr, merr, tmp.Close()); err != nil {
+		return fmt.Errorf("archtest: cannot write debt file: %w", err)
 	}
-	if _, err := tmp.Write(data); err != nil {
-		return fail(err)
-	}
-	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
-		return fail(err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		os.Remove(name)
-		return err
-	}
-	return nil
+	return os.Rename(tmp.Name(), path)
 }
