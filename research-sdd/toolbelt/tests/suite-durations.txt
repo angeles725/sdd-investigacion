@@ -115,7 +115,6 @@ research-sdd/toolbelt/tests/score-loop-transcript.test.sh 35
 research-sdd/toolbelt/tests/scripts-manifest.test.sh 1
 research-sdd/toolbelt/tests/self-dir-idiom.test.sh 2
 research-sdd/toolbelt/tests/serial-console.test.sh 1
-research-sdd/toolbelt/tests/sessionstart-budget.test.sh 5
 research-sdd/toolbelt/tests/skill-invariants.test.sh 2
 research-sdd/toolbelt/tests/squashfs-extract.test.sh 3
 research-sdd/toolbelt/tests/stage-libs.test.sh 67

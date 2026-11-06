@@ -13,6 +13,7 @@ var guards = []struct {
 	{
 		workflow: ".github/workflows/rsdd-go.yml",
 		events:   []string{"push", "pull_request"},
-		paths:    []string{"research-sdd/**", ".github/workflows/rsdd-go.yml"},
+		// .claude/settings.json: core/hookenv's consumer-bound test reads the registered SessionStart hooks (#2631).
+		paths: []string{"research-sdd/**", ".github/workflows/rsdd-go.yml", ".claude/settings.json"},
 	},
 }
