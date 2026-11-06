@@ -31,6 +31,11 @@ Intended divergences from the retired script (each pinned from both sides: `Test
   is the `web_slug` degraded state. `cp` is no longer a dependency either (the web fallback copy is in process).
 - **OCR is loud.** A tesseract failure prints a notice and exits 1 (the script aborted silently with the tool's status); a PDF with no
   pages prints a notice and exits 1 (the script exited 0 silently).
+- **`ocr` stops its own stage on INT/TERM.** Both stages (pdftoppm, then tesseract per page) run under the session context like the
+  doc and web stages: the run exits 130/143, the stage's process group is killed, no later page starts and the temporary directory is
+  removed. The script answered the same 130/143 with the same cleanup (its EXIT trap) when the signal reached its whole process
+  group, but a TERM sent to the script alone left the running pdftoppm/tesseract as an orphan; the Go command never does. Pinned by
+  `TestSignalDuringOCRStopsTheRunAndCleansUp`.
 - **The PDF hint falls back to the `%PDF-` magic** when `file(1)` is missing.
 - **A failing `mkdir` is a typed message.**
 - **Test seam (test-only).** `FETCHDOC_TEST_SEAM=1` with `FETCHDOC_TEST_AT=install|after-fork` runs `FETCHDOC_TEST_CMD` with `$$`

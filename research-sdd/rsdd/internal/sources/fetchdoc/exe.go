@@ -54,14 +54,21 @@ func (x *exe) placer(sdir string, replace bool, vars ...string) *place.Placer {
 // received before, during or right after fn wins over fn's own status: the run exits 130/143 and registers nothing.
 func (x *exe) track(vars []string, fn func(ctx context.Context) int) int {
 	x.seam.fire("after-fork", vars)
+	code, _ := x.cancellable(fn)
+	return code
+}
+
+// cancellable is track without the seam point, and it says whether the returned status is the signal's: the stage
+// was cut short and the caller must return it as is.
+func (x *exe) cancellable(fn func(ctx context.Context) int) (int, bool) {
 	if c, ok := x.sess.interrupted(); ok {
-		return c
+		return c, true
 	}
 	code := fn(x.sess.ctx)
 	if c, ok := x.sess.interrupted(); ok {
-		return c
+		return c, true
 	}
-	return code
+	return code, false
 }
 
 // needDownloader is the runtime-dependency probe: with NEITHER curl nor wget the run can only fail, and "wget

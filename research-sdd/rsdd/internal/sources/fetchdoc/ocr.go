@@ -27,8 +27,13 @@ func (x *exe) ocr(r request) int {
 		return exitFailure
 	}
 	defer os.RemoveAll(dir)
-	ctx := context.Background()
-	if x.d.Run.Run(ctx, []string{"pdftoppm", "-r", ocrDPI, "-png", pdf, dir + "/ocr"}, nil, nil) != 0 {
+	rc, cut := x.cancellable(func(ctx context.Context) int {
+		return x.d.Run.Run(ctx, []string{"pdftoppm", "-r", ocrDPI, "-png", pdf, dir + "/ocr"}, nil, nil)
+	})
+	if cut {
+		return rc
+	}
+	if rc != 0 {
 		x.printf("pdftoppm failed\n")
 		return exitMissing
 	}
@@ -39,7 +44,13 @@ func (x *exe) ocr(r request) int {
 		return exitFailure
 	}
 	for i, page := range pages {
-		if rc := x.d.Run.Run(ctx, []string{"tesseract", page, "stdout"}, x.d.Out, nil); rc != 0 {
+		rc, cut := x.cancellable(func(ctx context.Context) int {
+			return x.d.Run.Run(ctx, []string{"tesseract", page, "stdout"}, x.d.Out, nil)
+		})
+		if cut {
+			return rc
+		}
+		if rc != 0 {
 			x.printf("fetch-doc: tesseract failed on page %d of %d (exit %d); the text above is incomplete\n", i+1, len(pages), rc)
 			return exitFailure
 		}

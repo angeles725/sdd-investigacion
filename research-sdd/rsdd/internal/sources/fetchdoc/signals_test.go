@@ -57,6 +57,12 @@ func partFiles(w *world) []string {
 // exit status and the world for inspection.
 func cancelDuring(t *testing.T, w *world, sig os.Signal, args ...string) int {
 	t.Helper()
+	return cancelRan(t, w, sig, args...).rc
+}
+
+// cancelRan is cancelDuring returning the whole observable result.
+func cancelRan(t *testing.T, w *world, sig os.Signal, args ...string) ran {
+	t.Helper()
 	sigs := make(chan os.Signal, 2)
 	done := make(chan ran, 1)
 	go func() { done <- w.goRunSig(sigs, 4242, args...) }()
@@ -64,10 +70,10 @@ func cancelDuring(t *testing.T, w *world, sig os.Signal, args ...string) int {
 	sigs <- sig
 	select {
 	case r := <-done:
-		return r.rc
+		return r
 	case <-time.After(10 * time.Second):
 		t.Fatal("the run did not stop after the signal")
-		return -1
+		return ran{rc: -1}
 	}
 }
 

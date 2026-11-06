@@ -76,6 +76,10 @@ func (w *world) installStub(name string) {
 		execfile.Write(w.t, w.bin+"/pdftoppm", "#!/usr/bin/env bash\nprefix=\"${@: -1}\"; echo page1 > \"$prefix-1.png\"; echo page2 > \"$prefix-2.png\"\n")
 	case "pdftoppm-fail":
 		execfile.Write(w.t, w.bin+"/pdftoppm", "#!/usr/bin/env bash\nexit 1\n")
+	case "pdftoppm-hang": // announces itself, then blocks until signalled (a TERM must kill it and its sleep)
+		execfile.Write(w.t, w.bin+"/pdftoppm", "#!/usr/bin/env bash\n: > \"$STUB_HANG_MARKER\"\nsleep 20 & echo $! > \"$STUB_HANG_PIDFILE\"; wait\n")
+	case "tesseract-hang": // logs every page it is handed; blocks on page $STUB_HANG_PAGE, prints the others
+		execfile.Write(w.t, w.bin+"/tesseract", "#!/usr/bin/env bash\necho \"$1\" >> \"$STUB_CALLS\"\ncase \"$1\" in *-$STUB_HANG_PAGE.png)\n: > \"$STUB_HANG_MARKER\"; sleep 20 & echo $! > \"$STUB_HANG_PIDFILE\"; wait ;;\nesac\ncat \"$1\" | sed 's/^/TEXT:/'\n")
 	case "tesseract": // tesseract IMG stdout : prints the image text
 		execfile.Write(w.t, w.bin+"/tesseract", "#!/usr/bin/env bash\ncat \"$1\" | sed 's/^/TEXT:/'\n")
 	default:
