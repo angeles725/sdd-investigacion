@@ -1,7 +1,7 @@
 # Feature: file-size ratchet for the Go module (modular code rule)
 
 Objective: make the owner's "all code is modular" rule mechanical at file level in `research-sdd/rsdd`. Issue #2738.
-Branch `feat/rsdd-modularity-ratchet-2738` (base origin/main 512db127). Delivery: single PR, two work-unit commits.
+Branch `feat/rsdd-modularity-ratchet-2738` (rebased on origin/main b55f8e4c). Delivery: single PR, work-unit commits.
 Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (focused); CI runs it inside `make test`.
 
 ## Specs
@@ -42,8 +42,9 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   `recorded when the ratchet was created (#2738)`.
 - S11 Self-compliance. Every Go file this change adds is at 200 lines or less; standard library only; package
   `archtest`; limits and message formats separate from the scanning logic.
-- S12 Known limit, stated in the debt-file header and in message d: a tree-only test cannot stop a change that raises a
-  `legacy` entry above 400 in the same diff. That is a review rule. A base comparison in CI is added only if observed.
+- S12 Known limit, stated in the debt-file header and in message d: a tree-only test cannot stop a change that adds a
+  `legacy` entry, or raises one above 400, in the same diff (L10). That is a review rule: `legacy` lines are never
+  added after this change. A base comparison in CI is added only if observed.
 
 ## Tasks
 
@@ -86,3 +87,19 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   once S1 is applied. Update mode on the clean tree left the debt file byte-identical. Probe in a scratch copy
   outside the worktree (removed): a new 201-line file, a listed file grown from 201 to 202, and a 732-line file
   grown by one line produced messages a, c and d of S5, each with the exact line.
+- L9 Mutation run, 2026-11-06 (CI scope: `rsdd-go.test.sh --teeth-files origin/main | --teeth-plan 1/1`, then `make
+  teeth TEETH_PKG=./internal/testkit/archtest`). First run: 89 killed, 3 lived, 20 not covered. All 20 were deciding
+  comparisons written as case expressions of a tagless `switch`, which the mutation tool never runs (campaign lesson
+  L118). The comparisons became plain `if` statements (`judgeEntry`, `orderProblem`, the update loop) with boundary
+  cases on both sides of 200, 400 and the recorded count (`filesize_boundary_test.go`). Second run: 102 killed, 0
+  lived, 0 not covered.
+- L10 Independent verification, first launch (2026-11-06): the verifier ran 1 min 45 s and then stalled on a tool call
+  that never executed; it was stopped after 29 minutes and produced no verdict. Observed before the stall, in a scratch
+  copy: the package passes on base and candidate under both tag sets; every test that passed on the base still passes;
+  the literal `<reason>` placeholder of message a is rejected (8 characters); an unsorted pasted line is rejected; a
+  listed file shrunk below its count reads `lowerable=1`; a `legacy` file grown to 401 with its line edited in the same
+  diff passes (S12). Its next probe was a NEW 900-line file listed as `legacy`: reading `judgeEntry`, that passes too,
+  because only `accepted` is bounded by the hard limit and a tree cannot tell an added `legacy` line from an original
+  one. S12 and the header now name both forms. The mechanical closure is a comparison against the merge base, which
+  serves every only-shrink file at once (this list, the teeth debt, the planned consumers baseline): proposed to s1
+  for the phase 8 CI join, not built here.
