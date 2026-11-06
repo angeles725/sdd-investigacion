@@ -14,7 +14,7 @@ import (
 )
 
 // The fixtures are the ones the bash suites tests/kit-rdd-start.test.sh and tests/kit-rdd-drive.test.sh use.
-const fixDir = "../../../toolbelt/tests/fixtures/kit-pr-pipeline"
+const fixDir = "testdata/legacy/kit-pr-pipeline" // frozen copy (L114): teeth runs in a module-only tree
 
 func fixture(t *testing.T, name string) string {
 	t.Helper()
