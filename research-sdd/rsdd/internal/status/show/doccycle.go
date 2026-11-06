@@ -52,15 +52,18 @@ func (c *ctx) outlineRows() []outlineRow {
 	opt := gfm.Options{Shape: gfm.ShapeLeadingPipe, KeepCR: true}
 	for r := range gfm.Rows(sectionBody(c.stateText(), "## Outline"), opt) {
 		cells := r.Text()
+		if len(cells) == 0 || !isDigits(cells[0]) {
+			continue
+		}
 		last := len(cells) - 1
-		for last > 0 && cells[last] == "" {
+		for cells[last] == "" { // stops at cells[0] at the latest: it is a non-empty number
 			last--
 		}
-		if len(cells) == 0 || !isDigits(cells[0]) || last < 2 {
+		if last < 2 {
 			continue
 		}
 		st := strings.TrimLeft(strings.ReplaceAll(lowerASCII(cells[last]), "*", ""), " \t")
-		if i := strings.IndexAny(st, " \t("); i >= 0 {
+		if i := strings.IndexAny(st, " \t("); i != -1 {
 			st = st[:i]
 		}
 		item := strings.TrimSuffix(strings.TrimPrefix(cells[1], "**"), "**")
@@ -101,13 +104,12 @@ func summarize(rows []outlineRow) outlineSummary {
 			s.first = &rows[i]
 		}
 	}
-	switch {
-	case len(rows) == 0:
-		s.state = "empty"
-	case s.total == 0:
+	s.state = "seeded"
+	if s.total == 0 {
 		s.state = "unseeded"
-	default:
-		s.state = "seeded"
+	}
+	if len(rows) == 0 {
+		s.state = "empty"
 	}
 	return s
 }
