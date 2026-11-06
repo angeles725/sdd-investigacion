@@ -7,7 +7,9 @@
 # way, (b) emit an actionable `WARN: re-typed row ...` and (c) show a visible `re-typed in table : N` count.
 # A parity block asserts both scripts agree on the count for the same rows (list edges: first/middle/last/
 # single/none). No new blocked bucket for main-table rows: investigable_open is unchanged by these rows.
-# Usage: research-sdd-status-retyped.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness.
+# The status half (visible count, actionable WARN, no new bucket, struck rows) is pinned by the k-retyped-* and retyped-row-warning
+# scenarios of `rsdd status show`; this suite keeps the verify-state cases and the status-vs-verify-state parity.
+# Usage: research-sdd-status-retyped.test.sh   Exit: 0 all held · 1 regression · 2 harness.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TB="$HERE/.."
@@ -44,16 +46,6 @@ R1='| medium | rt-first | web | re-typed [Block 141] — blocked-pending-native-
 R2='| low | rt-mid | web | **retyped** (moved) |'
 R3='| low | rt-last | web | Re-Typed |'
 
-# 1. status: WARN actionable + visible count; the old generic WARN no longer names re-typed
-d="$TMP/a"; mkstate "$d" 1 "$PEND" "$R1"
-o="$(st_out "$d")"
-sy="$(bash "$SUT_ST" "$d" --sync-state 2>&1)"
-grep -q '^  re-typed in table : 1' <<<"$o" && ok "1a status shows visible re-typed count" || no "1a status count line missing"
-grep -q 'unrecognised Status token \[re-typed\]' <<<"$sy" && no "1c --sync-state still emits the generic unrecognised WARN" || ok "1c --sync-state no longer calls re-typed 'unrecognised'"
-grep -q 'WARN: re-typed row still carries' <<<"$sy" && ok "1d --sync-state emits the actionable WARN" || no "1d --sync-state WARN missing"
-# 2. no new bucket: investigable stays 1
-d="$TMP/a2"; mkstate "$d" 1 "$PEND" "$R1"
-grep -qE 'investigable=1 ' <<<"$(st_out "$d")" && ok "2 investigable unchanged (no new bucket)" || no "2 investigable shifted"
 # 3. verify-state: same WARN + count, still consistent (rc 0)
 d="$TMP/a3"; mkstate "$d" 1 "$PEND" "$R1"
 vo="$(vs_out "$d")"; vrc=0; bash "$SUT_VS" "$d" >/dev/null 2>&1 || vrc=$?
@@ -62,7 +54,6 @@ grep -q 'WARN   re-typed row still carries' <<<"$vo" && ok "3b verify-state WARN
 [ "$vrc" = 0 ] && ok "3c re-typed row is a WARN, not a FAIL (rc 0)" || no "3c verify-state rc=$vrc"
 # 4. none -> silent in both (byte-stable output for corpora without re-typed rows)
 d="$TMP/none"; mkstate "$d" 1 "$PEND"
-grep -qi 're-typed' <<<"$(st_out "$d")$(bash "$SUT_ST" "$d" --sync-state 2>&1)" && no "4a status leaked a re-typed line" || ok "4a status silent with none"
 grep -qi 're-typed' <<<"$(vs_out "$d")" && no "4b verify-state leaked a re-typed line" || ok "4b verify-state silent with none"
 # 5. parity across list edges: first / middle / last / single / three
 parity() { # LABEL WANT ROW...
@@ -93,27 +84,7 @@ parity last 1 "$PEND" "$R3"
 parity three 3 "$R1" "$PEND" "$R2" "$R3"
 # 6. struck-through re-typed row is a resolved row: not counted, not warned
 d="$TMP/struck"; mkstate "$d" 1 "$PEND" '| low | ~~old gap~~ | web | re-typed |'
-[ -z "$(st_n "$d")" ] && ok "6a struck gap not counted (status)" || no "6a struck row counted (status)"
 [ -z "$(vs_n "$d")" ] && ok "6b struck gap not counted (verify-state)" || no "6b struck row counted (verify-state)"
 
-if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth --"
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  MT="$TMP/mt"; mkdir -p "$MT"
-  mk_tree() { local t="$MT/$1"; rm -rf "$t"; mkdir -p "$t"; cp -r "$TB/lib" "$t/lib"; cp "$TB"/*.sh "$t/"; printf '%s' "$t"; }
-  d="$TMP/a"
-  t="$(mk_tree A)"
-  if mutant_sed "$ST" "$t/research-sdd-status.sh" '/RETYPED-WARN/ s/printf .*/: ;;  # RETYPED-WARN [NEUTERED]/' >/dev/null 2>&1; then
-    grep -q 'WARN: re-typed row still carries' <<<"$(bash "$t/research-sdd-status.sh" "$d" --sync-state 2>&1)" && no "teeth A: WARN still emitted — THEATER" || ok "teeth A: status WARN neutered -> case 1d bites"
-  else no "teeth A: mutant unbuildable"; fi
-  t="$(mk_tree B)"
-  if mutant_sed "$ST" "$t/research-sdd-status.sh" '/RETYPED-COUNT/ s/n=\$((n+1))/:/' >/dev/null 2>&1; then
-    grep -q '^  re-typed in table : 1' <<<"$(bash "$t/research-sdd-status.sh" "$d" 2>&1)" && no "teeth B: still counts — THEATER" || ok "teeth B: status counter frozen -> case 1a/5 bite"
-  else no "teeth B: mutant unbuildable"; fi
-  # verify-state is a shim over the Go port (kit #2457): its former teeth C (counter), D (token spelling), E (WARN) and
-  # F (gap named in the WARN) are Go mutants, killed by internal/verify TestDifferentialState/retyped-rows and
-  # /retyped-spelling-rows (RED recorded in the PR). Cases 3 and 5 above still run the shim end to end.
-fi
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
