@@ -1,0 +1,22 @@
+rsdd maint consumers - list the live kit scripts and state what names them
+
+Usage: rsdd maint consumers [--repo DIR]
+  --repo DIR   the repository to read (default: the work tree that holds the working directory)
+  -h, --help   this text
+
+The files are `git ls-files -z --cached --others --exclude-standard` in the repository: tracked files plus
+untracked files that are not ignored. Nothing is written.
+
+The live scripts are the files under research-sdd/toolbelt/, research-sdd/templates/ and research-sdd/install/
+with the extension .sh, .py, .mjs, .cjs, .js, .ts or .java, read from the tree on each run. Three things are
+excluded and every run prints how many files each removed (first match wins, in this order): a name that contains
+`.test.`, a directory named `fixtures`, and a directory named `node_modules`.
+
+Every run prints its limits and states that the Go module is not enumerated by this version.
+
+Exit codes:
+  0  report printed
+  1  absent-input (no file under the three directories), empty-input (files there, no live script),
+     or a file listed by git could not be read
+  2  usage error
+  3  degraded: git is not on PATH, or the directory is not inside a git work tree (no count is printed)
