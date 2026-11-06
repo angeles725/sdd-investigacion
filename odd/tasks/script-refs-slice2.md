@@ -30,7 +30,7 @@ Quoted text is the approved issue #2770 or the ruling of session 1 in L1, verbat
   failure and nothing runs, so a test that forgot the seam cannot run itself again."
 - S5 The child. "The child gets the parent's `Environ` (never nil, so nothing inherits the process environment),
   its working directory from `Stdio.Cwd`, stdin from `/dev/null`, a process-group kill and an output cap."
-- S6 The bound. "The bound is a required argument. \"No bound\" is a named constant, and a call site that uses it
+- S6 The bound. "The bound is a required argument. "No bound" is a named constant, and a call site that uses it
   carries a comment with the reason."
 - S7 The result. "The result is stdout, stderr or the merged stream, the exit code, and typed states for
   could-not-start, timed-out and output-cut that are distinct from the callee's own exit codes (the 126 and 127
@@ -52,10 +52,25 @@ Quoted text is the approved issue #2770 or the ruling of session 1 in L1, verbat
 - S12 Not this unit: the call sites of the other lanes (the table of #2770), "moving the `verify state` engine to
   core", "a rule in the architecture test for ambient process state".
 
+- S13 States of the kit-root function (condition of session 1 on the first pull request, L3). "the new helper
+  must keep the three states apart (no kit found / kit found but no toolbelt directory / RESEARCH_SDD_KIT set and
+  invalid, with the same warning line ResolveKitScript prints today), with a case for each." Decision of this
+  session, not a quote: no candidate exists as a directory: the text `ResolveKitScript` prints today,
+  `research-sdd kit not found (set RESEARCH_SDD_KIT)`; at least one candidate exists as a directory and none holds
+  `toolbelt/`: a distinct typed error whose text names the first such directory; `RESEARCH_SDD_KIT` set and without
+  `toolbelt/`: today's warning line, then the other candidates. `ResolveKitScript` itself keeps its output byte for
+  byte (it is the port of `templates/hook-kit-run.sh` and its differential test pins it).
+- S14 Bash suites (condition of session 1, L3). "the changed "…sh is missing" text is an output change of twelve
+  commands, so run each command's bash suite that asserts that line (not only the Go tests) and list the suites in
+  the body".
+- S15 Same root text. Every anchor site keeps today's path text: `filepath.Dir(filepath.Dir("<kit>/toolbelt/x"))`
+  is `filepath.Clean("<kit>")`, so a kit given with a trailing slash, as a relative path or with a `.` segment
+  prints the same directory before and after (assumption of this session, to be pinned by a test per form).
+
 ## Tasks
 
 - [ ] T1 (S1, S2, S3, S11) the kit-root function in `internal/core/kit`, `ResolveKitScript` rebuilt on it, the
-  twelve anchor sites, their tests and registry rows · route: delegated (the kit contract sends a write of two or
+  twelve anchor sites, their tests and registry rows (also S13-S15) · route: delegated (the kit contract sends a write of two or
   more non-trivial files to one writer) · pull request (a)
 - [ ] T2 (S4-S9, S11) the self-subcommand helper in core with `sweep all` as its first consumer · route: delegated ·
   pull request (b) · needs T1 merged (both edit `internal/sweep/all.go`)
@@ -69,12 +84,12 @@ Forecast: about 250 changed lines for T1, about 500 for T2.
   cross-domain sites. Verbatim: "do NOT build the in-process dispatch (form 3) [...] That grows the system for one
   site. Ruling: 1. `sweep all` = process form, as you propose: one loop, eight rows `<binary> <group> <name>
   <args>` under RSDD_SWEEP_TIMEOUT with group kill and the 4 MiB cap; the four same-domain sweep rows go with it.
-  [...] So ONE helper, in core, on core/proc: \"run my own subcommand\". Contract: the binary comes through a seam
+  [...] So ONE helper, in core, on core/proc: "run my own subcommand". Contract: the binary comes through a seam
   read from the parent Stdio's Env (RSDD_BIN), falling back to os.Executable only in the helper, never in a domain;
   when the fallback resolves to a Go test binary (name ends in `.test`) it is a typed failure, never a run, so a
   test that forgot the seam cannot re-run itself; the child gets the parent's Environ (non-nil, so nothing inherits
   the process environment), an explicit Cwd from Stdio.Cwd [...], stdin from /dev/null, group kill and an output
-  cap; the bound is a required argument, and \"no bound\" is a named constant whose call site carries a reason
+  cap; the bound is a required argument, and "no bound" is a named constant whose call site carries a reason
   comment; the result is stdout, stderr or the merged stream, the exit code, and typed states for could-not-start,
   timed-out and output-cut, distinct from the callee's own exit codes (126/127 that status reads today must stay
   distinguishable). Tests inject a stub executable through the seam; nothing in a package test needs `go build`.
@@ -88,3 +103,16 @@ Forecast: about 250 changed lines for T1, about 500 for T2.
   L8) and the site-by-site reading of the ten cross-domain runs (bounds, streams, environment, what each shim
   adds). CLAIMS read at 14:25Z: no live claim covers the twelve files of T1 or `internal/sweep/all*.go`;
   `internal/corpus/**` is locked by #2592. File sets announced to sessions 1, 2 and 3.
+- L3 Conditions of session 1 on the first pull request, 2026-11-06, verbatim: "Two conditions on PR (a): the
+  changed "…sh is missing" text is an output change of twelve commands, so run each command's bash suite that
+  asserts that line (not only the Go tests) and list the suites in the body; and the new helper must keep the three
+  states apart (no kit found / kit found but no toolbelt directory / RESEARCH_SDD_KIT set and invalid, with the
+  same warning line ResolveKitScript prints today), with a case for each. internal/gate/retrogate.go:136 and the
+  two gate call sites (retrogate.go:269, retrogateseed.go:151) are mine: the anchor goes in my next PR on that file
+  after (a) merges, the two runs after (b)." Sessions 2 and 3 confirmed they hold no work on the twelve files.
+- L4 Reading of the twelve sites at main 1302652b: ten keep the kit root (`filepath.Dir(filepath.Dir(p))`);
+  `internal/budget/session.go:148` anchors on `toolbelt/lib/session-budget-pi.mjs` and
+  `internal/corroborate/fidelity/fidelity.go:284` on `toolbelt/decompile-java.sh`, and both keep the toolbelt
+  directory. Three of the files have an exact count in `modularity-debt.txt` (`internal/sweep/retros.go` 634,
+  `internal/verify/registry.go` 674, `internal/verify/skilldrift.go` 539): a changed line count lowers their line
+  in the same commit. Route of T1: delegated to one writer, by the kit contract (two or more non-trivial files).
