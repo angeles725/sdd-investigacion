@@ -286,5 +286,6 @@ func s5Scenarios() []s5Scenario {
 			sc.links = map[string]string{"corpus/retros/l.md": "{ROOT}/corpus/retros/a.md"}
 		}
 	}
+	add(s8aGateScenarios()...) // the UNMAPPED cases of the bash suites (S8a)
 	return scs
 }

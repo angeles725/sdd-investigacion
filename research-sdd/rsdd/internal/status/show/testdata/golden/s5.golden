@@ -8710,3 +8710,927 @@ gh: issue list --repo angeles725/sdd-investigacion --state open --json body --li
 reconcile: --issues-cache <CACHE> <ROOT>/corpus/retros/a.md | cache="\n"
 reconcile: --issues-cache <CACHE> <ROOT>/corpus/retros/b.md | cache="\n"
 --- end calls
+=== s8a-L1894-T1640c2-derived-at-the-threshold-is-next
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the root gap
+--- stderr
+status: INFO: blocks_since_retro: 11 overridden by retro coverage (covers_through B10, newest block B20 → 10)
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 11
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/r-block1.md mode=0644
+# block
+--- file corpus/r-block10.md mode=0644
+# block
+--- file corpus/r-block11.md mode=0644
+# block
+--- file corpus/r-block12.md mode=0644
+# block
+--- file corpus/r-block13.md mode=0644
+# block
+--- file corpus/r-block14.md mode=0644
+# block
+--- file corpus/r-block15.md mode=0644
+# block
+--- file corpus/r-block16.md mode=0644
+# block
+--- file corpus/r-block17.md mode=0644
+# block
+--- file corpus/r-block18.md mode=0644
+# block
+--- file corpus/r-block19.md mode=0644
+# block
+--- file corpus/r-block2.md mode=0644
+# block
+--- file corpus/r-block20.md mode=0644
+# block
+--- file corpus/r-block3.md mode=0644
+# block
+--- file corpus/r-block4.md mode=0644
+# block
+--- file corpus/r-block5.md mode=0644
+# block
+--- file corpus/r-block6.md mode=0644
+# block
+--- file corpus/r-block7.md mode=0644
+# block
+--- file corpus/r-block8.md mode=0644
+# block
+--- file corpus/r-block9.md mode=0644
+# block
+--- file corpus/retros/r1.md mode=0644
+# Retro
+
+covers_through: B10
+--- end
+--- calls
+--- end calls
+=== s8a-L1929-T1640h-highest-coverage-first
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the root gap
+--- stderr
+status: INFO: blocks_since_retro: 30 overridden by retro coverage (covers_through B19, newest block B20 → 1)
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 30
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/r-block1.md mode=0644
+# block
+--- file corpus/r-block10.md mode=0644
+# block
+--- file corpus/r-block11.md mode=0644
+# block
+--- file corpus/r-block12.md mode=0644
+# block
+--- file corpus/r-block13.md mode=0644
+# block
+--- file corpus/r-block14.md mode=0644
+# block
+--- file corpus/r-block15.md mode=0644
+# block
+--- file corpus/r-block16.md mode=0644
+# block
+--- file corpus/r-block17.md mode=0644
+# block
+--- file corpus/r-block18.md mode=0644
+# block
+--- file corpus/r-block19.md mode=0644
+# block
+--- file corpus/r-block2.md mode=0644
+# block
+--- file corpus/r-block20.md mode=0644
+# block
+--- file corpus/r-block3.md mode=0644
+# block
+--- file corpus/r-block4.md mode=0644
+# block
+--- file corpus/r-block5.md mode=0644
+# block
+--- file corpus/r-block6.md mode=0644
+# block
+--- file corpus/r-block7.md mode=0644
+# block
+--- file corpus/r-block8.md mode=0644
+# block
+--- file corpus/r-block9.md mode=0644
+# block
+--- file corpus/retros/2026-01-a.md mode=0644
+# Retro
+
+covers_through: B19
+--- file corpus/retros/2026-02-b.md mode=0644
+# Retro
+
+covers_through: B10
+--- file corpus/retros/2026-03-c.md mode=0644
+# Retro
+
+covers_through: B5
+--- end
+--- calls
+--- end calls
+=== s8a-L1929-T1640h-highest-coverage-last
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the root gap
+--- stderr
+status: INFO: blocks_since_retro: 30 overridden by retro coverage (covers_through B19, newest block B20 → 1)
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 30
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/r-block1.md mode=0644
+# block
+--- file corpus/r-block10.md mode=0644
+# block
+--- file corpus/r-block11.md mode=0644
+# block
+--- file corpus/r-block12.md mode=0644
+# block
+--- file corpus/r-block13.md mode=0644
+# block
+--- file corpus/r-block14.md mode=0644
+# block
+--- file corpus/r-block15.md mode=0644
+# block
+--- file corpus/r-block16.md mode=0644
+# block
+--- file corpus/r-block17.md mode=0644
+# block
+--- file corpus/r-block18.md mode=0644
+# block
+--- file corpus/r-block19.md mode=0644
+# block
+--- file corpus/r-block2.md mode=0644
+# block
+--- file corpus/r-block20.md mode=0644
+# block
+--- file corpus/r-block3.md mode=0644
+# block
+--- file corpus/r-block4.md mode=0644
+# block
+--- file corpus/r-block5.md mode=0644
+# block
+--- file corpus/r-block6.md mode=0644
+# block
+--- file corpus/r-block7.md mode=0644
+# block
+--- file corpus/r-block8.md mode=0644
+# block
+--- file corpus/r-block9.md mode=0644
+# block
+--- file corpus/retros/2026-01-a.md mode=0644
+# Retro
+
+covers_through: B10
+--- file corpus/retros/2026-02-b.md mode=0644
+# Retro
+
+covers_through: B5
+--- file corpus/retros/2026-03-c.md mode=0644
+# Retro
+
+covers_through: B19
+--- end
+--- calls
+--- end calls
+=== s8a-L1929-T1640h-highest-coverage-middle
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the root gap
+--- stderr
+status: INFO: blocks_since_retro: 30 overridden by retro coverage (covers_through B19, newest block B20 → 1)
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 30
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/r-block1.md mode=0644
+# block
+--- file corpus/r-block10.md mode=0644
+# block
+--- file corpus/r-block11.md mode=0644
+# block
+--- file corpus/r-block12.md mode=0644
+# block
+--- file corpus/r-block13.md mode=0644
+# block
+--- file corpus/r-block14.md mode=0644
+# block
+--- file corpus/r-block15.md mode=0644
+# block
+--- file corpus/r-block16.md mode=0644
+# block
+--- file corpus/r-block17.md mode=0644
+# block
+--- file corpus/r-block18.md mode=0644
+# block
+--- file corpus/r-block19.md mode=0644
+# block
+--- file corpus/r-block2.md mode=0644
+# block
+--- file corpus/r-block20.md mode=0644
+# block
+--- file corpus/r-block3.md mode=0644
+# block
+--- file corpus/r-block4.md mode=0644
+# block
+--- file corpus/r-block5.md mode=0644
+# block
+--- file corpus/r-block6.md mode=0644
+# block
+--- file corpus/r-block7.md mode=0644
+# block
+--- file corpus/r-block8.md mode=0644
+# block
+--- file corpus/r-block9.md mode=0644
+# block
+--- file corpus/retros/2026-01-a.md mode=0644
+# Retro
+
+covers_through: B10
+--- file corpus/retros/2026-02-b.md mode=0644
+# Retro
+
+covers_through: B19
+--- file corpus/retros/2026-03-c.md mode=0644
+# Retro
+
+covers_through: B5
+--- end
+--- calls
+--- end calls
+=== s8a-L1947-T1640i2-over-range-last-does-not-shadow
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the root gap
+--- stderr
+status: WARN: covers_through B99 in 2026-02-b.md exceeds newest block B20 on disk — value excluded (never clamped to 0)
+status: INFO: blocks_since_retro: 30 overridden by retro coverage (covers_through B15, newest block B20 → 5)
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 30
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/r-block1.md mode=0644
+# block
+--- file corpus/r-block10.md mode=0644
+# block
+--- file corpus/r-block11.md mode=0644
+# block
+--- file corpus/r-block12.md mode=0644
+# block
+--- file corpus/r-block13.md mode=0644
+# block
+--- file corpus/r-block14.md mode=0644
+# block
+--- file corpus/r-block15.md mode=0644
+# block
+--- file corpus/r-block16.md mode=0644
+# block
+--- file corpus/r-block17.md mode=0644
+# block
+--- file corpus/r-block18.md mode=0644
+# block
+--- file corpus/r-block19.md mode=0644
+# block
+--- file corpus/r-block2.md mode=0644
+# block
+--- file corpus/r-block20.md mode=0644
+# block
+--- file corpus/r-block3.md mode=0644
+# block
+--- file corpus/r-block4.md mode=0644
+# block
+--- file corpus/r-block5.md mode=0644
+# block
+--- file corpus/r-block6.md mode=0644
+# block
+--- file corpus/r-block7.md mode=0644
+# block
+--- file corpus/r-block8.md mode=0644
+# block
+--- file corpus/r-block9.md mode=0644
+# block
+--- file corpus/retros/2026-01-a.md mode=0644
+# Retro
+
+covers_through: B15
+--- file corpus/retros/2026-02-b.md mode=0644
+# Retro
+
+covers_through: B99
+--- end
+--- calls
+--- end calls
+=== s8a-L1964-T1640j-fenced-quoted-excluded-lines-are-not-coverage
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+RETRO-DUE | 30 blocks since last retro (§18 threshold: 10)
+--- stderr
+status: WARN: covers_through: absent in 1 retro(s) — using declared blocks_since_retro: 30
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 30
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/r-block1.md mode=0644
+# block
+--- file corpus/r-block10.md mode=0644
+# block
+--- file corpus/r-block11.md mode=0644
+# block
+--- file corpus/r-block12.md mode=0644
+# block
+--- file corpus/r-block13.md mode=0644
+# block
+--- file corpus/r-block14.md mode=0644
+# block
+--- file corpus/r-block15.md mode=0644
+# block
+--- file corpus/r-block16.md mode=0644
+# block
+--- file corpus/r-block17.md mode=0644
+# block
+--- file corpus/r-block18.md mode=0644
+# block
+--- file corpus/r-block19.md mode=0644
+# block
+--- file corpus/r-block2.md mode=0644
+# block
+--- file corpus/r-block20.md mode=0644
+# block
+--- file corpus/r-block3.md mode=0644
+# block
+--- file corpus/r-block4.md mode=0644
+# block
+--- file corpus/r-block5.md mode=0644
+# block
+--- file corpus/r-block6.md mode=0644
+# block
+--- file corpus/r-block7.md mode=0644
+# block
+--- file corpus/r-block8.md mode=0644
+# block
+--- file corpus/r-block9.md mode=0644
+# block
+--- file corpus/retros/r1.md mode=0644
+# R
+
+```
+covers_through: B15
+```
+
+> covers_through: B15
+--- file corpus/retros/r2.md mode=0644
+<!-- kit-retro: exclude -->
+covers_through: B15
+--- end
+--- calls
+--- end calls
+=== s8a-L2006-T1640m3-every-focus-scoped-is-covered
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the alpha gap
+--- stderr
+status: INFO: blocks_since_retro: 11 overridden by retro coverage (covers_through B20, newest block B20 → 0)
+status: INFO: blocks_since_retro: 11 overridden by retro coverage (covers_through B20, newest block B20 → 0)
+--- tree
+--- file corpus/RESEARCH-STATE-alpha.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 11
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the alpha gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/RESEARCH-STATE-beta.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 11
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the beta gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/alpha-block1.md mode=0644
+# block
+--- file corpus/alpha-block10.md mode=0644
+# block
+--- file corpus/alpha-block11.md mode=0644
+# block
+--- file corpus/alpha-block12.md mode=0644
+# block
+--- file corpus/alpha-block13.md mode=0644
+# block
+--- file corpus/alpha-block14.md mode=0644
+# block
+--- file corpus/alpha-block15.md mode=0644
+# block
+--- file corpus/alpha-block16.md mode=0644
+# block
+--- file corpus/alpha-block17.md mode=0644
+# block
+--- file corpus/alpha-block18.md mode=0644
+# block
+--- file corpus/alpha-block19.md mode=0644
+# block
+--- file corpus/alpha-block2.md mode=0644
+# block
+--- file corpus/alpha-block20.md mode=0644
+# block
+--- file corpus/alpha-block3.md mode=0644
+# block
+--- file corpus/alpha-block4.md mode=0644
+# block
+--- file corpus/alpha-block5.md mode=0644
+# block
+--- file corpus/alpha-block6.md mode=0644
+# block
+--- file corpus/alpha-block7.md mode=0644
+# block
+--- file corpus/alpha-block8.md mode=0644
+# block
+--- file corpus/alpha-block9.md mode=0644
+# block
+--- file corpus/beta-block1.md mode=0644
+# block
+--- file corpus/beta-block10.md mode=0644
+# block
+--- file corpus/beta-block11.md mode=0644
+# block
+--- file corpus/beta-block12.md mode=0644
+# block
+--- file corpus/beta-block13.md mode=0644
+# block
+--- file corpus/beta-block14.md mode=0644
+# block
+--- file corpus/beta-block15.md mode=0644
+# block
+--- file corpus/beta-block16.md mode=0644
+# block
+--- file corpus/beta-block17.md mode=0644
+# block
+--- file corpus/beta-block18.md mode=0644
+# block
+--- file corpus/beta-block19.md mode=0644
+# block
+--- file corpus/beta-block2.md mode=0644
+# block
+--- file corpus/beta-block20.md mode=0644
+# block
+--- file corpus/beta-block3.md mode=0644
+# block
+--- file corpus/beta-block4.md mode=0644
+# block
+--- file corpus/beta-block5.md mode=0644
+# block
+--- file corpus/beta-block6.md mode=0644
+# block
+--- file corpus/beta-block7.md mode=0644
+# block
+--- file corpus/beta-block8.md mode=0644
+# block
+--- file corpus/beta-block9.md mode=0644
+# block
+--- file corpus/retros/r.md mode=0644
+covers_through: B20 focus=alpha
+covers_through: B20 focus=beta
+--- end
+--- calls
+--- end calls
+=== s8a-L2102-IDG-D-active-gap-preempts-the-gate
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the root gap
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/retros/a.md mode=0644
+# Retro A
+--- file spec/r.a.md.c.out mode=0644
+untracked: D1 first
+--- file spec/r.a.md.out mode=0644
+untracked: D1 first
+--- end
+--- calls
+--- end calls
+=== s8a-L2447-IDG-ENUM-EMPTY-incomplete-listing-no-retros
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]
+--- stderr
+WARN: retro enumeration incomplete (find exit 1) — treating coverage as unverified
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | covered |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- dir corpus/locked mode=0000 (unreadable)
+--- end
+--- calls
+--- end calls
+=== s8a-cleanwarn-12b-findings-reach-stderr-from-the-unverified-stop
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]
+--- stderr
+WARN: could not verify issue coverage (gh degraded) — seed manually
+WARN: clean-check: findings at terminal STOP — resolve or declare in <target>/.research-sdd/keep.txt before closing
+WARN: clean-check: GARBAGE untracked stray.json
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | covered |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/retros/a.md mode=0644
+# Retro A
+--- file spec/cc.out mode=0644
+GARBAGE untracked stray.json
+--- file spec/cc.rc mode=0644
+1
+--- file spec/r.a.md.c.err mode=0644
+degraded: x
+--- file spec/r.a.md.c.rc mode=0644
+1
+--- end
+--- calls
+gh: issue list --repo angeles725/sdd-investigacion --state open --json body --limit 5000 --jq .[].body
+reconcile: --issues-cache <CACHE> <ROOT>/corpus/retros/a.md | cache="\n"
+clean-check: --target <ROOT>/corpus
+--- end calls
+=== s8a-cleanwarn-12c-opt-out-at-the-unverified-stop
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]
+--- stderr
+WARN: could not verify issue coverage (gh degraded) — seed manually
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | covered |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/retros/a.md mode=0644
+# Retro A
+--- file spec/cc.out mode=0644
+GARBAGE untracked stray.json
+--- file spec/cc.rc mode=0644
+1
+--- file spec/r.a.md.c.err mode=0644
+degraded: x
+--- file spec/r.a.md.c.rc mode=0644
+1
+--- end
+--- calls
+gh: issue list --repo angeles725/sdd-investigacion --state open --json body --limit 5000 --jq .[].body
+reconcile: --issues-cache <CACHE> <ROOT>/corpus/retros/a.md | cache="\n"
+--- end calls
+=== s8a-cleanwarn-3-next-verdict-runs-no-clean-check
+run 1: <ROOT>/corpus --next
+rc: 0
+--- stdout
+NEXT | high | the root gap
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file spec/cc.out mode=0644
+GARBAGE untracked stray.json
+--- file spec/cc.rc mode=0644
+1
+--- end
+--- calls
+--- end calls
+=== s8a-queue-3c-issues-due-fires-when-the-queue-is-exhausted
+run 1: <ROOT>/corpus --next --queue
+rc: 0
+--- stdout
+ISSUES-DUE | 1 untracked delta(s) in <ROOT>/corpus/retros/a.md — seed: stage-retro-issues.sh <ROOT>/corpus/retros/a.md --apply
+--- stderr
+INFO: queue-exhausted [root]: next_session_queue (1 ids: 1 done, 0 deferred, 0 blocked, 0 in-progress, 0 unknown) has no pending gap — priority order used
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+next_session_queue: G1
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 0
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | G1 first gap | web | covered |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 0
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/retros/a.md mode=0644
+# Retro A
+--- file spec/r.a.md.c.out mode=0644
+untracked: D1 first
+--- file spec/r.a.md.out mode=0644
+untracked: D1 first
+--- end
+--- calls
+gh: issue list --repo angeles725/sdd-investigacion --state open --json body --limit 5000 --jq .[].body
+reconcile: --issues-cache <CACHE> <ROOT>/corpus/retros/a.md | cache="\n"
+reconcile: <ROOT>/corpus/retros/a.md
+--- end calls
