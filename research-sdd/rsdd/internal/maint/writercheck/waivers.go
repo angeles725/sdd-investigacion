@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -33,23 +34,21 @@ func (c *ctx) loadWaivers(r rangeSpec) waivers {
 
 const blanks = " \t\n\v\f\r"
 
+// reWaiverLine splits a waiver line at its first blank run: the suite, then the reason (leading blanks dropped).
+var reWaiverLine = regexp.MustCompile(`(?s)^([^ \t\n\v\f\r]*)[ \t\n\v\f\r]*(.*)$`)
+
 // parseWaivers reads `<repo-relative suite> <reason>` per line. A blank line and a `#` comment (indented or not) are
 // skipped; leading blanks are ignored; a line whose reason is empty is a bad-waiver finding, numbered from 1.
 func parseWaivers(text string) waivers {
 	w := waivers{reasons: map[string]string{}}
-	lines := strings.Split(text, "\n")
-	if n := len(lines); n > 0 && lines[n-1] == "" {
-		lines = lines[:n-1]
-	}
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	for i, raw := range lines {
 		l := strings.TrimLeft(raw, blanks)
 		if l == "" || l[0] == '#' {
 			continue
 		}
-		suite, reason := l, ""
-		if at := strings.IndexAny(l, blanks); at >= 0 {
-			suite, reason = l[:at], strings.TrimLeft(l[at:], blanks)
-		}
+		m := reWaiverLine.FindStringSubmatch(l)
+		suite, reason := m[1], m[2]
 		if reason == "" {
 			w.findings = append(w.findings, finding{"bad-waiver", fmt.Sprintf("%s:%d", filepath.Base(waiverRel), i+1), "no reason for " + suite})
 			continue

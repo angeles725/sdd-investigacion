@@ -62,10 +62,8 @@ func checkLog(dir, suite, bindHeader string) (kind, reason string) {
 
 // treeOf is the text after the last " tree=" of a header line.
 func treeOf(h string) string {
-	if i := strings.LastIndex(h, " tree="); i >= 0 {
-		return h[i+len(" tree="):]
-	}
-	return h
+	parts := strings.Split(h, " tree=")
+	return parts[len(parts)-1]
 }
 
 // judgeBody applies the content rules, in order: a summary line, no failures in it, some passed cases, no FAIL line,

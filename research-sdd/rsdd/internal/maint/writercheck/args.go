@@ -1,5 +1,7 @@
 package writercheck
 
+import "strings"
+
 // options is what the command line said.
 type options struct {
 	base, head   string
@@ -63,7 +65,7 @@ func parse(args []string) (options, *failure) {
 		case "-h", "--help":
 			return o, &failure{}
 		default:
-			if len(a) > 0 && a[0] == '-' {
+			if strings.HasPrefix(a, "-") {
 				return o, &failure{msg: "unknown argument: " + a}
 			}
 			o.positional, ok = append(o.positional, a), true

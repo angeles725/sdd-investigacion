@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
 
 func TestBlobOfIsGitsBlobId(t *testing.T) {
@@ -81,6 +83,7 @@ func TestHunkCounts(t *testing.T) {
 		"@@ -7,0 +8,0 @@":     {8, 0, 0},
 		"@@ nonsense":         {0, 0, 0},
 		"@@ -x +y @@":         {0, 1, 1},
+		"@@ -1,2 +3,4":        {3, 2, 4}, // three fields: the closing @@ is not required
 	} {
 		a, b, c := hunkCounts(in)
 		if [3]int{a, b, c} != want {
@@ -208,5 +211,26 @@ func TestCheckLogVerdicts(t *testing.T) {
 	}
 	if kind, why := checkLog(dir, "d.test.sh", h); kind != missing || why != "no log d.test.sh.log" {
 		t.Errorf("directory log: %q %q", kind, why)
+	}
+}
+
+// runImpact hands suite-impact.sh exactly the options that were given: --manifest-dir only when set.
+func TestRunImpactPassesManifestDirOnlyWhenSet(t *testing.T) {
+	dir := t.TempDir()
+	script, argv := dir+"/impact.sh", dir+"/argv"
+	writeFile(t, script, "printf '%s\\n' \"$@\" > '"+argv+"'\n")
+	for _, md := range []string{"", "/m/dir"} {
+		c := &ctx{o: options{base: "b", manifestDir: md}, repo: "/r", env: []string{"PATH=" + os.Getenv("PATH")}, s: cli.Stdio{Cwd: dir}}
+		if _, why := c.runImpact(script, rangeSpec{}); why != "" {
+			t.Fatalf("runImpact: %s", why)
+		}
+		b, err := os.ReadFile(argv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.Contains(string(b), "--manifest-dir\n")
+		if got != (md != "") || (md != "" && !strings.Contains(string(b), "--manifest-dir\n"+md+"\n")) {
+			t.Errorf("manifestDir %q: argv %q", md, b)
+		}
 	}
 }
