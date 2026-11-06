@@ -46,7 +46,10 @@ dependency):
 - **The keep-list glob is a Go matcher.** `[[ path == glob ]]` is reimplemented (`*` and `?` match `/`, bracket expressions with `!`/`^`,
   ranges and the POSIX classes, backslash quoting, an unterminated `[` literal), checked case by case against bash 5
   (`TestGlobMatch`). Characters are runes, so `?` is one UTF-8 character in any locale; an unknown class such as `[[:nope:]]`
-  matches nothing, as in bash.
+  matches nothing, as in bash. One rule differs from bash on purpose: an unterminated `[` is literal text in EVERY shape, and
+  `[[:]` is the set of `[` and `:`. Bash answers no-match when the unterminated bracket ends in a range dash (`[a-`, `[!a-`) or in a
+  lone backslash (`[\`, `[a\`, `[]\`), even against the identical string, and for `[[:]` against `[`; the matcher answers match
+  (`TestGlobMatchUnterminatedBracketIsLiteral` lists both answers per case). A keep-list line of that shape keeps the path it names.
 - **Diagnostics of the walks are Go's, in the same shape.** An unreadable directory prints `find: '<path>': Permission denied`, an
   unreadable block `grep: <path>: Permission denied`; any other error text is Go's. Git's own stderr (an unreadable directory under
   `ls-files`) is forwarded exactly as before.
