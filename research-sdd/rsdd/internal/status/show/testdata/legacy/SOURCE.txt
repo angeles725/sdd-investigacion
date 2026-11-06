@@ -88,3 +88,16 @@ and status-report.sh last. Lines 2046-2455 (the §8c campaign queue, campaign_st
 outline with its _doc_mode detection) belong to slice S7 and are NOT frozen here: an authored stand-in defines
 campaign_status_block, outline_summary / outline_line / outline_next_step and the _doc_mode flags, in the same words
 as the Go seams (s6_harness_test.go). verify-state.sh and gh are authored fakes that log their argv.
+
+Slice S7 (issue #2549), same blob 7e734c53bc63f4337f26a3b39551da846d3f98c1 (unchanged at origin/main 49c75238):
+
+status-campaign.sh lines 2046-2384 (the §8c campaign queue: _CQ_COMMENT_SKIP_AWK, campaign_section, campaign_queue_present,
+                   _campaign_age_min, _campaign_row_counts, _campaign_stop_text and campaign_status_block)
+                   sha256 36e0082caa82536fa0fa090f77ad7c88a8d27f6f23d30a9efee00dcc1e6ffdd5
+status-doccycle.sh lines 2385-2455 (the document cycle: outline_rows, outline_summary, outline_line, outline_next_step and the
+                   _doc_mode / _doc_noheading detection)
+                   sha256 232e5a54cbc33110c2bcc0569dc7819389be893321d58f0242a49f1d414f9467
+
+The S7 differential (and the S6 one, since S7) assembles the S5 order with status-campaign.sh and status-doccycle.sh in the
+place of the authored S6 stand-ins, in front of status-report.sh: no section of the default report is authored any more.
+The clock of both sides is the script's own hook, _RSDD_NOW_EPOCH. verify-state.sh and gh stay authored fakes that log their argv.
