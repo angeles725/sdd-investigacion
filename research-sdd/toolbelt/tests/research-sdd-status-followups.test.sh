@@ -71,8 +71,7 @@ mkkit() { local k="$TMP/kit/$1"; rm -rf "$k"; mkdir -p "$k"; cp -r "$HERE/../lib
 stub_vs() { printf '#!/usr/bin/env bash\nprintf %s\nexit %s\n' "'$2'" "$3" > "$1/verify-state.sh"; chmod +x "$1/verify-state.sh"; }
 
 k6a="$(mkkit 6a)"; rm -f "$k6a/verify-state.sh"
-got="$(run "$k6a/research-sdd-status.sh" "$single" --next)"
-case "$got" in "STALE | "*"[first failure: unavailable — verify-state printed no FAIL line (rc=127)]") ok "6a verify-state helper missing -> typed 'unavailable (rc=127)', not an omitted pointer" ;; *) no "6a missing helper: [$got]" ;; esac
+# 6a (verify-state missing) is divergence (2): pinned by TestS8aVerifyStateMissingIsDivergence2; k6a stays for tooth FU-E.
 k6b="$(mkkit 6b)"; stub_vs "$k6b" '== verify-state: X.md (target: t) ==\n== exit 1 ==\n' 1
 got="$(run "$k6b/research-sdd-status.sh" "$single" --next)"
 case "$got" in "STALE | "*"[first failure: unavailable — verify-state printed no FAIL line (rc=1)]") ok "6b verify-state exits 1 with no FAIL line -> typed 'unavailable (rc=1)'" ;; *) no "6b no FAIL line: [$got]" ;; esac
