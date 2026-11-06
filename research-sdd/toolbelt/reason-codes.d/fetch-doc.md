@@ -9,6 +9,9 @@
   symlink during the download` (exit 5) when the race happens after the preflight. A taken versioned name under `--replace` is
   `REFUSED: versioned name already holds DIFFERENT bytes` or `is a symlink` (exit 1). Continuation: re-run with `--replace`, or choose another
   name or remove the symlink.
+- `fetch-doc: REFUSED: cannot read <target>/sources/SOURCES.md: <reason> — <what was not done>` (exit 1): the registry exists but cannot be
+  read (permission, or a directory in its place), so the stale-part sweep and the `--replace` archive step refuse and nothing is deleted or
+  renamed. An absent `SOURCES.md` is not this state (no rows yet). Continuation: fix the permission or the path and re-run.
 - `fetch-doc: <reason>` followed by a `usage:` line (exit 2): a missing mode, url, target directory or pdf, a URL that starts
   with `-` or has control characters, or a name or sub-directory that would leave `sources/` or contains `|` or a control character.
   There is no unknown-option state: every word except `--replace` is positional, so an unrecognised first word (a flag-shaped one such as

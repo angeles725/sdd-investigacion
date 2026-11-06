@@ -47,7 +47,9 @@ func (x *exe) doc(r request) int {
 	if code := pl.Preflight(dest); code != 0 {
 		return code
 	}
-	pl.SweepStale(sdir+"/"+sub, x.alive())
+	if code := pl.SweepStale(sdir+"/"+sub, x.alive()); code != 0 {
+		return code
+	}
 	effective := ""
 	if code := x.track([]string{"DEST=" + dest, "SDIR=" + sdir, "REPLACE=" + boolDigit(r.replace)}, func(ctx context.Context) int {
 		var c int

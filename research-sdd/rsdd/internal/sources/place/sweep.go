@@ -5,8 +5,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/srcregistry"
 )
 
 // partMarker mirrors download.PartMarker (the part file name is <name>.fetchdoc-part.<pid>); it is repeated here
@@ -16,14 +14,14 @@ const partMarker = ".fetchdoc-part."
 // SweepStale removes "*.fetchdoc-part.<pid>" files in dir whose pid is positively dead: a SIGKILLed run cannot
 // run its cleanup, and verify-sources would keep reporting the debris as "unregistered on disk". It never touches
 // a file registered in SOURCES.md, nor the part file of a live pid. alive reports a pid's liveness (nil: the
-// default, see Alive).
-func (p *Placer) SweepStale(dir string, alive func(pid string) bool) {
+// default, see Alive). It returns ExitFailure, deleting nothing, when SOURCES.md exists but cannot be read (see registered).
+func (p *Placer) SweepStale(dir string, alive func(pid string) bool) int {
 	if alive == nil {
 		alive = Alive
 	}
 	ents, err := os.ReadDir(dir) // sorted by name, like the shell glob in the C locale
 	if err != nil {
-		return
+		return 0
 	}
 	names := make([]string, 0, len(ents))
 	for _, e := range ents {
@@ -39,7 +37,11 @@ func (p *Placer) SweepStale(dir string, alive func(pid string) bool) {
 		if _, err := os.Stat(f); err != nil { // [ -e ]: a dangling symlink is not debris of ours
 			continue
 		}
-		if has, _ := srcregistry.Has(p.SDir, p.Rel(f), ""); has {
+		has, code := p.registered(p.Rel(f), "", "no stale part file was removed")
+		if code != 0 {
+			return code // an unreadable registry cannot prove a part-named file is unregistered
+		}
+		if has {
 			continue // registered evidence is never debris
 		}
 		if !alive(pid) {
@@ -47,6 +49,7 @@ func (p *Placer) SweepStale(dir string, alive func(pid string) bool) {
 			fmt.Fprintf(p.Err, "fetch-doc: removed stale part file from dead pid %s: %s\n", pid, name)
 		}
 	}
+	return 0
 }
 
 // partPid is the pid of a part file name: the digits after the LAST marker; a hidden name (the shell glob does

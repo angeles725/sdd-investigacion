@@ -36,6 +36,12 @@ Intended divergences from the retired script (each pinned from both sides: `Test
   removed. The script answered the same 130/143 with the same cleanup (its EXIT trap) when the signal reached its whole process
   group, but a TERM sent to the script alone left the running pdftoppm/tesseract as an orphan; the Go command never does. Pinned by
   `TestSignalDuringOCRStopsTheRunAndCleansUp`.
+- **An unreadable `SOURCES.md` stops the sweep and `--replace` instead of reading as "no rows".** An absent `SOURCES.md` still means
+  no rows; one that exists but cannot be read (no read permission, a directory in its place) makes the stale-part sweep and the
+  `--replace` archive step print `fetch-doc: REFUSED: cannot read <sources>/SOURCES.md: <reason> — <what was not done>` and exit 1 before
+  anything is deleted or renamed. The script dropped the error, so a registered file carrying the part-file marker could be swept as
+  debris and a replace could move bytes it could not re-register. Pinned by `TestSweepRefusesWhenTheRegistryIsUnreadableAndDeletesNothing`,
+  `TestReplaceRefusesWhenTheRegistryIsUnreadableAndRenamesNothing` (package `place`) and `TestUnreadableRegistryRefusesTheRunAndDeletesNothing`.
 - **The PDF hint falls back to the `%PDF-` magic** when `file(1)` is missing.
 - **A failing `mkdir` is a typed message.**
 - **Test seam (test-only).** `FETCHDOC_TEST_SEAM=1` with `FETCHDOC_TEST_AT=install|after-fork` runs `FETCHDOC_TEST_CMD` with `$$`

@@ -35,7 +35,9 @@ func (x *exe) web(r request) int {
 	if code := pl.Preflight(dest); code != 0 {
 		return code
 	}
-	pl.SweepStale(sdir+"/web-snapshots", x.alive())
+	if code := pl.SweepStale(sdir+"/web-snapshots", x.alive()); code != 0 {
+		return code
+	}
 	html, err := os.CreateTemp(x.d.TmpDir, "tmp.")
 	if err != nil {
 		x.printf("fetch-doc: cannot create a temporary file in %s: %v\n", x.d.TmpDir, err)

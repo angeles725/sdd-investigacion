@@ -22,8 +22,14 @@ func (p *Placer) archive(part, dest, rel string) (same bool, code int) {
 	if err != nil {
 		return false, p.hashFailed(part, err)
 	}
+	// Read the registry BEFORE anything is moved: if it cannot be read, neither "identical and registered" nor the
+	// row retarget below can be trusted, and the current bytes must stay exactly where they are.
+	has, code := p.registered(rel, newSHA, "nothing was replaced; the current bytes are kept")
+	if code != 0 {
+		return false, code
+	}
 	if oldSHA == newSHA {
-		if has, _ := srcregistry.Has(p.SDir, rel, newSHA); has {
+		if has {
 			_ = os.Remove(part)
 			fmt.Fprintf(p.Err, "fetch-doc: identical bytes already registered for %s; nothing replaced, no new row\n", rel)
 			return true, 0
