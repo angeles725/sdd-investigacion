@@ -106,13 +106,17 @@ func TestS8aDisplayDegradedNonHead(t *testing.T) {
 			t.Errorf("next step: %q", nextStepRE.FindString(o.out))
 		}
 	})
-	t.Run("222-non-head-sets-the-reason-codes-footer-once", func(t *testing.T) {
-		o := nbRun(t, nbMulti, "-b.md", false)
-		ns, rc := strings.Index(o.out, "next step       : DEGRADED"), strings.Index(o.out, "\n  reason codes    : ")
-		if n := strings.Count(o.out, "\n  reason codes    : "); n != 1 || ns < 0 || rc < ns {
-			t.Errorf("want one reason-codes footer after the DEGRADED next step, got %d (next step at %d, footer at %d)", n, ns, rc)
-		}
-	})
+	// Both walk DEGRADED forms (resolving a gap, counting a paused focus) carry the footer; the head-state form and
+	// its de-duplication against an earlier footer are pinned by the TestReplayS6 goldens.
+	for name, f := range map[string]files{"222-non-head-sets-the-reason-codes-footer-once": nbMulti, "222-paused-focus-sets-the-reason-codes-footer-once": nbPaused} {
+		t.Run(name, func(t *testing.T) {
+			o := nbRun(t, f, "-b.md", false)
+			ns, rc := strings.Index(o.out, "next step       : DEGRADED"), strings.Index(o.out, "\n  reason codes    : ")
+			if n := strings.Count(o.out, "\n  reason codes    : "); n != 1 || ns < 0 || rc < ns {
+				t.Errorf("want one reason-codes footer after the DEGRADED next step, got %d (next step at %d, footer at %d)", n, ns, rc)
+			}
+		})
+	}
 	t.Run("202-display-healthy-twin-carries-the-stop-verdict", func(t *testing.T) {
 		if o := nbRun(t, nbPaused, "", false); !strings.Contains(o.out, "next step       : STOP | ") {
 			t.Errorf("healthy twin lacks the STOP verdict: %q", nextStepRE.FindString(o.out))
