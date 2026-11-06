@@ -293,6 +293,10 @@ doc_refs_raw() {
   fi
 }
 
+# _git runs git with the variables that would bind it to another repository unset (a git hook or
+# `git rebase --exec` exports GIT_DIR), so -C decides the repository (the lib/mutant.sh _mutant_git convention).
+_git() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE git "$@"; }
+
 # kit_files KIT_DIR IN_GIT REL: the files at REL (a directory or a file) that are doc inputs, as research-sdd/<path>.
 # In a git work tree that is what git would track there: `ls-files --cached --others --exclude-standard`, tracked
 # plus untracked-but-not-ignored (#2761: an ignored build output such as research-sdd/bin/rsdd is not a doc a CI
@@ -301,7 +305,7 @@ doc_refs_raw() {
 kit_files() {
   local kit_dir="$1" in_git="$2" p="$3" out f
   if [ "$in_git" = yes ]; then
-    out="$(git -c core.quotePath=false -C "$kit_dir" ls-files --cached --others --exclude-standard -- "$p")" \
+    out="$(_git -c core.quotePath=false -C "$kit_dir" ls-files --cached --others --exclude-standard -- "$p")" \
       || { printf 'KIT-FILES-FAILED %s\n' "$p"; return 0; }
     while IFS= read -r f; do
       if [ -n "$f" ] && [ -f "$kit_dir/$f" ]; then printf 'research-sdd/%s\n' "$f"; fi
@@ -313,10 +317,19 @@ kit_files() {
   fi
 }
 
+# check_doc_inputs DOC_INPUTS: a KIT-FILES-FAILED line (a git read that failed) is a HARNESS ERROR, never a list.
+check_doc_inputs() {
+  if grep -q '^KIT-FILES-FAILED ' <<< "$1"; then
+    harness_error "docs: git ls-files failed for: $(grep '^KIT-FILES-FAILED ' <<< "$1" | cut -d' ' -f2- | tr '\n' ' ')"
+  fi
+}
+
 derive_doc_inputs() {
-  local kit_dir="$1" suite p in_git=no; shift
-  if git -C "$kit_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then in_git=yes
-  else printf '  NOTE  docs: %s is not in a git work tree — filesystem walk, git-ignored files are not excluded\n' "$kit_dir" >&2
+  local kit_dir="$1" suite p in_git=no why; shift
+  if why="$(_git -C "$kit_dir" rev-parse --is-inside-work-tree 2>&1 >/dev/null)"; then in_git=yes
+  else
+    why="$(head -n 1 <<< "${why:-no reason given}")"
+    printf '  NOTE  docs: git could not confirm a work tree at %s (%s) — filesystem walk, git-ignored files are not excluded\n' "$kit_dir" "$why" >&2
   fi
   for suite in "$@"; do
     [ -f "$suite" ] || continue
@@ -346,9 +359,7 @@ else
 fi
 
 DOC_INPUTS="$(derive_doc_inputs "$REPO/research-sdd" "${ALL_SUITES[@]}")"
-if grep -q '^KIT-FILES-FAILED ' <<< "$DOC_INPUTS"; then
-  harness_error "docs: git ls-files failed for: $(grep '^KIT-FILES-FAILED ' <<< "$DOC_INPUTS" | cut -d' ' -f2- | tr '\n' ' ')"
-fi
+check_doc_inputs "$DOC_INPUTS"
 doc_count=0
 while IFS= read -r line; do if [ -n "$line" ]; then doc_count=$((doc_count + 1)); fi; done <<< "$DOC_INPUTS"
 if [ "$doc_count" -gt 0 ]; then
@@ -383,12 +394,14 @@ fi
 gk_fixture() {
   mkdir -p "$1/research-sdd/docx" "$1/fx"
   printf 'docx/ignored.bin\n' > "$1/research-sdd/.gitignore"
-  local f; for f in tracked.md ignored.bin untracked.md; do printf 'x\n' > "$1/research-sdd/docx/$f"; done
+  local f; for f in tracked.md ignored.bin untracked.md gone.md; do printf 'x\n' > "$1/research-sdd/docx/$f"; done
   # shellcheck disable=SC2016 # the fixture suite text is literal
   printf '%s\n' 'HERE=x' 'KIT="$(cd "$HERE/../.." && pwd)"' 'ls "$KIT/docx"' > "$1/fx/r.test.sh"
-  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$1" init -q 2>/dev/null \
-    && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$1" add research-sdd/.gitignore research-sdd/docx/tracked.md
+  _git -C "$1" init -q 2>/dev/null \
+    && _git -C "$1" add research-sdd/.gitignore research-sdd/docx/tracked.md research-sdd/docx/gone.md \
+    && rm "$1/research-sdd/docx/gone.md"  # tracked, then deleted from the work tree: not a doc input
 }
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1  # the fixtures never read the caller's git config
 GK="$(mktemp -d)"; NG="$(mktemp -d)"
 if gk_fixture "$GK" && cp -R "$GK/research-sdd" "$NG/kit"; then
   gk_got="$(derive_doc_inputs "$GK/research-sdd" "$GK/fx/r.test.sh" 2>"$GK/err")"
@@ -397,8 +410,8 @@ if gk_fixture "$GK" && cp -R "$GK/research-sdd" "$NG/kit"; then
   else
     no "docs: git-tracked derivation got [$(tr '\n' ' ' <<< "$gk_got")] stderr [$(cat "$GK/err")], want tracked.md and untracked.md only"
   fi
-  ng_got="$(derive_doc_inputs "$NG/kit" "$GK/fx/r.test.sh" 2>"$GK/err")"
-  if grep -qx 'research-sdd/docx/ignored.bin' <<< "$ng_got" && grep -q 'NOTE  docs: .* is not in a git work tree — filesystem walk' "$GK/err"; then
+  ng_got="$(GIT_CEILING_DIRECTORIES="$NG" derive_doc_inputs "$NG/kit" "$GK/fx/r.test.sh" 2>"$GK/err")"
+  if grep -qx 'research-sdd/docx/ignored.bin' <<< "$ng_got" && grep -q 'NOTE  docs: git could not confirm a work tree at .* — filesystem walk' "$GK/err"; then
     ok "docs: outside a git work tree the walk stays and a typed NOTE names it"
   else
     no "docs: no-git derivation got [$(tr '\n' ' ' <<< "$ng_got")] stderr [$(cat "$GK/err")]"
@@ -407,12 +420,13 @@ else
   harness_error "docs: cannot build the git fixture for #2761 (git init/add failed)"
 fi
 # A git read that fails is never an empty list: kit_files names the path for the caller's HARNESS ERROR.
-if [ "$(kit_files "$NG/kit" yes docx 2>/dev/null)" = "KIT-FILES-FAILED docx" ]; then
+if [ "$(GIT_CEILING_DIRECTORIES="$NG" kit_files "$NG/kit" yes docx 2>/dev/null)" = "KIT-FILES-FAILED docx" ]; then
   ok "docs: a failed git ls-files is reported as KIT-FILES-FAILED, not as an empty list"
 else
   no "docs: a failed git ls-files outside a repo did not report KIT-FILES-FAILED"
 fi
 rm -rf "$GK" "$NG"
+unset GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
 
 # ---- NEGATIVE CONTROL: prove both defects are closed -----------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -491,7 +505,7 @@ STUB_EOF
   # filesystem walk must derive the git-ignored file. S: tracked files only (no --others) must lose the untracked
   # one, which would hide a new directory nobody added to the filters.
   RK="$(mktemp -d)"
-  if gk_fixture "$RK"; then
+  if GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 gk_fixture "$RK"; then
     eval "real_$(declare -f kit_files)"
     kit_files() { if [ -d "$1/$3" ]; then find "$1/$3" -type f | sed "s#^$1/#research-sdd/#"; fi; }
     if grep -qx 'research-sdd/docx/ignored.bin' <<< "$(derive_doc_inputs "$RK/research-sdd" "$RK/fx/r.test.sh" 2>/dev/null)"; then
@@ -510,6 +524,14 @@ STUB_EOF
     no "teeth R/S: cannot build the git fixture"
   fi
   rm -rf "$RK"
+
+  # Teeth T (#2761): the caller turns a KIT-FILES-FAILED line into a HARNESS ERROR (exit 2, typed text), never a list.
+  t_out="$( (kit_files() { printf 'KIT-FILES-FAILED %s\n' "$3"; }; check_doc_inputs "$(derive_doc_inputs "$REPO/research-sdd" "${ALL_SUITES[@]}" 2>/dev/null)") 2>&1)"; t_rc=$?
+  if [ "$t_rc" -eq 2 ] && grep -q 'HARNESS ERROR: docs: git ls-files failed for: ' <<< "$t_out"; then
+    ok "teeth T: a failed git read exits 2 with a typed HARNESS ERROR"
+  else
+    no "teeth T: a failed git read gave rc=$t_rc, want 2 with 'git ls-files failed for' — the conversion is theater"
+  fi
 
   # Teeth D: a suite binding KIT with indentation + `readonly` and reading $KIT/METHODOLOGY.md must be derived.
   mkdir -p "$TMP/fx"
