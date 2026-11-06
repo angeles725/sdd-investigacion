@@ -48,7 +48,6 @@ import (
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 )
 
 const (
@@ -138,21 +137,6 @@ func (m *meter) tmpRoot() string {
 		return t
 	}
 	return "/tmp"
-}
-
-// toolbeltDir is the directory holding lib/session-budget-pi.mjs: the flag, else the resolved kit's.
-func (m *meter) toolbeltDir() string {
-	if m.toolbelt != "" {
-		return m.toolbelt
-	}
-	root, warns, err := kit.ResolveKitRoot(kit.Getenv(m.s.Env))
-	for _, w := range warns {
-		fmt.Fprintln(m.s.Err, w)
-	}
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(root, "toolbelt")
 }
 
 // claude is the default harness: the SessionStart hooks of <target>/.claude/settings.json, per source.
