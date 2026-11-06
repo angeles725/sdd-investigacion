@@ -12,11 +12,12 @@ import (
 // BashFile is one scanned bash file: its repo-relative path, text, the commands it reaches, and the exec
 // forms it uses that no recovered command explains.
 type BashFile struct {
-	Path    string
-	Text    string
-	Calls   []Call
-	Unclass []string
-	Exempt  string // the reason in exemptUnclassifiable when Unclass does not count, else ""
+	Path     string
+	Text     string
+	Calls    []Call
+	Mentions []Mention
+	Exempt   string // the reason in exemptBlind when the file's blind spots do not count, else ""
+	Empty    bool   // empty-reach: mentions the binary, yet no call and no named shim reaches a command
 }
 
 const maxBashBytes = 8 << 20
@@ -48,8 +49,8 @@ func ScanBash(repo string, known func(Command) bool) ([]BashFile, error) {
 		}
 		rel, _ := filepath.Rel(repo, p)
 		f := BashFile{Path: filepath.ToSlash(rel), Text: string(b)}
-		f.Calls, f.Unclass = scanText(f.Text, known)
-		f.Exempt = exemptUnclassifiable[f.Path]
+		f.Calls, f.Mentions = scanText(f.Text, known)
+		f.Exempt = exemptBlind[f.Path]
 		out = append(out, f)
 		return nil
 	})
@@ -57,6 +58,7 @@ func ScanBash(repo string, known func(Command) bool) ([]BashFile, error) {
 		return nil, fmt.Errorf("cannot enumerate bash files under research-sdd: %w", err)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	markEmptyReach(out)
 	return out, nil
 }
 

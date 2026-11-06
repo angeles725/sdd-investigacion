@@ -28,7 +28,7 @@ func TestRealTreeSmokeStageIssues(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := range files {
-		files[i].Unclass = nil
+		files[i].Mentions, files[i].Empty = nil, false
 	}
 	got := goimpact.NewAnalysis(m, files, 100).Classify(f)
 	want := "SHIM\t" + f + "\tresearch-sdd/toolbelt/stage-retro-issues.sh\tretro stage-issues"

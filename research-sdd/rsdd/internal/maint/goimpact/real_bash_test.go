@@ -9,20 +9,24 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/maint/goimpact"
 )
 
-// declaredUnclassifiable reads testdata/unclassifiable.txt: the exact set of bash files allowed to exec rsdd in a
-// form the enumerator cannot resolve, or to name RSDD_BIN outside a call (C9 blind spots). A file here makes
-// every change that reaches a command FULL, so the list is data, reviewed on every change to it.
-func declaredUnclassifiable(t *testing.T) []string {
+// declaredBlind reads testdata/go-blindspot.txt: one `<path> <class>` line per Go blind-spot bash file. The
+// classifier derives the set; the list is the reviewed record, so a change to it is visible in review.
+func declaredBlind(t *testing.T) map[string]string {
 	t.Helper()
-	b, err := os.ReadFile("testdata/unclassifiable.txt")
+	b, err := os.ReadFile("testdata/go-blindspot.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []string
+	out := map[string]string{}
 	for _, l := range strings.Split(string(b), "\n") {
-		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
-			out = append(out, l)
+		if l = strings.TrimSpace(l); l == "" || strings.HasPrefix(l, "#") {
+			continue
 		}
+		f := strings.Fields(l)
+		if len(f) != 2 {
+			t.Fatalf("malformed line in go-blindspot.txt: %q", l)
+		}
+		out[f[0]] = f[1]
 	}
 	return out
 }
@@ -43,7 +47,7 @@ func TestBashEnumeratorMatchesRegistryOnTheRealTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	callers, forms, exempt := 0, map[string]bool{}, map[string]bool{}
-	var unclass []string
+	derived := map[string]string{}
 	for _, f := range files {
 		if len(f.Calls) > 0 {
 			callers++
@@ -51,11 +55,11 @@ func TestBashEnumeratorMatchesRegistryOnTheRealTree(t *testing.T) {
 		for _, c := range f.Calls {
 			forms[c.Form] = true
 		}
-		if len(f.Unclass) > 0 && f.Exempt == "" {
-			unclass = append(unclass, f.Path)
+		if f.Blind() != "" {
+			derived[f.Path] = f.Blind()
 		}
 		if f.Exempt != "" {
-			exempt[f.Path] = len(f.Unclass) > 0
+			exempt[f.Path] = unresolved(f)
 		}
 	}
 	if callers < 40 {
@@ -67,9 +71,16 @@ func TestBashEnumeratorMatchesRegistryOnTheRealTree(t *testing.T) {
 			t.Errorf("form %q never matched on the real tree (seen %v)", f, keys(forms))
 		}
 	}
-	sort.Strings(unclass)
-	if strings.Join(unclass, "\n") != strings.Join(declaredUnclassifiable(t), "\n") {
-		t.Errorf("unclassifiable bash files differ from the declared list:\n got  %v\n want %v", unclass, declaredUnclassifiable(t))
+	declared := declaredBlind(t)
+	for _, p := range sortedKeys(derived) {
+		if declared[p] != derived[p] {
+			t.Errorf("blind spot %s (%s) is missing from, or differs in, testdata/go-blindspot.txt (listed: %q)", p, derived[p], declared[p])
+		}
+	}
+	for _, p := range sortedKeys(declared) {
+		if _, ok := derived[p]; !ok {
+			t.Errorf("stale entry in testdata/go-blindspot.txt: %s is no longer a blind spot", p)
+		}
 	}
 	// a stale exemption: the file lost its unresolved form, or is gone from the scan
 	for p := range goimpact.Exemptions() {
@@ -92,4 +103,22 @@ func TestBashEnumeratorMatchesRegistryOnTheRealTree(t *testing.T) {
 	if !called[goimpact.Command{Group: "retro", Name: "stage-issues"}] {
 		t.Errorf("retro stage-issues has no recovered bash caller")
 	}
+}
+
+func unresolved(f goimpact.BashFile) bool {
+	for _, m := range f.Mentions {
+		if m.Class != goimpact.ClassA && m.Class != goimpact.ClassB && !m.Resolved {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

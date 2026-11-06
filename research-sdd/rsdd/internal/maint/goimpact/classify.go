@@ -26,7 +26,7 @@ func NewAnalysis(m *Module, bash []BashFile, wide int) *Analysis {
 		for _, c := range f.Calls {
 			a.callers[c.Cmd] = append(a.callers[c.Cmd], f.Path)
 		}
-		if len(f.Unclass) > 0 && f.Exempt == "" {
+		if f.Blind() != "" {
 			a.unclass = append(a.unclass, f.Path)
 		}
 	}
