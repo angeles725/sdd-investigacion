@@ -42,17 +42,20 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   `recorded when the ratchet was created (#2738)`.
 - S11 Self-compliance. Every Go file this change adds is at 200 lines or less; standard library only; package
   `archtest`; limits and message formats separate from the scanning logic.
-- S12 Known limit, stated in the debt-file header and in message d: a tree-only test cannot stop a change that adds a
+- S12 Known limit, stated in the debt-file header: a tree-only test cannot stop a change that adds a
   `legacy` entry, or raises one above 400, in the same diff (L10). That is a review rule: `legacy` lines are never
   added after this change. A base comparison in CI is added only if observed.
 
 ## Tasks
 
-- [ ] T1 (S1-S9, S11) engine + parser + update mode + temp-tree tests · route: delegated (sonnet writer; parent s10 is
-  read-only by role and holds no other file), then parent review and three pins inline · commit: 10c989af · observed:
-  package tests under default and `nodiff` tags, vet, staticcheck, both cross builds (L7) · open: mutation run
-- [ ] T2 (S10, S12) debt list + real-tree test + header · route: same writer · commit: the one that adds this file ·
-  observed: real-tree test, update mode byte-identical on a clean tree, scratch-copy probe (L8) · open: mutation run
+- [x] T1 (S1-S9, S11) engine + parser + update mode + temp-tree tests · route: delegated (sonnet writer; parent s10 is
+  read-only by role and holds no other file), then parent review and three pins inline · commits: 351f114a (engine),
+  82659fa9 (comparisons as `if` statements, boundary tests), the commit that adds `filesize_limits.go` · observed:
+  package tests under default and `nodiff` tags, vet, staticcheck, both cross builds (L7), mutation run (L9),
+  independent verifier (L11)
+- [x] T2 (S10, S12) debt list + real-tree test + header · route: same writer · commits: ecfe48c3 (list, real-tree
+  test), 185721df (known-limit wording) · observed: real-tree test, update mode byte-identical on a clean tree,
+  scratch-copy probe (L8), independent count of the list (L11)
 
 ## Log
 
@@ -103,3 +106,15 @@ Test runner: `go test ./internal/testkit/archtest/` from `research-sdd/rsdd` (fo
   one. S12 and the header now name both forms. The mechanical closure is a comparison against the merge base, which
   serves every only-shrink file at once (this list, the teeth debt, the planned consumers baseline): proposed to s1
   for the phase 8 CI join, not built here.
+- L11 Independent verification, second launch, on 185721df (rebased on b55f8e4c), in a scratch copy outside the
+  worktree (removed): PASS WITH ADVISORIES, no blocker. Every S1-S12 has an observed verdict. S10 was recounted with
+  `find`/`awk`/`wc`: 620 non-test files outside testdata, 3 generated, 152 over 200, identical to the list. Update
+  mode: only the value `1` writes; it lowered and deleted at the first, middle and last entry, never raised, never
+  added, kept comments, blank lines, a malformed line and the file mode, left no temp file, and left the mtime
+  unchanged on a second run. Every failing run without the variable left the list's sha256 unchanged. Advisories and
+  what was done: (1) S12 said the limit is stated in message d, which it is not: S12 corrected; (2) the limits shared
+  a file with the scanner: moved to `filesize_limits.go` (a pure move, no logic changed, so the mutation run of L9
+  was not repeated locally; CI repeats it); (3) violations sort as strings, so `modularity-debt.txt:13` prints
+  before `:8`: cosmetic, left; (4) a malformed entry also yields message a for its file: redundant but correct, left;
+  (5) out of domain, left: `+250` and `0250` parse as counts, a generated marker ending in CRLF is exempt, the
+  atomic write would replace a symlinked list with a regular file. Not probed: a CRLF list in update mode.

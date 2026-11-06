@@ -12,15 +12,8 @@ import (
 	"strings"
 )
 
-// The file-size ratchet. Owner rule: "about 200 lines or less"; orchestrator
-// ruling 2026-11-06: "200 reviewed target, 400 hard ceiling". These two
-// constants are the only place the limits are defined.
-const (
-	SoftLimit = 200
-	HardLimit = 400
-	// DebtFileName is the debt list kept at the module root.
-	DebtFileName = "modularity-debt.txt"
-)
+// The file-size ratchet: the scan and its result. The limits are in filesize_limits.go, the messages in
+// filesize_judge.go.
 
 // SizeResult reports what CheckFileSizes examined as well as what it found,
 // so a zero cannot be mistaken for "did not look".
