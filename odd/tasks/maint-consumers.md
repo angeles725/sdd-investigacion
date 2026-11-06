@@ -88,7 +88,7 @@ this unit's, with its evidence in the log.
 - [ ] T4 (S10) acceptance: the baseline against section 1 of `odd/tasks/phase8-cutover.md`, re-measured and dated,
   every difference classified by hand · route: inline · needs T3
 
-Forecast: about 250 changed lines for T1, 500 for T2 (plus a baseline of about 50 lines of data), 400 for T3: three
+Forecast: about 250 changed lines for T1, 500 for T2 (plus a baseline of about 60 lines of data: 50 pairs and the ten `assembled` literals), 400 for T3: three
 pull requests, one per task; T4 is recorded in this document and in the last pull request.
 
 ## Log
