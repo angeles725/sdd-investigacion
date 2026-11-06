@@ -303,5 +303,6 @@ func s3Scenarios() []s3Scenario {
 		ss("sync-with-stall-minutes-flag", ln("# R", std), nil, "--sync-state", "--stall-minutes", "5"),
 	)
 	add(s8aSyncScenarios()...) // the UNMAPPED cases of the bash suites (S8a)
+	add(s8cSyncScenarios()...) // the faults of the retired status script-mutation teeth (S8c)
 	return scs
 }

@@ -46,6 +46,8 @@ func s7Multi() []s6Scenario {
 		withQueue(nil, queue(queueHdr, qrow("a", "focus", "pending"), "campaign_stop: bound")), nil))
 	ws("g-a-focus-without-a-queue-is-silent", "  campaign        : pending=0 active=0 done=1", twoFocus(focus(true), bare, nil))
 	ws("g-no-label-when-only-one-focus-has-a-queue", "  last_audit      : enqueued=0", twoFocus(focus(true), bare, nil))
+	// teeth-T-W3-WORDING: the count is the queue-bearing focuses (2), not every active focus (3).
+	ws("g-aggregate-stop-counts-only-queue-bearing-focuses", "STOP reached — all 2 queue-bearing focuses terminal", twoFocus(focus(true), focus(true), files{"corpus/RESEARCH-STATE-zed.md": bare}))
 	ws("g-single-queue-never-prints-the-aggregate-stop", "campaign_stop   : STOP reached — all entries terminal", twoFocus(focus(true), bare, nil))
 	ws("g-no-queue-anywhere-is-one-line", "  campaign        : none (2 active focuses, 0 with a queue)", twoFocus(bare, bare, nil))
 	ws("g-no-queue-anywhere-has-no-timestamp-line", "none (2 active focuses, 0 with a queue)\n  next step", twoFocus(bare, bare, nil))

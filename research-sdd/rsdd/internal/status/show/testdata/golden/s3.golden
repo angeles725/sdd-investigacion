@@ -3086,6 +3086,39 @@ deferred_open: 0
 - Coverage metric: 2/3
 
 --- end
+=== kg-emdash-open-row-warn-reaches-sync-state-stderr
+run 1: <ROOT>/corpus --sync-state
+rc: 0
+--- stdout
+sync-state: wrote <ROOT>/corpus/RESEARCH-STATE.md
+sync-state: RESEARCH-STATE.md → covered_blocks=0 gaps_closed=0 known_gaps=2 investigable_open=1 requires_execution_open=0 blocked_open=0 deferred_open=0 undocumented_findings=0
+--- stderr
+WARN: em-dash priority on an OPEN row [pending] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): | — | G1 | x | pending |
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0600
+# R
+## Gap-backlog (prioritized)
+| Priority | Gap | Artifact | Status |
+|---|---|---|---|
+| — | G1 | x | pending |
+| high | live gap | web | pending |
+
+## Coverage
+- Coverage metric: 0/2
+
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 2
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+deferred_open: 0
+undocumented_findings: 0
+<!-- /research-state.v1 -->
+--- end
 === kg-gc-clamp-negative-keeps-declared
 run 1: <ROOT>/corpus --sync-state
 rc: 0

@@ -6367,6 +6367,129 @@ last_audit: enqueued=0
 --- calls
 verify: <ROOT>/corpus
 --- end calls
+=== g-aggregate-stop-counts-only-queue-bearing-focuses
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : (no iteration history)
+  campaign[act]   : pending=0 active=0 done=1 bound-stopped=0 rejected=0
+  last_audit[act] : enqueued=0
+  campaign_stop[act]: STOP reached — all entries terminal, last_audit enqueued=0
+  last_iteration_ts[act]: absent
+  campaign[RESEARCH-STATE]: pending=0 active=0 done=1 bound-stopped=0 rejected=0
+  last_audit[RESEARCH-STATE]: enqueued=0
+  campaign_stop[RESEARCH-STATE]: STOP reached — all entries terminal, last_audit enqueued=0
+  last_iteration_ts[RESEARCH-STATE]: absent
+  campaign_stop   : STOP reached — all 2 queue-bearing focuses terminal
+  next step       : NEXT | high | the root gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE-act.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+
+## Campaign queue
+
+| Entry | Seed | Kind | Convergence | Depth | State |
+|---|---|---|---|---|---|
+
+| a | seed | focus | conv | 1 | done |
+last_audit: enqueued=0
+--- file corpus/RESEARCH-STATE-zed.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+
+## Campaign queue
+
+| Entry | Seed | Kind | Convergence | Depth | State |
+|---|---|---|---|---|---|
+
+| a | seed | focus | conv | 1 | done |
+last_audit: enqueued=0
+--- end
+--- calls
+verify: <ROOT>/corpus
+--- end calls
 === g-all-terminal-aggregate-stop
 run 1: <ROOT>/corpus
 rc: 0

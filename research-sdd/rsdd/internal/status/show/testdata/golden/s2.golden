@@ -1183,6 +1183,83 @@ rc: 0
 --- stdout
 0
 --- stderr
+=== bl-grupo-table-under-a-near-miss-heading
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Reapertura 2026-07-12 — backlog A→B→C] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Reapertura 2026-07-12 — backlog A→B→C] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+UNCOUNTED	—
+UNCOUNTED	**a**
+--- stderr
+WARN: near-miss gap-backlog heading [## Reapertura 2026-07-12 — backlog A→B→C] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
 === bl-header-row-repeated-in-data
 op 'backlog_rows'
 rc: 0
@@ -1342,6 +1419,84 @@ op 'count_uncounted_rows'
 rc: 1
 --- stdout
 0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-indented-malformed-row-is-uncounted
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	✅ b1
+--- stderr
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe):    | low | real | malformed | row | here |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	✅ b1
+--- stderr
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe):    | low | real | malformed | row | here |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	✅ b1
+UNCOUNTED	low
+--- stderr
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe):    | low | real | malformed | row | here |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+1
 --- stderr
 
 op '__inplace'
@@ -4025,6 +4180,81 @@ rc: 0
 --- stdout
 0
 --- stderr
+=== bl-prose-closed-class-line-is-not-an-uncounted-row
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+—	e1	✅ b1
+—	e2	✅ b2
+high	g1	pending
+--- stderr
+WARN: malformed closed-class backlog row (2 cells, expected 4): — note: rows use the a | b convention
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+WARN: malformed closed-class backlog row (2 cells, expected 4): — note: rows use the a | b convention
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
 === bl-prose-pipe-rows
 op 'backlog_rows'
 rc: 0
@@ -4089,6 +4319,160 @@ op 'count_all_known_gaps'
 rc: 0
 --- stdout
 3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-prose-tier-line-before-the-first-row
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	✅ b1
+--- stderr
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe): low | prose with | several | pipes | inside
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	✅ b1
+--- stderr
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe): low | prose with | several | pipes | inside
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	✅ b1
+--- stderr
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe): low | prose with | several | pipes | inside
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-prose-tier-line-is-not-an-uncounted-row
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	✅ b1
+--- stderr
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe): low | prose with | several | pipes | inside
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	✅ b1
+--- stderr
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe): low | prose with | several | pipes | inside
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	✅ b1
+--- stderr
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe): low | prose with | several | pipes | inside
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
 --- stderr
 
 op 'count_uncounted_rows'

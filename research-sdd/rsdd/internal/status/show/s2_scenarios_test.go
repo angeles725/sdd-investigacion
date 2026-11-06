@@ -332,7 +332,7 @@ func miscScenarios() []s2Scenario {
 // s2Scenarios is every scenario of the S2 differential and replay tests.
 func s2Scenarios() []s2Scenario {
 	var all []s2Scenario
-	for _, g := range [][]s2Scenario{backlogScenarios(), deferredScenarios(), envScenarios(), sectionScenarios(), attributedScenarios(), focusScenarios(), miscScenarios()} {
+	for _, g := range [][]s2Scenario{backlogScenarios(), deferredScenarios(), envScenarios(), sectionScenarios(), attributedScenarios(), focusScenarios(), miscScenarios(), s8cBacklogScenarios()} {
 		all = append(all, g...)
 	}
 	return all

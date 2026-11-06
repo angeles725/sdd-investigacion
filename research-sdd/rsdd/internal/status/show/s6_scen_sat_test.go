@@ -85,5 +85,8 @@ func s6Saturation() []s6Scenario {
 	sat("s-a-lone-angle-bracket-is-not-a-placeholder", "insufficient history (1 iterations)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]  · latest unnumbered row seeded 5 gaps — not yet an iteration", tbl(it("1", "0"), "| < | d | 5 | n |"))
 	sat("s-latest-unnumbered-row-is-the-last-one", "insufficient history (1 iterations)  [2 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]  · latest unnumbered row seeded 7 gaps — not yet an iteration", tbl(it("1", "0"), it("bootstrap", "3"), it("synthesis", "7")))
 	sat("s-unnumbered-row-keeps-its-place-among-the-forms", "active (1 new gaps in last 3 iter)  [WARN: 2 of 6 rows unreadable (forms: aa,bb)]  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]", tbl(it("1", "0"), it("synthesis", "aa"), it("3", "bb"), it("4", "0"), it("5", "0"), it("6", "1")))
+	// teeth-#449d: the unnumbered row ties the sort key of iteration 2; the WARN forms keep the file order of the
+	// tie (a stable sort), an unstable one would break it on the whole line and name ITER-bad-2 instead.
+	sat("s-tied-sort-key-keeps-the-file-order-in-the-forms", "active (10 new gaps in last 3 iter)  [WARN: 3 of 6 rows unreadable (forms: ITER-bad-1,STRUCT-bad-form)]  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]", tbl(it("1", "ITER-bad-1"), it("synthesis", "STRUCT-bad-form"), it("2", "ITER-bad-2"), it("3", "5"), it("4", "3"), it("5", "2")))
 	return scs
 }
