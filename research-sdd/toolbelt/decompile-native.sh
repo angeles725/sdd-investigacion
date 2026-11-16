@@ -7,7 +7,7 @@
 #   decompile-native.sh ghidra <binary> <out-dir> [--script Script.java]
 #   decompile-native.sh ghidra-evidence <binary> <new-out-dir>
 #   decompile-native.sh r2     <binary>            # r2 analysis (aaa + pdf of main)
-#   decompile-native.sh quick  <binary>            # file+readelf+strings (triage)
+#   decompile-native.sh quick  <binary>            # file+readelf (ELF) or objdump -f (PE)+strings
 #
 # Note: for interactive agent-directed decompilation, see ghidra-mcp
 # (GHIDRA-MCP.md). This wrapper covers the always-available headless/batch mode.
@@ -23,7 +23,15 @@ BIN="${2:?binary required}"
 case "$MODE" in
   quick)
     echo "== file =="; file "$BIN"
+    # readelf reads ELF only and exits 1 on a PE ("Not an ELF file"): a PE (DOS "MZ" magic) gets
+    # objdump -f instead, informational only (binutils may lack the PE target for its machine).
+    _magic="$(head -c 2 "$BIN" 2>/dev/null || true)"
+    if [ "$_magic" = MZ ]; then
+      echo "== readelf skipped: PE binary (MZ) =="
+      echo "== objdump -f =="; objdump -f "$BIN" 2>/dev/null || echo "objdump could not read this PE (rc=$?)"
+    else
     echo "== readelf -h =="; readelf -h "$BIN" 2>/dev/null | head -20 || { _sp="${PIPESTATUS[0]}"; [ "$_sp" -eq 0 ] || [ "$_sp" -eq 141 ] || { echo "readelf failed (rc=$_sp): $BIN" >&2; exit "$_sp"; }; }
+    fi
     echo "== strings (first 40) =="
     # head closes the pipe after 40 lines, so strings dies of SIGPIPE and the pipeline's
     # first-stage exit status is 141 (= 128 + SIGPIPE(13)) — the expected early-termination
