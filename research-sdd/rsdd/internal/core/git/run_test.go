@@ -103,3 +103,27 @@ func TestExitErrorText(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestRunWithStderrReturnsStderrOfASuccessfulRun(t *testing.T) {
+	r := stub(t, "GIT_OUT=listing", "GIT_ERR=warning: could not open directory 'sub/'\nsecond\n")
+	out, errb, err := r.RunWithStderr("", "ls-files")
+	if err != nil || string(out) != "listing" || string(errb) != "warning: could not open directory 'sub/'\nsecond\n" {
+		t.Fatalf("got %q, %q, %v", out, errb, err)
+	}
+	if out, err := r.Run("", "ls-files"); err != nil || string(out) != "listing" {
+		t.Fatalf("Run: got %q, %v", out, err)
+	}
+}
+
+func TestRunWithStderrOnFailureKeepsBothStreams(t *testing.T) {
+	r := stub(t, "GIT_OUT=partial", "GIT_ERR=fatal: bad\n", "GIT_RC=128")
+	out, errb, err := r.RunWithStderr("", "status")
+	var ee *ExitError
+	if !errors.As(err, &ee) || ee.Code != 128 || ee.Stderr != "fatal: bad\n" || string(out) != "partial" || string(errb) != "fatal: bad\n" {
+		t.Fatalf("got %q, %q, %#v", out, errb, err)
+	}
+	out, errb, err = Runner{Env: []string{"PATH=" + t.TempDir()}}.RunWithStderr("", "status")
+	if !errors.Is(err, ErrMissing) || out != nil || errb != nil {
+		t.Fatalf("missing git: got %q, %q, %v", out, errb, err)
+	}
+}
