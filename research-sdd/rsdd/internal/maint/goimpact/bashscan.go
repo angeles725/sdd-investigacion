@@ -1,0 +1,179 @@
+package goimpact
+
+import (
+	"maps"
+	"regexp"
+	"slices"
+	"strings"
+)
+
+// Call is one resolved invocation of an rsdd command from bash, with the form it used.
+type Call struct {
+	Cmd  Command
+	Form string
+}
+
+var (
+	wordRe   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	assignRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\+?=`)
+)
+
+// prefixWords may stand before the command word of a simple command (`env` is a command, not a prefix).
+var prefixWords = map[string]bool{"if": true, "then": true, "else": true, "elif": true, "do": true, "while": true,
+	"until": true, "!": true, "exec": true, "command": true, "time": true, "builtin": true}
+
+// segment is one simple command: its words, the command-substitution bodies inside them, the rest of the line
+// after a substitution that never closed (bad), and the separator that ended it.
+type segment struct {
+	words []string
+	subs  []string
+	bad   string
+	next  string
+}
+
+func segments(toks []tok) []segment {
+	var out []segment
+	var cur segment
+	for _, t := range toks {
+		if t.bad != "" {
+			cur.bad = t.bad
+			continue
+		}
+		if !t.sep {
+			cur.words = append(cur.words, t.text)
+			cur.subs = append(cur.subs, t.subs...)
+			continue
+		}
+		cur.next = t.text
+		out = append(out, cur)
+		cur = segment{}
+	}
+	return append(out, cur)
+}
+
+func norm(s string) string { return strings.NewReplacer(`"`, "", `'`, "").Replace(s) }
+
+// commandIndex is the index of the command word (after keywords and assignments), or -1.
+func commandIndex(words []string) int {
+	for i, w := range words {
+		if n := norm(w); !prefixWords[n] && !assignRe.MatchString(n) {
+			return i
+		}
+	}
+	return -1
+}
+
+// literalForm labels the non-variable ways to run the binary and the words to skip before <group> <name>
+// (rsdd_exec_hook takes a <kind> first). The literal path form excludes assignments (`RSDD_BIN=$ROOT/rsdd`).
+func literalForm(w string) (form string, skip int) {
+	switch w {
+	case "rsdd_exec":
+		return "rsdd_exec", 0
+	case "rsdd_exec_hook":
+		return "rsdd_exec_hook", 1
+	}
+	if !strings.Contains(w, "=") && (w == "rsdd" || strings.HasSuffix(w, "/bin/rsdd")) {
+		return "rsdd", 0
+	}
+	return "", 0
+}
+
+// scanText returns the resolved calls and every classified RSDD_BIN mention of one bash file; a literal
+// rsdd_exec / rsdd / rsdd_exec_hook call counts as a class C mention.
+func scanText(text string, known func(Command) bool) ([]Call, []Mention) {
+	seen := map[Command]bool{}
+	aliases := map[string]bool{}
+	var calls []Call
+	var ms []Mention
+	record := func(class, form string, args []string) {
+		c, ok := resolve(args, known)
+		ms = append(ms, Mention{Class: class, Resolved: ok})
+		if ok && !seen[c] {
+			seen[c] = true
+			calls = append(calls, Call{Cmd: c, Form: form})
+		}
+	}
+	// scanLine scans one logical line. The body of every command substitution is scanned as a new line: a fresh
+	// command context, so the assignment, bracket and [[ ]] state of the outer words never applies to it.
+	var scanLine func(text string, exec bool)
+	scanLine = func(text string, exec bool) {
+		inDouble := false
+		for _, seg := range segments(lex(text)) {
+			w0 := commandIndex(seg.words)
+			if w0 != -1 && norm(seg.words[w0]) == "[[" {
+				inDouble = true
+			}
+			for j, w := range seg.words {
+				if binNameRe.MatchString(w) {
+					class := classify(seg.words, j, w0, inDouble, exec)
+					if class == ClassC || class == ClassD {
+						record(class, mentionForm(w), normAll(seg.words[j+1:]))
+					} else {
+						ms = append(ms, Mention{Class: class})
+					}
+					if class == ClassA {
+						noteAlias(aliases, norm(w))
+					}
+				} else if form, skip := literalForm(norm(w)); form != "" && j == w0 {
+					args := normAll(seg.words[j+1:])
+					if len(args) == 0 && seg.next == "(" {
+						continue // `rsdd_exec() {`: a function definition, not a call
+					}
+					record(ClassC, form, args[min(skip, len(args)):]) // too few words: an unresolved call
+				}
+			}
+			for _, w := range seg.words {
+				if norm(w) == "]]" {
+					inDouble = false
+				}
+			}
+			for _, sub := range seg.subs {
+				scanLine(sub, exec)
+			}
+			if seg.bad != "" && strings.Contains(strings.ToLower(seg.bad), "rsdd") { // never closed: fail closed
+				ms = append(ms, Mention{Class: ClassUnplaceable})
+			}
+		}
+	}
+	for _, sl := range sourceLines(text) {
+		scanLine(sl.Text, sl.Exec)
+	}
+	for _, a := range slices.Sorted(maps.Keys(aliases)) {
+		if regexp.MustCompile(`\$\{?` + a + `\b`).MatchString(text) {
+			ms = append(ms, Mention{Class: ClassAlias})
+		}
+	}
+	return calls, ms
+}
+
+// noteAlias records the variable an assignment word stores the binary in (`r="$RSDD_BIN"`), unless it is one
+// of the binary variables themselves. A use of that variable is a call the classifier cannot follow.
+func noteAlias(aliases map[string]bool, word string) {
+	if !assignRe.MatchString(word) {
+		return
+	}
+	name, _, _ := strings.Cut(word, "=")
+	name = strings.TrimSuffix(name, "+")
+	if name != "RSDD_BIN" && name != "RSDD_REAL_BIN" {
+		aliases[name] = true
+	}
+}
+
+func normAll(ws []string) []string {
+	out := make([]string, len(ws))
+	for i, w := range ws {
+		out[i] = norm(w)
+	}
+	return out
+}
+
+// resolve reads `<group> <name>` (or a lone ungrouped `<name>`) from the words after the executable.
+func resolve(args []string, known func(Command) bool) (Command, bool) {
+	if len(args) >= 2 && wordRe.MatchString(args[0]) && wordRe.MatchString(args[1]) && known(Command{args[0], args[1]}) {
+		return Command{args[0], args[1]}, true
+	}
+	if len(args) >= 1 && wordRe.MatchString(args[0]) && known(Command{Name: args[0]}) {
+		return Command{Name: args[0]}, true
+	}
+	return Command{}, false
+}
