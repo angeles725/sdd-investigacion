@@ -1,0 +1,5 @@
+usage: rsdd maint ci-shard plan --shard I/N [--durations FILE]
+       rsdd maint ci-shard manifest --shard I/N --exit RC --planned FILE
+
+plan      reads the package list on stdin (one import path per line) and prints this shard's packages.
+manifest  reads `go test -json` on stdin and prints the shard-join.sh manifest of the planned packages.
