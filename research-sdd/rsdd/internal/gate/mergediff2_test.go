@@ -12,7 +12,7 @@ import (
 func lookPath(name string) (string, error) { return exec.LookPath(name) }
 
 func readFixture(w *world, name string) string {
-	b, err := os.ReadFile(mgFixtures + "/" + name)
+	b, err := os.ReadFile(mgFixture(w.t, name))
 	if err != nil {
 		w.t.Fatal(err)
 	}
