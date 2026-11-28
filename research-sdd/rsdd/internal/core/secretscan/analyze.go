@@ -2,8 +2,9 @@ package secretscan
 
 import (
 	"bytes"
-	"regexp"
 	"sort"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // advHit is one advisory line: a credential-looking assignment (the value is never kept).
@@ -20,7 +21,7 @@ type analysis struct {
 }
 
 // keywordCandidate finds the lines worth the exact advisory matcher; the exact matcher decides.
-var keywordCandidate = regexp.MustCompile(`(?i)password|passwd|secret|api[_-]?key|apikey|token`)
+var keywordCandidate = lazyre.MustCompile(`(?i)password|passwd|secret|api[_-]?key|apikey|token`)
 
 // analyzeOpts say which scans run on a buffer.
 type analyzeOpts struct {

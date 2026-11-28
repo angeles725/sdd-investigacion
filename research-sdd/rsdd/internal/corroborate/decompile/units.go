@@ -5,10 +5,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // unit is one affected unit of the typed result.
@@ -19,12 +20,12 @@ type unit struct{ name, reason, fallback, result, note string }
 // comment-LEADING line counts (a trailing comment after code does not). The informational '$VF:' comments
 // (synthetic class, Extended synchronized range, finally-block / variable-type / multi-entry exception-range notes)
 // are not failures; the ones saying the output is WRONG or will not compile are.
-var markerRE = regexp.MustCompile(`^[[:space:]]*(//|/\*+|\*)[[:space:]]*(\$VF: (Couldn.t be decompiled|Could not decompile|Unable to decompile|Failed to decompile|[^!]*decompiled code is not correct|Invalid label|Made invalid labels)|Unable to fully decompile class|Unable to fully structure code|This method has failed to decompile|This method could not be decompiled|Exception decompiling|COULD NOT DECOMPILE)`)
+var markerRE = lazyre.MustCompile(`^[[:space:]]*(//|/\*+|\*)[[:space:]]*(\$VF: (Couldn.t be decompiled|Could not decompile|Unable to decompile|Failed to decompile|[^!]*decompiled code is not correct|Invalid label|Made invalid labels)|Unable to fully decompile class|Unable to fully structure code|This method has failed to decompile|This method could not be decompiled|Exception decompiling|COULD NOT DECOMPILE)`)
 
 // generatedClassRE names the separately compiled top-level classes that merely EXTEND a name already in the jar
 // (CGLIB / Spring proxies, ByteBuddy subclasses): the engines emit them as their own source, so they are units
 // and their omission must be detected. Only a name that ENDS in the generated suffix matches.
-var generatedClassRE = regexp.MustCompile(`\$\$(Enhancer|FastClass|KeyFactory)By[A-Za-z0-9_]*\$\$[A-Za-z0-9_]+$|\$\$SpringCGLIB\$\$[0-9]+$|\$ByteBuddy\$[A-Za-z0-9_]+$`)
+var generatedClassRE = lazyre.MustCompile(`\$\$(Enhancer|FastClass|KeyFactory)By[A-Za-z0-9_]*\$\$[A-Za-z0-9_]+$|\$\$SpringCGLIB\$\$[0-9]+$|\$ByteBuddy\$[A-Za-z0-9_]+$`)
 
 const (
 	markerFound = iota

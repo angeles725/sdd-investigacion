@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/git"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookwiring"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 	rg "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/retrogrammar"
 )
 
@@ -56,8 +56,8 @@ const (
 )
 
 var (
-	reProposedHeading = regexp.MustCompile(`^#{2,3}[[:space:]]+(proposed|delta|deltas)`)
-	reIDHeading       = regexp.MustCompile(`^#{1,3}[[:space:]]+([a-z][0-9]+|[0-9]+)([[:space:].—–-]|$)`)
+	reProposedHeading = lazyre.MustCompile(`^#{2,3}[[:space:]]+(proposed|delta|deltas)`)
+	reIDHeading       = lazyre.MustCompile(`^#{1,3}[[:space:]]+([a-z][0-9]+|[0-9]+)([[:space:].—–-]|$)`)
 )
 
 // options is the parsed command line.

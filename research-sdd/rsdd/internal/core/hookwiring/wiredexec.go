@@ -2,9 +2,10 @@ package hookwiring
 
 import (
 	"os"
-	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // The kinds of finding WiredExecReport can return.
@@ -87,7 +88,7 @@ func WiredExecReport(e Env, target string) []Finding {
 }
 
 var (
-	durationRe   = regexp.MustCompile(`^[0-9]+[smh]?$`)
+	durationRe   = lazyre.MustCompile(`^[0-9]+[smh]?$`)
 	interpreters = map[string]bool{"bash": true, "sh": true, "zsh": true, "python": true, "python3": true, "node": true, "perl": true}
 )
 

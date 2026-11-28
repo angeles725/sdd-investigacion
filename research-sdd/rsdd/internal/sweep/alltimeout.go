@@ -2,9 +2,10 @@ package sweep
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // defaultSweepTimeout is the per-script bound when RSDD_SWEEP_TIMEOUT is unset or empty, mirroring the 15-30 s
@@ -16,7 +17,7 @@ const maxSweepTimeoutSeconds = 365 * 24 * 3600
 
 // reSeconds is a plain decimal count of seconds: "30", "0.5", ".5". GNU timeout also took suffixes ("2m"),
 // exponents and "inf"; the script reported them as "timed out after 2ms" or ran unbounded.
-var reSeconds = regexp.MustCompile(`^([0-9]+(\.[0-9]+)?|\.[0-9]+)$`)
+var reSeconds = lazyre.MustCompile(`^([0-9]+(\.[0-9]+)?|\.[0-9]+)$`)
 
 // sweepTimeout is the bound of one script run and the text its banner shows ("timed out after <shown>s").
 type sweepTimeout struct {

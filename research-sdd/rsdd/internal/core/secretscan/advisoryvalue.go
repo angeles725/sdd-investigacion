@@ -2,15 +2,16 @@ package secretscan
 
 import (
 	"bytes"
-	"regexp"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Deliberately conservative filters keep decompiled code and documentation from drowning the advisory signal; a
 // guess must never block the pipeline, so the tier only ever warns.
 var (
-	placeholderPrefix = regexp.MustCompile(`(?i)^(?:x{3,}|redacted|changeme|example|placeholder|none|null|test|todo|your[_-]?)`)
-	hexHash           = regexp.MustCompile(`(?i)^[0-9a-f]{32,64}$`)
-	hashContext       = regexp.MustCompile(`(?i)sha[0-9]*|md5|hash|checksum|digest|fingerprint`)
+	placeholderPrefix = lazyre.MustCompile(`(?i)^(?:x{3,}|redacted|changeme|example|placeholder|none|null|test|todo|your[_-]?)`)
+	hexHash           = lazyre.MustCompile(`(?i)^[0-9a-f]{32,64}$`)
+	hashContext       = lazyre.MustCompile(`(?i)sha[0-9]*|md5|hash|checksum|digest|fingerprint`)
 )
 
 // ellipsis is U+2026 as UTF-8.

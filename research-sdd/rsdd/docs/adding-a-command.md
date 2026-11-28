@@ -93,6 +93,13 @@ from `cli.Stdio`. `cli.Validate` (run on every dispatch, and by a test on the sh
 duplicate `(group, name)`, a group that shares a name with an ungrouped command, an empty name and a nil
 `Run`, so nothing is silently shadowed.
 
+Every package the binary links runs its package-level initialisers on every command, so a command pays for
+the patterns of all the others. Declare package-level regular expressions with
+`lazyre.MustCompile` (`internal/core/lazyre`), not `regexp.MustCompile`: it compiles on first use, once,
+and `internal/commands` tests that nothing compiled at start and that every pattern compiles
+(`GODEBUG=inittrace=1 rsdd version` shows what is left). Patterns built inside a function stay
+`regexp.MustCompile`.
+
 ## 5. Keep the bash entry point as a shim
 
 Callers (hooks, CI, installed target corpora) invoke `toolbelt/<name>.sh`, so a ported script stays as a

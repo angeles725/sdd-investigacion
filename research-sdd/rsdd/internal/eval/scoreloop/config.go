@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"regexp"
 	"strconv"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // scriptName prefixes every message: the legacy script's name is part of its output contract.
@@ -68,7 +70,7 @@ func loadConfig(getenv func(string) string) (Config, string) {
 	return compileRegexps(&c, getenv)
 }
 
-var digitsOnly = regexp.MustCompile(`^[0-9]+$`)
+var digitsOnly = lazyre.MustCompile(`^[0-9]+$`)
 
 // parseCount reads a non-negative decimal integer of any length (leading zeros are decimal: bash read them as octal).
 func parseCount(s string) (*big.Int, bool) {

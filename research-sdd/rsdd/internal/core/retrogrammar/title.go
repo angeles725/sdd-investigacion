@@ -1,16 +1,17 @@
 package retrogrammar
 
 import (
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Cross-retro row identity (kit issues #1709, #1811): reconcile-issues.sh compares a delta's TITLE across retros,
 // so the rule that makes a title an identity and the title-column reader live here.
 
 var (
-	reTitleHeader = regexp.MustCompile(`^(proposed change|proposed delta|proposal|title|delta|gist|change|rule / change|delta propuesto)`)
-	reBoldLead    = regexp.MustCompile(`^\*\*([^*]+)\*\*`)
+	reTitleHeader = lazyre.MustCompile(`^(proposed change|proposed delta|proposal|title|delta|gist|change|rule / change|delta propuesto)`)
+	reBoldLead    = lazyre.MustCompile(`^\*\*([^*]+)\*\*`)
 	bareTokens    = map[string]bool{"high": true, "medium": true, "low": true, "feature": true, "bug": true, "fix": true,
 		"bugfix": true, "defect": true, "regression": true, "doc": true, "docs": true, "documentation": true,
 		"doc-fix": true, "docfix": true} // RETRO_GRAMMAR_TITLE_TOKEN_CLAUSE

@@ -2,9 +2,9 @@ package floss
 
 import (
 	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 	"io"
 	"math/big"
-	"regexp"
 	"strings"
 	"unicode"
 )
@@ -87,7 +87,7 @@ type optTuple struct {
 	eq       bool
 }
 
-var negativeNumber = regexp.MustCompile(`^-[0-9]+$|^-[0-9]*\.[0-9]+$`)
+var negativeNumber = lazyre.MustCompile(`^-[0-9]+$|^-[0-9]*\.[0-9]+$`)
 
 // classify is _parse_optional: nil for a positional, otherwise the option it names.
 func classify(arg string) (*optTuple, error) {

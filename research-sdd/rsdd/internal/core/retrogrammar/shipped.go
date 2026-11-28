@@ -2,9 +2,10 @@ package retrogrammar
 
 import (
 	"errors"
-	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // The marker's structured lists (kit issues #949, #1090, #1093, #1944). A marker line is ONE line: the bash
@@ -17,10 +18,10 @@ var ErrRangeTooLarge = errors.New("grammar: id range too large")
 const maxRangeIDs = 100000
 
 var (
-	rePartialWord = regexp.MustCompile(`(^|[^A-Za-z])PARTIAL($|[^A-Za-z])`)
-	reShippedList = regexp.MustCompile(`shipped:[^;>]*`)
-	reParenNote   = regexp.MustCompile(`[[:space:]]*\([^)]*\)`)
-	reIDRange     = regexp.MustCompile(`^([A-Za-z]*)([0-9]+)-([A-Za-z]*)([0-9]+)$`)
+	rePartialWord = lazyre.MustCompile(`(^|[^A-Za-z])PARTIAL($|[^A-Za-z])`)
+	reShippedList = lazyre.MustCompile(`shipped:[^;>]*`)
+	reParenNote   = lazyre.MustCompile(`[[:space:]]*\([^)]*\)`)
+	reIDRange     = lazyre.MustCompile(`^([A-Za-z]*)([0-9]+)-([A-Za-z]*)([0-9]+)$`)
 )
 
 // MarkerIsPartial is retro_marker_is_partial: the STRUCTURED part of the marker (after `review-status:`, before
@@ -126,7 +127,7 @@ func firstIndex(s string, seps ...string) int {
 // grepO is `grep -oi … | head -1` under LC_ALL=C: the first match of re (a lower-case pattern) in the
 // ASCII-folded lines of s, sliced from the original text. Matching per line keeps [[:space:]] from crossing a
 // line break, and ASCII folding keeps Go's Unicode case folding (ſ, K) out.
-func grepO(s string, re *regexp.Regexp) string {
+func grepO(s string, re *lazyre.Regexp) string {
 	for _, line := range strings.Split(s, "\n") {
 		if loc := re.FindStringIndex(lower(line)); loc != nil {
 			return line[loc[0]:loc[1]]

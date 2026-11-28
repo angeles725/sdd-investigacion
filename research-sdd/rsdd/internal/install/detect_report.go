@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // reportCtx carries one report run: the text built so far and what the shell wrote to stderr meanwhile.
@@ -172,7 +173,7 @@ func (r *reportCtx) ilspyRow() {
 	r.line("  %-22s UNUSABLE    %s (DOTNET_ROOT could not be resolved; install .NET 10+ or set RSDD_DOTNET_ROOT)", "ilspycmd", ilspy)
 }
 
-var binwalkVersion = regexp.MustCompile(`^.*[Bb]inwalk v?([0-9][^ ]*).*$`)
+var binwalkVersion = lazyre.MustCompile(`^.*[Bb]inwalk v?([0-9][^ ]*).*$`)
 
 // binwalkNote is binwalk_note: corroborate-firmware supports only binwalk major 2.
 func (r *reportCtx) binwalkNote() {

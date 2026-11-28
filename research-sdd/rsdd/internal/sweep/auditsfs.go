@@ -4,16 +4,17 @@ import (
 	"bytes"
 	"io/fs"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // The directory walk and the claim count of sweep-audits.sh. The walk is the `find` of the retro pass (walkRaw,
 // isIndexName and notGitPath are shared with it): readdir order, symbolic links listed and never entered.
 
 // reClaimRow is `grep -cE '^\| *[0-9]+ \|'`: a table row that opens with a number, one blank before its pipe.
-var reClaimRow = regexp.MustCompile(`^\| *[0-9]+ \|`)
+var reClaimRow = lazyre.MustCompile(`^\| *[0-9]+ \|`)
 
 // inAuditsPath is `-path '*/audits/*.md'`: fnmatch without FNM_PATHNAME, so each `*` also crosses slashes and the
 // whole path (the target prefix included) is matched. The FIRST "/audits/" leaves the longest remainder, so it

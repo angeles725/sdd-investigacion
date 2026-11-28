@@ -4,13 +4,14 @@ package slug
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"regexp"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // maxPlain is the longest slug returned unchanged; longer ones are shortened with a hash.
 const maxPlain = 80
 
-var scheme = regexp.MustCompile(`https?://`)
+var scheme = lazyre.MustCompile(`https?://`)
 
 // bytewise replaces every byte outside [A-Za-z0-9._-] with "_" (never per rune: the rule is the C locale's).
 func bytewise(s string) string {

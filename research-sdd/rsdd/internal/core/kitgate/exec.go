@@ -5,16 +5,16 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kitmaint"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/probe"
 )
 
 // summaryLines are the log lines kit-gate echoes (`grep -E ... | tail -15`).
-var summaryLines = regexp.MustCompile(`AGGREGATE|passed|failed|Suites|FAIL  |leftovers|hermeticity`)
+var summaryLines = lazyre.MustCompile(`AGGREGATE|passed|failed|Suites|FAIL  |leftovers|hermeticity`)
 
 const summaryMax = 15
 

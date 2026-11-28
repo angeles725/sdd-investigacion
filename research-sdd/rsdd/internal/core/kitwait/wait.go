@@ -7,11 +7,11 @@ package kitwait
 import (
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kitmaint"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Tool is the prefix of every line kit-wait-merge prints.
@@ -61,7 +61,7 @@ type Opts struct {
 	MergeGate func(args []string) (rc int, out string)
 }
 
-var failWord = regexp.MustCompile(`\bfail\b`)
+var failWord = lazyre.MustCompile(`\bfail\b`)
 
 func (o *Opts) say(format string, a ...any) {
 	fmt.Fprintf(o.Out, "%s: %s\n", Tool, fmt.Sprintf(format, a...))

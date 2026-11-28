@@ -1,8 +1,9 @@
 package retrogrammar
 
 import (
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Section grammar shared by every parser (the awk is_canonical_heading / is_depr_heading of _RG_AWK_CANONICAL_FN
@@ -13,12 +14,12 @@ import (
 // also canonical: `## Summary of proposed delta…`, `## Summary of new deltas…`, `## Delta details`.
 
 var (
-	reProposedKit   = regexp.MustCompile(`^## ([0-9]+\. )?proposed kit deltas?([[:space:]]|$)`)
-	reRule1         = regexp.MustCompile(`^## [0-9. ]*deltas?([[:space:]]|[(]|$)`)
-	reRule2         = regexp.MustCompile(`[ -]kit[ -]delt`)
-	reRule2Negated  = regexp.MustCompile(`not[ -]+kit[ -]+delt`)
-	reProposalsH3   = regexp.MustCompile(`^### +([0-9]+\. )?proposals?([[:space:]]|[(]|$)`)
-	reSeparatorRow  = regexp.MustCompile(`^\|[-: |]+\|?[[:space:]]*$`)
+	reProposedKit   = lazyre.MustCompile(`^## ([0-9]+\. )?proposed kit deltas?([[:space:]]|$)`)
+	reRule1         = lazyre.MustCompile(`^## [0-9. ]*deltas?([[:space:]]|[(]|$)`)
+	reRule2         = lazyre.MustCompile(`[ -]kit[ -]delt`)
+	reRule2Negated  = lazyre.MustCompile(`not[ -]+kit[ -]+delt`)
+	reProposalsH3   = lazyre.MustCompile(`^### +([0-9]+\. )?proposals?([[:space:]]|[(]|$)`)
+	reSeparatorRow  = lazyre.MustCompile(`^\|[-: |]+\|?[[:space:]]*$`)
 	canonicalPrefix = []string{"## proposed delta", "## delta proposals", "## deltas nuevos"}
 	deprPrefix      = []string{"## summary of proposed delta", "## summary of new deltas"}
 )

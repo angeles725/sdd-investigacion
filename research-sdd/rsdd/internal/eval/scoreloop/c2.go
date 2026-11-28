@@ -2,12 +2,13 @@ package scoreloop
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // spanishPair is a `¿ ... ?` pair anywhere in the paragraph (it may cross lines).
-var spanishPair = regexp.MustCompile(`¿[^¿]*\?`)
+var spanishPair = lazyre.MustCompile(`¿[^¿]*\?`)
 
 // c2 counts the assistant FINAL messages (the last assistant record before the next operator turn, or before the
 // end of the transcript) whose final paragraph contains a question. KNOWN LIMIT: a rhetorical question reads

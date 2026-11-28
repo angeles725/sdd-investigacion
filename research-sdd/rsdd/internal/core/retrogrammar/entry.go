@@ -3,8 +3,9 @@ package retrogrammar
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // The delta-ENTRY form (sweep-retros form 2, METHODOLOGY §18, kit issue #1332): under the canonical section a
@@ -13,10 +14,10 @@ import (
 // token is not [A-Za-z0-9][A-Za-z0-9_-]* (`**D1**`, `[D1]`) yields no row (EntryWarn surfaces it).
 
 var (
-	reEntryID   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
-	reBoldLabel = regexp.MustCompile(`^\*\*[^*]+\*\*`)
-	reLabelLead = regexp.MustCompile(`^[[:space:]]*:?[[:space:]]*`)
-	reTarget    = regexp.MustCompile(`^(where in kit|kit file|target)`)
+	reEntryID   = lazyre.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+	reBoldLabel = lazyre.MustCompile(`^\*\*[^*]+\*\*`)
+	reLabelLead = lazyre.MustCompile(`^[[:space:]]*:?[[:space:]]*`)
+	reTarget    = lazyre.MustCompile(`^(where in kit|kit file|target)`)
 )
 
 // Row is one delta record in the column order of a canonical table row, so every form feeds the same seeder loop.

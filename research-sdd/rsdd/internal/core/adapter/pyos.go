@@ -4,8 +4,9 @@ import (
 	hexenc "encoding/hex"
 	"os"
 	pathpkg "path"
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Env is what the manifest code reads from the process: the working directory relative paths
@@ -30,7 +31,7 @@ func (e Env) absPath(p string) string {
 	return e.Cwd + "/" + p
 }
 
-var percentRun = regexp.MustCompile(`(?:%[0-9A-Fa-f]{2})+`)
+var percentRun = lazyre.MustCompile(`(?:%[0-9A-Fa-f]{2})+`)
 
 // pyUnquote is urllib.parse.unquote(s): each run of %XX escapes is decoded as UTF-8, invalid bytes
 // becoming U+FFFD. (Python writes one U+FFFD per invalid byte, Go one per run of them; the manifest

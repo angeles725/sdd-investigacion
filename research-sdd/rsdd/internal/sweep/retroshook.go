@@ -3,11 +3,11 @@ package sweep
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Port of research-sdd/toolbelt/sweep-retros-hook.sh (kit issue #2359), `rsdd sweep retros --hook [--full]`:
@@ -28,9 +28,9 @@ const (
 )
 
 var (
-	reAbsentAgg   = regexp.MustCompile(`^INFO: [0-9]+ target\(s\) not traversed \(absent-input\)`)
-	reSeeInfo     = regexp.MustCompile(`see INFO lines above\.?`)
-	reAbsentInfo  = regexp.MustCompile(`^INFO: corpus not found \(absent-input\):`)
+	reAbsentAgg   = lazyre.MustCompile(`^INFO: [0-9]+ target\(s\) not traversed \(absent-input\)`)
+	reSeeInfo     = lazyre.MustCompile(`see INFO lines above\.?`)
+	reAbsentInfo  = lazyre.MustCompile(`^INFO: corpus not found \(absent-input\):`)
 	nineSpaces    = "         "
 	pendingPrefix = "PENDING  "
 )

@@ -6,12 +6,13 @@ import (
 	"math"
 	"math/big"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // pyError is a Python exception the legacy tool could raise, carried with its class so the command can give
@@ -98,9 +99,9 @@ func osErrorText(err error, filename string) string {
 }
 
 var (
-	pyIntRe   = regexp.MustCompile(`^[+-]?[0-9](?:_?[0-9])*$`)
-	pyFloatRe = regexp.MustCompile(`^[+-]?(?:(?:[0-9](?:_?[0-9])*)(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$`)
-	pySpecial = regexp.MustCompile(`^[+-]?(?:inf|infinity|nan)$`)
+	pyIntRe   = lazyre.MustCompile(`^[+-]?[0-9](?:_?[0-9])*$`)
+	pyFloatRe = lazyre.MustCompile(`^[+-]?(?:(?:[0-9](?:_?[0-9])*)(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$`)
+	pySpecial = lazyre.MustCompile(`^[+-]?(?:inf|infinity|nan)$`)
 )
 
 // parsePyInt reads what Python's int(str) reads in base 10: surrounding whitespace, a sign, digits with single
