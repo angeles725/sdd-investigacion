@@ -145,3 +145,14 @@ func TestDirectoriesAndGitAncestorQuirks(t *testing.T) {
 		t.Errorf("start under .git: %q", got)
 	}
 }
+
+func TestIsStateFileName(t *testing.T) {
+	for name, want := range map[string]bool{
+		"RESEARCH-STATE.md": true, "RESEARCH-STATE-wifi.md": true, "RESEARCH-STATE.template.md": false,
+		"RESEARCH-STATE-document.template.md": false, "RESEARCH-STATE.txt": false, "research-state.md": false, "": false,
+	} {
+		if got := IsStateFileName(name); got != want {
+			t.Errorf("IsStateFileName(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

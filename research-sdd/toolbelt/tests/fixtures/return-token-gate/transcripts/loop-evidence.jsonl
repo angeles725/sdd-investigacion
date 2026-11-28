@@ -1,0 +1,1 @@
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_0", "name": "Bash", "input": {"command": "bash \"$KIT/toolbelt/research-sdd-status.sh\" \"$T\" --next --emit-token"}}]}}

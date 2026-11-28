@@ -100,7 +100,33 @@ func (r *rig) status(body string) {
 	}
 }
 
-func (r *rig) transcript(name string) string { return filepath.Join(fixtureDir, "transcripts", name) }
+// transcript is a fixture transcript of a session that RAN the loop: the shared loop-evidence line (a `--next
+// --emit-token` status run) is prepended to a per-rig copy that keeps the fixture's base name. rawTranscript is
+// the fixture as it is: a session with no loop evidence (kit issues #2792, #2841).
+func (r *rig) transcript(name string) string {
+	r.t.Helper()
+	ev, err := os.ReadFile(filepath.Join(fixtureDir, "transcripts", "loop-evidence.jsonl"))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(fixtureDir, "transcripts", name))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	dir := filepath.Join(r.root, "tr")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		r.t.Fatal(err)
+	}
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, append(append([]byte{}, ev...), body...), 0o644); err != nil {
+		r.t.Fatal(err)
+	}
+	return p
+}
+
+func (r *rig) rawTranscript(name string) string {
+	return filepath.Join(fixtureDir, "transcripts", name)
+}
 
 func (r *rig) hook(session, transcript string, active bool) string {
 	b := &strings.Builder{}
@@ -323,12 +349,13 @@ func TestDegradedAllows(t *testing.T) {
 func TestBoundedTranscript(t *testing.T) {
 	r := newRig(t, "corpus-next")
 	pad := strings.Repeat(`{"type":"user","message":{"content":"`+strings.Repeat("x", 160)+`"}}`+"\n", 3000)
-	match, _ := os.ReadFile(r.transcript("match.jsonl"))
-	mismatch, _ := os.ReadFile(r.transcript("mismatch.jsonl"))
+	match, _ := os.ReadFile(r.rawTranscript("match.jsonl"))
+	mismatch, _ := os.ReadFile(r.rawTranscript("mismatch.jsonl"))
 	before := filepath.Join(r.root, "before.jsonl")
 	after := filepath.Join(r.root, "after.jsonl")
-	_ = os.WriteFile(before, append(append([]byte{}, match...), pad...), 0o644)
-	_ = os.WriteFile(after, append(append(append([]byte{}, mismatch...), pad...), match...), 0o644)
+	ev, _ := os.ReadFile(filepath.Join(fixtureDir, "transcripts", "loop-evidence.jsonl")) // far outside the 4096-byte window
+	_ = os.WriteFile(before, append(append(append([]byte{}, ev...), match...), pad...), 0o644)
+	_ = os.WriteFile(after, append(append(append(append([]byte{}, ev...), mismatch...), pad...), match...), 0o644)
 	r.env["RETURN_TOKEN_GATE_TAIL_BYTES"] = "4096"
 	res := r.gate("s1", before)
 	wantAllow(t, "G-TAIL-BOUND", res, "degraded (no assistant text in the transcript: before.jsonl (tail-bounded to 4096 bytes))")
