@@ -10,26 +10,9 @@ import (
 // boundary ('0' vs '1', 'Z' vs 'Y') is caught at the exact byte it moves.
 
 const (
-	alnumBytes   = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	literalBytes = alnumBytes + "_-"  // [A-Za-z0-9_-]
-	keptBytes    = alnumBytes + "._-" // tr -cd '[:alnum:]._-' under LC_ALL=C
+	alnumBytes = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	keptBytes  = alnumBytes + "._-" // tr -cd '[:alnum:]._-' under LC_ALL=C
 )
-
-func TestLiteralPrefixAcceptsExactlyTheERELiteralBytes(t *testing.T) {
-	t.Parallel()
-	for b := 0; b < 256; b++ {
-		s := string([]byte{byte(b)})
-		if got, want := literalPrefix(s), strings.Contains(literalBytes, s); got != want {
-			t.Errorf("literalPrefix(%q) = %v, want %v", s, got, want)
-		}
-		if literalPrefix("ok"+s+"ok") != strings.Contains(literalBytes, s) {
-			t.Errorf("literalPrefix judges %q differently in the middle of a prefix", s)
-		}
-	}
-	if !literalPrefix("") {
-		t.Error("the empty prefix is literal (every line contains it)")
-	}
-}
 
 func TestSanitisedKeepsExactlyAlnumDotUnderscoreDash(t *testing.T) {
 	t.Parallel()

@@ -61,19 +61,24 @@ var reBlock = regexp.MustCompilePOSIX(blockNoPrefix)
 // lines are already read. Regex dialect: Go POSIX ERE, equal to GNU `grep -E` under LC_ALL=C for the
 // prefixes the kit derives (DEFERRED.md lists the escapes where the two dialects part).
 func FilterBlockFiles(lines []string, invert bool, prefix string) ([]string, error) {
-	re := reBlock
-	if prefix != "" {
-		var err error
-		if re, err = regexp.CompilePOSIX(`(^|/)` + prefix + blockTail); err != nil {
-			return nil, ErrBadPattern
+	// The hand-written twin of the regexp decides where it can (blockmatch.go); the regexp decides the rest.
+	match := fastBlockMatcher(prefix)
+	if match == nil {
+		re := reBlock
+		if prefix != "" {
+			var err error
+			if re, err = regexp.CompilePOSIX(`(^|/)` + prefix + blockTail); err != nil {
+				return nil, ErrBadPattern
+			}
 		}
+		match = re.MatchString
 	}
 	if len(lines) == 0 {
 		return nil, ErrEmptyInput
 	}
 	var out []string
 	for _, l := range lines {
-		if re.MatchString(l) != invert {
+		if match(l) != invert {
 			out = append(out, l)
 		}
 	}

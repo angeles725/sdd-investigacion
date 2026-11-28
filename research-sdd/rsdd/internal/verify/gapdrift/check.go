@@ -218,7 +218,8 @@ func (c *Corpus) filesFor(num string) []string {
 	re := regexp.MustCompilePOSIX(`-(block|bloque)` + regexp.QuoteMeta(num) + `(-[[:alnum:]_-]+)?\.md$`)
 	var files []string
 	for _, b := range c.blocks {
-		if re.MatchString(b) {
+		// A literal is a cheap necessary condition: the regexp runs only on a name that holds the kind and the number.
+		if (strings.Contains(b, "block"+num) || strings.Contains(b, "bloque"+num)) && re.MatchString(b) {
 			files = append(files, b)
 		}
 	}
