@@ -111,7 +111,7 @@ func segmentRunsStatus(words []string, target string, depth int) bool {
 
 // isCommandFlag: -c, or a cluster of short options ending in c (-lc, -ec).
 func isCommandFlag(w string) bool {
-	return len(w) >= 2 && w[0] == '-' && w[1] != '-' && strings.HasSuffix(w, "c") && strings.Trim(w[1:], "abcdefhilmnpstuvxBCEHPTc") == ""
+	return len(w) >= 2 && w[0] == '-' && w[1] != '-' && strings.HasSuffix(w, "c") && strings.Trim(w[1:], "abcdefhilmnpstuvxBCEHPT") == ""
 }
 
 // skipOptions drops the option words of a wrapper (and timeout's duration), stopping at the wrapped command.
