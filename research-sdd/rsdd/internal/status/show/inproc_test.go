@@ -39,7 +39,8 @@ func inprocSig(name, id string) string {
 
 type inprocRun struct {
 	out        outcome
-	reconciled [][]string // the argv of every `rsdd retro reconcile` the gate asked for
+	reconciled [][]string      // the argv of every `rsdd retro reconcile` the gate asked for
+	bounds     []time.Duration // the bound the gate set on each of them
 	ghCalls    int
 }
 
@@ -71,8 +72,9 @@ func runInproc(t *testing.T, retroFiles files, bodies string, env map[string]str
 	oldD := dueRun
 	defer func() { dueRun = oldD }()
 	dueRun = inprocDue
-	reconcileRun = func(args []string, _ time.Duration, _ cli.Stdio) probeResult {
+	reconcileRun = func(args []string, bound time.Duration, _ cli.Stdio) probeResult {
 		res.reconciled = append(res.reconciled, args)
+		res.bounds = append(res.bounds, bound)
 		if reverify == nil {
 			t.Errorf("rsdd retro reconcile was started: %q", args)
 			return probeResult{}
@@ -117,6 +119,26 @@ func TestIssuesGateUntrackedRowIsReverifiedByOneReconcileWithoutCache(t *testing
 	}
 	if len(r.reconciled) != 1 || len(r.reconciled[0]) != 1 || !strings.HasSuffix(r.reconciled[0][0], "/corpus/retros/a.md") {
 		t.Errorf("reconcile argv = %q, want exactly one run of a.md without --issues-cache", r.reconciled)
+	}
+}
+
+// The re-verify is bounded like every other call of the gate: _IDG_RECONCILE_TIMEOUT_SECS seconds, 15 by default. The
+// cached probes no longer spawn, so this is the one place the bound reaches a started reconcile (kit issue #2644).
+func TestIssuesGateReverifyIsBoundedByTheReconcileTimeout(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		env  map[string]string
+		want time.Duration
+	}{
+		{"default", nil, 15 * time.Second},
+		{"knob", map[string]string{"_IDG_RECONCILE_TIMEOUT_SECS": "7"}, 7 * time.Second},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := runInproc(t, retros("a.md", inprocRetro("D1")), "", c.env, func([]string) probeResult { return probeResult{} })
+			if len(r.bounds) != 1 || r.bounds[0] != c.want {
+				t.Errorf("reconcile bounds = %v, want exactly [%v]", r.bounds, c.want)
+			}
+		})
 	}
 }
 

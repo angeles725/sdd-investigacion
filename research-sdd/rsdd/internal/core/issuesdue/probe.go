@@ -65,7 +65,7 @@ func Probe(q Query) Result {
 	}
 	bodies, err := os.ReadFile(q.Cache)
 	if err != nil {
-		add("degraded: --issues-cache file not readable: %s", q.Cache)
+		sink.Degrade("degraded: --issues-cache file not readable: %s", q.Cache)
 		return failed()
 	}
 	return Result{Untracked: ret.Untracked(IssueRowIDs(Normalize(string(bodies)), ret.Prefixes()))}
