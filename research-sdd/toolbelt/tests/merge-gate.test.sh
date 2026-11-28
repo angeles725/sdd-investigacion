@@ -95,6 +95,31 @@ esac
 [ "$(wf_verdict "$WF_FIX" "$TMP/no-such-workflow.yml")" = FAIL-absent ] && ok "5b drift control: a missing workflow file reports FAIL-absent, not drifted" || no "5b drift control: missing file not reported absent"
 [ "$(wf_verdict "$WF_FIX" "$WF_FIX")" = PASS ] && ok "5c drift control: identical files report PASS" || no "5c drift control: identical files not reported PASS"
 
+# 6. No live workflow job may carry a templated `name:` (kit issue #2852). `rsdd gate merge` cannot read a job name
+# containing `${{ ... }}` and then gives up on the path filters of EVERY required check, so a docs-only PR whose
+# required checks were skipped by those filters is refused ci_missing. The gate stays strict; the workflows must
+# not bring the shape back. A job-level `name:` is indented four spaces in this repo's workflows (steps use `- name:`).
+# wf_name_state <dir>: literal | templated | absent (no directory or no .yml/.yaml file inside)
+wf_name_state() {
+  local d="$1" n
+  n="$(find "$d" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | wc -l)"
+  if [ ! -d "$d" ] || [ "$n" -eq 0 ]; then echo absent; return; fi
+  if grep -qE '^    name:.*\$\{\{' "$d"/*.y*ml 2>/dev/null; then echo templated; else echo literal; fi
+}
+LIVE_WF_DIR="$HERE/../../../.github/workflows"
+case "$(wf_name_state "$LIVE_WF_DIR")" in
+  literal) ok "6 no live workflow job has a templated name (\${{ ... }}): the merge gate can read every job name";;
+  absent) no "6 live workflows absent: $LIVE_WF_DIR (not a template finding - restore the directory)";;
+  *) no "6 a live workflow job has a name: containing \${{ — rsdd gate merge cannot evaluate path filters and refuses every docs-only PR (kit issue #2852); remove the name: and let GitHub name the job from its id";;
+esac
+# negative controls built in scratch so they cannot pass for the wrong reason
+mkdir -p "$TMP/wfn-bad" "$TMP/wfn-ok" "$TMP/wfn-empty"
+printf 'jobs:\n  j:\n    name: ${{ matrix.shard == 0 && '"'"'a'"'"' || format('"'"'a ({0}/3)'"'"', matrix.shard) }}\n    runs-on: x\n' > "$TMP/wfn-bad/w.yml"
+printf 'jobs:\n  j:\n    runs-on: x\n    steps:\n      - name: ${{ github.sha }}\n        run: true\n' > "$TMP/wfn-ok/w.yml"
+[ "$(wf_name_state "$TMP/wfn-bad")" = templated ] && ok "6a control: a templated job name is reported templated" || no "6a control: templated job name not reported"
+[ "$(wf_name_state "$TMP/wfn-ok")" = literal ] && ok "6b control: a templated STEP name is not a job name finding" || no "6b control: step name misreported as a job name"
+[ "$(wf_name_state "$TMP/wfn-empty")" = absent ] && ok "6c control: a directory with no workflow reports absent, not literal" || no "6c control: empty directory not reported absent"
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for merge-gate.sh (shim) --"
@@ -137,6 +162,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # G: the absent branch collapsed into drifted (the pre-#2136 behaviour)
   eval "$(declare -f wf_state | sed 's/^wf_state/wf_state_m/; s/echo absent/echo drifted/')"
   [ "$(wf_state_m "$WF_FIX" "$TMP/no-such-workflow.yml")" != absent ] && ok "teeth G: mutant without the absent branch is detected by the absent control" || no "teeth G: mutant survived the absent control"
+  # H: the detector never matches (a pattern that cannot hit a job-level name)
+  eval "$(declare -f wf_name_state | sed 's/^wf_name_state/wf_name_state_m/; s/\^    name:/^    nameX:/')"
+  [ "$(wf_name_state_m "$TMP/wfn-bad")" != templated ] && ok "teeth H: a detector that never matches is caught by control 6a" || no "teeth H: dead detector survived"
+  # I: the absent arm collapsed into literal
+  eval "$(declare -f wf_name_state | sed 's/^wf_name_state/wf_name_state_a/; s/echo absent/echo literal/')"
+  [ "$(wf_name_state_a "$TMP/wfn-empty")" != absent ] && ok "teeth I: absent->literal is caught by control 6c" || no "teeth I: absent->literal survived"
 fi
 
 echo "== $pass passed · $fail failed =="
