@@ -88,8 +88,12 @@ jobs:
     # (RSDD_TEETH_SHARD=I/3). Kit issue #2573: the shard unit is the changed FILE, not the package (PR #2477 changed one
     # package and its gremlins alone hit the cap), so even a one-package change spreads over the 3 jobs (file position mod 3).
     # schedule/workflow_dispatch keep ONE unsharded whole-module job
-    # (matrix value 0), still named plain `rsdd-go-bridge`.
-    name: ${{ matrix.shard == 0 && 'rsdd-go-bridge' || format('rsdd-go-bridge ({0}/3)', matrix.shard) }}
+    # (matrix value 0).
+    # Kit issue #2852: NO `name:` on this job, on purpose. GitHub names a matrix job `<id> (<matrix values>)`, so the checks
+    # are `rsdd-go-bridge (1)`, `(2)`, `(3)` on pull_request and push and `rsdd-go-bridge (0)` on schedule/workflow_dispatch.
+    # A templated `name: ${{ ... }}` here made `rsdd gate merge` give up on the path filters of every required check
+    # (it cannot read the name), so a docs-only PR was refused ci_missing; mergepf_live_test.go and merge-gate.test.sh
+    # case 6 fail if any job name carries `${{`.
     strategy:
       fail-fast: false
       matrix:
