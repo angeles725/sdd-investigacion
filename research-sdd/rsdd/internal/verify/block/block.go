@@ -2,7 +2,6 @@ package block
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -146,18 +145,6 @@ func Run(args []string, s cli.Stdio) int {
 	b.sectionBackptr()
 	b.echo("== exit %d ==", b.rc)
 	return b.rc
-}
-
-// gitTopLevel is `git -C "$target" rev-parse --show-toplevel 2>/dev/null` (empty on any failure).
-func (b *blockRun) gitTopLevel() string {
-	cmd := exec.Command("git", "-C", b.target, "rev-parse", "--show-toplevel")
-	cmd.Dir = b.s.Cwd
-	cmd.Env = b.s.Environ()
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimRight(string(out), "\n")
 }
 
 // physical is `cd P && pwd -P`: the logical path made absolute and lexically cleaned (cd's own order), then with

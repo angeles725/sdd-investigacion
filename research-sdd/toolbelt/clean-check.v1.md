@@ -106,7 +106,7 @@ manifests), so nothing outside the target can preserve or exempt a scratchpad fi
 The basename must equal, exactly, the last path component of the first table cell of some **valid** row
 of any `SCRIPTS-MANIFEST.md` under `<TARGET>/sources/probes/`. A row is valid only when its second cell
 is a 64-hex sha256: the header row, the separator row and rows with a placeholder digest list nothing.
-Rows are read by the Go port of the shared parser (`core/kit.ScriptsManifestRows`, the port of
+Rows are read by the shared Go parser (`core/kit.ScriptsManifestRows`, the port of the deleted
 `lib/scripts-manifest.sh`), the same parser `verify-block.sh` uses for its `MANIFEST!` check; see
 `verify-block.sh` for the row format. There is no bash helper to load any more, so "cannot find helper" (exit 2)
 no longer exists; a manifest that cannot be read or parsed is still exit 2 (`cannot parse manifest <path>`,

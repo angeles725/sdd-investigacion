@@ -40,8 +40,8 @@ dependency):
   mtimes are Go now, so a PATH holding only git works (`TestOnlyGitIsADependency`). A missing git is still exit 3 with the same
   stderr line and no summary (scenario `degraded-git-missing`). `DEGRADED-NO-SHA256` no longer exists: the hash is computed in
   process, so a missing `sha256sum` or `shasum` can never skip the preserved-copy check.
-- **No bash helper is loaded.** The SCRIPTS-MANIFEST rows are read by the Go port of `lib/scripts-manifest.sh`
-  (`core/kit.ScriptsManifestRows`), so "cannot find helper lib/scripts-manifest.sh" (exit 2) cannot happen. A manifest that cannot be
+- **No bash helper is loaded.** The SCRIPTS-MANIFEST rows are read by `core/kit.ScriptsManifestRows`, the Go port of
+  `lib/scripts-manifest.sh` (that library is deleted), so "cannot find helper lib/scripts-manifest.sh" (exit 2) cannot happen. A manifest that cannot be
   parsed is still `clean-check: ERROR: cannot parse manifest <path>` and exit 2, without the helper's extra `scripts-manifest:` line
   (`TestUnreadableManifestAndProbesRefuse`).
 - **Bytewise order.** Every sorted list (stale `tmp.*` entries, scratchpad files, stale backups, discovered `_evidence` directories) is

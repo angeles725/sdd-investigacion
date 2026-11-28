@@ -151,10 +151,20 @@ Sensitivity:
 | 36 | blender-llm | `$RESEARCH_HOME/investigacion/blender-llm` | **incipient** (85 blocks @2026-09-22 / 3 runs / 16 retros / git yes / remote yes / hook yes) `[CERT-hw]` — detail §36 | Blender MCP + LLM ecosystem: ahujasid MCP server + alternatives, security/telemetry, LLM powerups, HVAC workflow; Windows↔WSL2 bridge (mirrored networking localhost:9876) `[CERT-hw]` | direct reading + WebSearch/WebFetch (ecosystem) | English `[CERT-hw]` |
 | 37 | niagara5-research | `$RESEARCH_HOME/niagara5-research` | 140 blocks (B1..B140), 15 retros; licence/security lane B133-B140 2026-10-04 on live bench `pruebas-01` (TPK steered via `--patch-module`, `cacerts.sig` re-signed); PAUSED with a next-session queue | Decompiled Java Niagara N5 5.0.0.28 beta (Java 25, class major 69; 247 single-jar modules) `[CERT]` | `tools/n5-decompile.sh` (target-local) + `decompile-java.sh` | English `[CERT]` |
 | 38 | tunnel-estandar | `$RESEARCH_HOME/tunnel/clientes/_ESTANDAR-TUNELES` | **incipient** (9 blocks @2026-10-06 / 1 run / 1 retro / git yes / remote no / hook file yes) · nested `corpus/` · document-mode (§20) · companion to #27/#29/#32 — detail §38 | Fleet standard for creating client Cloudflare Tunnels + Access; MANUAL-PERSONA (ES) + MANUAL-IA (EN) | direct reading of client bundles + #29 corpus | Spanish (runbook operativo) · technical EN markers |
+| 40 | isma-aac20 | `$RESEARCH_HOME/investigacion/imsa` | **incipient** (10 blocks @2026-11-12 / 2 retros / git yes / remote no / hook file yes) · nested `corpus/` · document-mode (§20) · #40 (not #39: #39 ompi row sits in a user stash) — detail §40 | Live iSMA-B-AAC20 Sedona controller (SOX/DASP UDP 1876) + vendor PDFs + Sedona Java SOX client (`aac20-sox/`) | direct reading + live SOX probes via `aac20-sox/tool/run.sh` | English |
+| 41 | integradora | `/home/cristian/Escuela/IMEC91N/Integradora` | **incipient** (document-mode @2026-11-21 / git yes / remote no) `[CERT-live]` — detail §41 | School integrative project: Arduino DS18B20+relay On-Off, Web Serial scope, step-test transfer function, Scilab 2026.1 GUI + Xcos diagrams `[CERT-live]` | direct reading + Scilab CLI/GUI from WSL | Spanish (user request 2026-11-21) · technical EN markers |
 
 ---
 
 ## Per-target detail
+
+### 41 — integradora `[CERT-live]`
+
+Document-mode (§20) corpus, nested `corpus/`, prefix `integradora-`. Subject: an IMEC91N school integrative project
+built in one session (2026-11-20/21): Arduino Uno R3 + DS18B20 + relay On-Off, a Web Serial oscilloscope page, a
+step-test transfer function PDF, and a Scilab 2026.1 program + Xcos diagrams for recognizing control methods. The
+reusable half (driving Windows Scilab from WSL, window capture, Scilab 2026 pitfalls) is proposed to the kit via retro.
+**Startup:** re-enter in document mode when the Xcos layout polish (diagrams 2-4) is finished.
 
 ### 1 — niagara-research `[CERT]`
 Mental model of Niagara N4 (Tridium) reconstructed by decompilation. Very mature corpus: 290 cataloged blocks (`CATALOG.md`), auto-generated `INDEX.md` of ~400 KB, active hook `niagara-research-protocol.sh`. The source artifact is Niagara Java classes (saw `com/tridium/workbench/.../LinkMarkCommand.class`).
@@ -731,6 +741,16 @@ Standalone 3D HVAC dashboard migrated from Cloudflare Workers to Vercel. Compani
 **Artifact description (full, moved from master row 2026-09-22):** Standalone 3D HVAC dashboard (single 669 KB `index.html`) migrated from Cloudflare Workers to Vercel, custom domain `hisense.angeles-group.org` (DNS stays on Cloudflare): Vercel static CLI deploy + DNS cutover (delete Workers Custom Domain, add A→76.76.21.21 DNS-only) `[CERT-hw]`.
 
 ---
+
+### 40 — isma-aac20 `[CERT]`
+
+Document-mode (§20) corpus, nested `corpus/`, prefix `aac20-`. Subject: an iSMA CONTROLLI iSMA-B-AAC20
+(Sedona 1.2.28, fw 6.4) at factory IP 192.168.1.123, reached from the operator's Windows host (WSL2 cannot
+reach it). Sibling code repo `aac20-sox/` (local git, no remote): Java SOX CLI built from linsong/sedona.
+Numbered #40 because the #39 ompi registration was stashed (`git stash` in the kit checkout, 2026-11-11) to
+unblock `kit-resolve.sh`; when that stash is popped, both rows coexist. `live-install` adjacent: SECRETS
+DISCIPLINE applies (factory defaults from public iSMA docs only).
+**Startup:** re-enter in document mode when the TC500 model is confirmed and the BACnet MS/TP kit is installed.
 
 ### 38 — tunnel-estandar `[CERT]`
 
