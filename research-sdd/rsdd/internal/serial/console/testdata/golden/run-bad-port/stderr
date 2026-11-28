@@ -1,0 +1,1 @@
+serial-console.sh: <com-port> must be COM<N> (e.g. COM3): com3

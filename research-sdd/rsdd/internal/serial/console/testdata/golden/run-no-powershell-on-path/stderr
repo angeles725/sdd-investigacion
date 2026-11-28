@@ -1,0 +1,4 @@
+serial-console.sh: cannot reach Windows PowerShell (powershell.exe).
+  If this is 'exec format error', WSLInterop binfmt_misc was dropped. Re-register (root, inside WSL):
+    sudo sh -c 'echo :WSLInterop:M::MZ::/init:PF > /proc/sys/fs/binfmt_misc/register'
+  (clear a stale handler first: echo -1 > /proc/sys/fs/binfmt_misc/WSLInterop)

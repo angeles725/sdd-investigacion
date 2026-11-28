@@ -1,0 +1,1 @@
+{"args": ["serial", "console", "check"], "env": {"PATH": "/nonexistent"}}
