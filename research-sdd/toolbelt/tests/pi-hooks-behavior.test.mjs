@@ -348,6 +348,33 @@ const t0 = Date.now();
   restoreEnv();
 }
 {
+  // kit issues #2792, #2841: the gate reads loop evidence from Claude-shaped tool calls, so pi's tool calls that can be
+  // evidence are handed over in that shape, ahead of the final report; unrelated tool calls and write bodies are not
+  const { kit, log } = makeKit();
+  setEnv({ GENTLE_PI_AGENT_HOME: makeAgentHome(kit) });
+  const pi = makePi(); (await loadFactory())(pi);
+  const call = (name, args) => ({ role: 'assistant', content: [{ type: 'toolCall', id: 'c', name, arguments: args }] });
+  const ctx = makeCtx(makeTarget(), 'sess-evidence', [
+    { role: 'user', content: '<skill name="research-sdd" location="/k/SKILL.md">\nbody\n</skill>\n\ngo' },
+    call('bash', { command: 'bash $KIT/toolbelt/research-sdd-status.sh . --next --emit-token' }),
+    call('bash', { command: 'ls -la' }),
+    call('write', { path: 'blocks/x-block7.md', content: 'SECRET-BODY' }),
+    call('read', { path: '/k/skills/research-sdd/SKILL.md' }),
+    assistant('final report'),
+  ]);
+  await fire(pi, 'session_start', { type: 'session_start', reason: 'startup' }, ctx);
+  await fire(pi, 'agent_before_settle', settleEvent(), ctx);
+  const tr = readLog(log).slice(readLog(log).indexOf('TRANSCRIPT ') + 'TRANSCRIPT '.length); // the stub logs the whole file after the tag
+  const lines = tr.split('\n').filter((l) => l.startsWith('{"type"')).map((l) => JSON.parse(l));
+  const uses = lines.flatMap((l) => (l.message.content ?? []).filter((b) => b.type === 'tool_use'));
+  check('pi loop evidence is handed to the gate as Claude-shaped tool_use lines (skill expansion, status run, block write)',
+    uses.length === 3 && uses[0].name === 'Skill' && uses[0].input.skill === 'research-sdd' && uses[1].name === 'Bash' &&
+    /research-sdd-status\.sh \. --next/.test(uses[1].input.command) && uses[2].name === 'write' && uses[2].input.file_path === 'blocks/x-block7.md', tr.slice(0, 500));
+  check('the unrelated bash call, the SKILL.md read and the write body are not handed over; the final report stays the LAST line',
+    !/ls -la|SECRET-BODY|SKILL\.md/.test(tr) && lines.at(-1).message.content[0].text === 'final report', tr.slice(0, 500));
+  restoreEnv();
+}
+{
   const { kit, log } = makeKit();
   setEnv({ GENTLE_PI_AGENT_HOME: makeAgentHome(kit), RSDD_TEST_TOKEN_OUT: BLOCK_JSON });
   const pi = makePi(); (await loadFactory())(pi);

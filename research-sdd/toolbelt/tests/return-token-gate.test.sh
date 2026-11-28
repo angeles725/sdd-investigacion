@@ -4,7 +4,9 @@
 # The gate is a Claude Code Stop hook: it reads the hook JSON on stdin (transcript_path, cwd, session_id,
 # stop_hook_active), extracts the LAST continuation token of the final assistant report, runs
 # `research-sdd-status.sh <target> --next --emit-token`, and blocks ONCE when the report's token is missing or
-# differs from the emitted one. It never blocks when the emitted token is `unavailable`, allows on an explicit
+# differs from the emitted one, but only for a session whose transcript shows it ran the research loop (kit issues
+# #2792, #2841; `branch=no-loop-session` otherwise, `degraded (loop evidence ...)` when that could not be read). It
+# never blocks when the emitted token is `unavailable`, allows on an explicit
 # `return-token-override: <reason>` line, and allows with a typed degraded line (never silently) when it could not
 # look (no jq, unreadable transcript, status failure).
 #
@@ -64,7 +66,11 @@ fresh() { # <corpus fixture name> -> prints the path of a fresh copy
 fresh_stop() { # a single state file, no campaign queue: the one shape whose STOP maps to a token
   local d; d="$(fresh corpus-stop-queue)"; sedi '/^## Campaign queue/,$d' "$d/RESEARCH-STATE.md"; printf '%s\n' "$d"
 }
-tr_() { printf '%s\n' "$FX/transcripts/$1"; }
+# tr_ <fixture>: a copy of the fixture with the shared loop-evidence line in front (a session that RAN the loop: a
+# `--next --emit-token` status run), the base name kept. tr_raw is the fixture as it is: a session with no loop
+# evidence (kit issues #2792, #2841).
+tr_() { mkdir -p "$TMP/tr"; cat "$FX/transcripts/loop-evidence.jsonl" "$FX/transcripts/$1" > "$TMP/tr/$1"; printf '%s\n' "$TMP/tr/$1"; }
+tr_raw() { printf '%s\n' "$FX/transcripts/$1"; }
 # run_gate <target> <transcript> <session> [gate] -> g_out (stdout) g_err (stderr) g_rc ; RTG_ACTIVE=true sets stop_hook_active
 run_gate() {
   local c="$1" t="$2" s="$3" g="${4:-$SUT}" j
@@ -160,6 +166,51 @@ if [ "$g_rc" = 0 ] && [ -z "$g_out" ] && grep -q 'state=allow branch=unavailable
   ok "G-UNREADABLE-STOP: a STOP with [backlog-unreadable: N rows] is unavailable (non-terminal) and never blocks"
 else no "G-UNREADABLE-STOP: rc=$g_rc out=[$g_out] err=[$g_err]"; fi
 
+echo "-- loop evidence: only a session that ran the loop is held (kit issues #2792, #2841) --"
+cp "$TB/research-sdd-status.sh" "$TMP/status.orig3"
+printf '#!/usr/bin/env bash\necho ran >> "%s"\necho "%s"\n' "$TMP/status-ran" "$NEXT_TOKEN" > "$TB/research-sdd-status.sh"
+for _f in notoken.jsonl mismatch.jsonl final-has-none.jsonl override-empty.jsonl; do
+  rm -f "$TMP/status-ran"; c="$(fresh corpus-next)"; run_gate "$c" "$(tr_raw "$_f")" s-nonloop "$TB/return-token-gate.sh"
+  if [ "$g_rc" = 0 ] && [ -z "$g_out" ] && grep -q 'state=allow branch=no-loop-session' <<<"$g_err" && ! grep -q 'return-token: \|next: ' <<<"$g_err" \
+     && [ ! -e "$TMP/status-ran" ] && [ ! -e "$c/.claude" ]; then
+    ok "G-NONLOOP ($_f): no loop evidence -> allow, no block, no token offered, the status instrument never run, nothing written"
+  else no "G-NONLOOP ($_f): rc=$g_rc out=[$g_out] err=[$g_err] ran=$([ -e "$TMP/status-ran" ] && echo yes || echo no)"; fi
+done
+cp "$TMP/status.orig3" "$TB/research-sdd-status.sh"
+# a session whose only evidence names another corpus, or only mentions the script, is not a loop session
+mk_session() { # <name> <jsonl line...> : the lines, then the no-token final report
+  local n="$1"; shift; mkdir -p "$TMP/sess"; { printf '%s\n' "$@"; cat "$FX/transcripts/notoken.jsonl"; } > "$TMP/sess/$n.jsonl"; printf '%s\n' "$TMP/sess/$n.jsonl"
+}
+tool_line() { jq -nc --arg n "$1" --arg k "$2" --arg v "$3" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",id:"t",name:$n,input:{($k):$v}}]}}'; }
+c="$(fresh corpus-next)"
+run_gate "$c" "$(mk_session other "$(tool_line Bash command 'bash /k/toolbelt/research-sdd-status.sh /somewhere/else-research --next')")" s-other
+expect_allow "G-EVIDENCE-OTHER-TARGET: a --next run on another corpus is that corpus's loop, not this session's" no-loop-session
+c="$(fresh corpus-next)"
+run_gate "$c" "$(mk_session grep "$(tool_line Bash command "grep -n -- '--next' research-sdd/toolbelt/research-sdd-status.sh")")" s-grep
+expect_allow "G-EVIDENCE-MENTION: grepping the script for --next is not running it" no-loop-session
+# every other evidence kind keeps the session under the gate (blocked once, token quoted)
+for _k in "block|Write|file_path|BLOCK" "state|Edit|file_path|RESEARCH-STATE.md" "skill|Skill|skill|research-sdd"; do
+  IFS='|' read -r _n _tool _key _val <<<"$_k"; c="$(fresh corpus-next)"; [ "$_val" = BLOCK ] && _val="$c/blocks/x-block7.md"
+  run_gate "$c" "$(mk_session "ev-$_n" "$(tool_line "$_tool" "$_key" "$_val")")" "s-$_n"
+  if is_block && grep -qxF "$NEXT_TOKEN" <<<"$(reason)" && grep -q 'state=block branch=missing' <<<"$g_err"; then ok "G-LOOP-BLOCKED ($_n): a loop session with no token is still blocked and offered the emitted token"
+  else no "G-LOOP-BLOCKED ($_n): rc=$g_rc out=[$g_out] err=[$g_err]"; fi
+done
+c="$(fresh corpus-next)"
+run_gate "$c" "$(mk_session slash '{"type":"user","message":{"role":"user","content":"<command-name>/research-sdd</command-name>"}}')" s-slash
+is_block && grep -q 'state=block branch=missing' <<<"$g_err" && ok "G-LOOP-BLOCKED (slash): the /research-sdd command keeps the session under the gate" || no "G-LOOP-BLOCKED (slash): out=[$g_out] err=[$g_err]"
+# could not look -> typed, distinguishable from "no loop", never a block
+c="$(fresh corpus-next)"; mkdir -p "$TMP/a-dir"; run_gate "$c" "$TMP/a-dir" s1
+{ [ -z "$g_out" ] && grep -q 'state=allow branch=degraded (loop evidence unreadable: ' <<<"$g_err" && ! grep -q no-loop-session <<<"$g_err"; } \
+  && ok "G-EVIDENCE-UNREADABLE: a transcript that cannot be read is a typed degraded allow, not 'no loop session'" || no "G-EVIDENCE-UNREADABLE: out=[$g_out] err=[$g_err]"
+_big="$TMP/oversize.jsonl"; { printf '{"type":"user","message":{"content":"'; head -c 5000000 /dev/zero | tr '\0' x; printf '"}}\n'; } > "$_big"
+c="$(fresh corpus-next)"; run_gate "$c" "$_big" s1
+{ [ -z "$g_out" ] && grep -q 'state=allow branch=degraded (loop evidence incomplete: 1 transcript line(s) over 4194304 bytes' <<<"$g_err"; } \
+  && ok "G-EVIDENCE-OVERSIZE: a line too long to inspect makes the 'no' unproven: typed degraded allow" || no "G-EVIDENCE-OVERSIZE: out=[$g_out] err=[$g_err]"
+: > "$TMP/empty.jsonl"; c="$(fresh corpus-next)"; run_gate "$c" "$TMP/empty.jsonl" s1
+{ [ -z "$g_out" ] && grep -q 'state=allow branch=degraded (loop evidence absent: the transcript has no lines)' <<<"$g_err"; } \
+  && ok "G-EVIDENCE-EMPTY: an empty transcript is its own typed state" || no "G-EVIDENCE-EMPTY: out=[$g_out] err=[$g_err]"
+rm -f "$_big"
+
 echo "-- not a corpus target, target resolution --"
 e="$TMP/empty-target"; mkdir -p "$e"; run_gate "$e" "$(tr_ mismatch.jsonl)" s1
 { [ "$g_rc" = 0 ] && [ -z "$g_out" ] && [ -z "$g_err" ]; } && ok "G-NOT-TARGET: no RESEARCH-STATE under the target allows silently (no stdout, no stderr)" || no "G-NOT-TARGET: rc=$g_rc out=[$g_out] err=[$g_err]"
@@ -223,7 +274,8 @@ big2="$TMP/big-after.jsonl"; { cat "$(tr_ mismatch.jsonl)"; pad 600000 200; cat 
 c="$(fresh corpus-next)"; RETURN_TOKEN_GATE_TAIL_BYTES=4096 run_gate "$c" "$big2" s1
 expect_allow "G-TAIL-FINAL-IN-WINDOW: the final report inside the tail window is still read (partial first line dropped)" match
 # a ~25 MB transcript with the default window completes quickly and reads the final report
-huge="$TMP/huge.jsonl"; { pad 25000000 500; cat "$(tr_ match.jsonl)"; } > "$huge"
+# (the loop-evidence line leads the file: the evidence scan reads the whole transcript, the report is read from the tail)
+huge="$TMP/huge.jsonl"; { cat "$FX/transcripts/loop-evidence.jsonl"; pad 25000000 500; echo; cat "$(tr_raw match.jsonl)"; } > "$huge"
 c="$(fresh corpus-next)"; _t0=$SECONDS; run_gate "$c" "$huge" s1; _dt=$((SECONDS - _t0))
 if [ "$_dt" -le 10 ]; then expect_allow "G-HUGE-TRANSCRIPT: a ~25 MB transcript is read via the default tail window (${_dt}s)" match; else no "G-HUGE-TRANSCRIPT: took ${_dt}s"; fi
 rm -f "$big2" "$huge"

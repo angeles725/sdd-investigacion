@@ -28,13 +28,23 @@ type ResolveOptions struct {
 
 const stateMaxDepth = 3 // find -maxdepth 3
 
+// matchStateName is the name test of findState: the shell pattern matches and the file is not a *.template.md.
+func matchStateName(pat, name string) bool {
+	ok, _ := path.Match(pat, name)
+	return ok && !strings.HasSuffix(name, ".template.md")
+}
+
+// IsStateFileName reports whether a base name is a research state file (RESEARCH-STATE*.md, never a template): the
+// one definition ListStateFiles lists by and that callers classifying a path (core/loopevidence) share.
+func IsStateFileName(name string) bool { return matchStateName("RESEARCH-STATE*.md", name) }
+
 // findState mirrors `find [-H] dir -maxdepth 3 -name pat -not -name '*.template.md' -not -path '*/.git/*'`:
 // no -type filter (a directory named like a state file is listed), symlinks are never descended except the
 // start point under -H, unreadable subtrees are skipped, and the .git test runs on the whole printed path.
 func findState(dir string, follow bool, pat string) []string {
 	var out []string
 	visit := func(p, name string) {
-		if ok, _ := path.Match(pat, name); ok && !strings.HasSuffix(name, ".template.md") && !strings.Contains(p, "/.git/") {
+		if matchStateName(pat, name) && !strings.Contains(p, "/.git/") {
 			out = append(out, p)
 		}
 	}

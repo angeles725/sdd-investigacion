@@ -306,8 +306,36 @@ const textOf = (content: unknown): string => {
   return content.filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text).join("\n");
 };
 
+// The gate holds a report to a token only for a session that RAN the loop (kit issues #2792, #2841), and it reads that
+// evidence from Claude-shaped tool calls, which pi's session file does not carry. So the pi tool calls that can be evidence
+// are handed over in that shape too: a bash command or a written path naming the loop (the gate's own classifier decides
+// whether it is evidence, this only translates and filters by the same cheap needles), and the user's /skill:research-sdd
+// expansion as a Skill call. A model that merely reads the SKILL.md file is not evidence (reading it to edit it is common).
+const LOOP_NEEDLES = /research-sdd|rsdd|-block|-bloque|RESEARCH-STATE/;
+function loopEvidenceLines(msgs: any[]): string[] {
+  const out: string[] = [];
+  const emit = (name: string, input: Record<string, string>) =>
+    out.push(JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "pi-evidence", name, input }] } }));
+  for (const m of msgs) {
+    if (m?.role === "user") {
+      if (/^<skill name="research-sdd"[ >]/.test(textOf(m.content))) emit("Skill", { skill: "research-sdd" });
+      continue;
+    }
+    if (m?.role !== "assistant" || !Array.isArray(m.content)) continue;
+    for (const b of m.content) {
+      if (!b || b.type !== "toolCall" || typeof b.name !== "string") continue;
+      const name = b.name.toLowerCase();
+      const a = b.arguments ?? {};
+      const p = typeof a.path === "string" ? a.path : typeof a.file_path === "string" ? a.file_path : "";
+      if (name === "bash" && typeof a.command === "string" && LOOP_NEEDLES.test(a.command)) emit("Bash", { command: a.command });
+      else if ((name === "write" || name === "edit") && LOOP_NEEDLES.test(p)) emit(name, { file_path: p });
+    }
+  }
+  return out;
+}
+
 // Pi's session file is not Claude-shaped, and return-token-gate.sh parses `{"type":"assistant","message":{"content":[...]}}`
-// lines — so the last assistant text is handed over in that shape. The file lives in a fresh 0700 directory (mkdtemp, an
+// lines — so the loop-evidence tool calls (above) and then the last assistant text are handed over in that shape. The file lives in a fresh 0700 directory (mkdtemp, an
 // unpredictable name) and is created exclusively (flag "wx", mode 0600), so a pre-planted path or symlink is never followed.
 // The caller removes the directory in a finally. null = nothing to hand over (and nothing was created).
 function writeTranscript(ctx: any, event: any): { dir: string; file: string } | null {
@@ -320,7 +348,8 @@ function writeTranscript(ctx: any, event: any): { dir: string; file: string } | 
   const dir = mkdtempSync(join(tmpdir(), "rsdd-pi-transcript-"));
   const file = join(dir, "transcript.jsonl");
   try {
-    writeFileSync(file, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: last }] } }) + "\n", { mode: 0o600, flag: "wx" });
+    const final = JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: last }] } });
+    writeFileSync(file, [...loopEvidenceLines(msgs), final].join("\n") + "\n", { mode: 0o600, flag: "wx" });
   } catch (e) {
     rmSync(dir, { recursive: true, force: true });
     throw e;
