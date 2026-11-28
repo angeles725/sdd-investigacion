@@ -9,13 +9,11 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/gh"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/issuesdue"
 )
 
 // DefaultRepo is the repository whose issues the audit reads (the legacy _REPO).
 const DefaultRepo = "angeles725/sdd-investigacion"
-
-// defaultListLimit is RECONCILE_ISSUES_LIST_LIMIT's default: GitHub search's practical ceiling (kit issue #1369 c).
-const defaultListLimit = 1000
 
 // The --jq programs of the legacy script, byte for byte: every record ends with one record-separator line (octal
 // 036), so the issue COUNT is readable without a JSON parser and the cap guard can count every returned issue.
@@ -33,23 +31,6 @@ var (
 	reRateReset  = regexp.MustCompile(`x-ratelimit-reset[:= ]+([0-9]{1,12})([^0-9]|$)`)
 	reRetroDate  = regexp.MustCompile(`^([0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]))([^0-9]|$)`)
 )
-
-// listLimit is RECONCILE_ISSUES_LIST_LIMIT: the text handed to gh --limit, its value, and the degraded line when
-// it is not a positive integer. Unset or empty is the default.
-func listLimit(get func(string) string) (text string, n int, bad string) {
-	text = get("RECONCILE_ISSUES_LIST_LIMIT")
-	if text == "" {
-		return strconv.Itoa(defaultListLimit), defaultListLimit, ""
-	}
-	n, err := strconv.Atoi(text)
-	if strings.Trim(text, "0123456789") != "" || text == "0" {
-		return text, 0, fmt.Sprintf("degraded: RECONCILE_ISSUES_LIST_LIMIT must be a positive integer (got '%s')", text)
-	}
-	if err != nil { // more digits than an int holds: larger than any cap that can be filled
-		n = int(^uint(0) >> 1)
-	}
-	return text, n, ""
-}
 
 // ghClient is one run's gh access: the bounded launcher, the --limit, and the state_reason listing cache (kit
 // issue #1752), shared by every retro of the run.
@@ -439,7 +420,7 @@ func LoadCache(ctx context.Context, o gh.Options, repo string) (*Cache, error) {
 	if repo == "" {
 		repo = DefaultRepo
 	}
-	text, limit, bad := listLimit(func(k string) string { return envValue(o.Env, k) })
+	text, limit, bad := issuesdue.ListLimit(func(k string) string { return envValue(o.Env, k) })
 	if bad != "" {
 		return nil, fmt.Errorf("reconcile: %s", bad)
 	}

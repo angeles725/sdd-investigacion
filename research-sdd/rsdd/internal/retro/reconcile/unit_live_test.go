@@ -17,35 +17,6 @@ import (
 // Unit tests of the live path. They pin every boundary and boolean the differential reaches only through a
 // golden, so a mutant of a comparison fails here by name.
 
-func TestListLimit(t *testing.T) {
-	huge := "99999999999999999999999"
-	for _, tc := range []struct {
-		in   string
-		text string
-		n    int
-		bad  bool
-	}{
-		{"", "1000", 1000, false},
-		{"1", "1", 1, false},
-		{"250", "250", 250, false},
-		{"007", "007", 7, false},
-		{"00", "00", 0, false}, // `case 0` matches only the single digit: "00" passes, as in bash
-		{"0", "0", 0, true},
-		{"-1", "-1", 0, true},
-		{"1a", "1a", 0, true},
-		{" 1", " 1", 0, true},
-		{huge, huge, int(^uint(0) >> 1), false},
-	} {
-		text, n, bad := listLimit(func(string) string { return tc.in })
-		if text != tc.text || n != tc.n || (bad != "") != tc.bad {
-			t.Errorf("listLimit(%q) = (%q, %d, %q), want (%q, %d, bad=%v)", tc.in, text, n, bad, tc.text, tc.n, tc.bad)
-		}
-		if tc.bad && bad != "degraded: RECONCILE_ISSUES_LIST_LIMIT must be a positive integer (got '"+tc.in+"')" {
-			t.Errorf("bad line = %q", bad)
-		}
-	}
-}
-
 func TestCountSepsAndDropSeps(t *testing.T) {
 	if n := countSeps("a\n\x1e\nb\n\x1e"); n != 2 {
 		t.Errorf("countSeps = %d, want 2", n)
@@ -448,38 +419,6 @@ func TestFleetLineAndRender(t *testing.T) {
 	}
 	if !(&Report{ancDegraded: true}).failed() || !(&Report{Degraded: "x"}).failed() || (&Report{}).failed() {
 		t.Error("failed() is Degraded or ancDegraded")
-	}
-}
-
-// The command resolves the kit root from the toolbelt: relative to the working directory, through symlinks.
-func TestKitRootOf(t *testing.T) {
-	root := t.TempDir()
-	real := filepath.Join(root, "kit", "research-sdd", "toolbelt")
-	mustMkdir(t, real)
-	mustWrite(t, filepath.Join(real, "reconcile-issues.sh"), "#!/bin/sh\n")
-	link := filepath.Join(root, "link")
-	must(t, os.Symlink(real, link))
-	var errs []string
-	errf := func(f string, a ...any) { errs = append(errs, f) }
-	wantKit := filepath.Join(root, "kit")
-	for name, tb := range map[string]string{"absolute": real, "through a symlink": link, "relative to cwd": "link"} {
-		got, ok := kitRootOf(cli.Stdio{Cwd: root, Env: func(string) string { return "" }}, tb, errf)
-		if !ok || got != wantKit {
-			t.Errorf("%s: %q %v, want %q", name, got, ok, wantKit)
-		}
-	}
-	// No --toolbelt: the kit resolution (RESEARCH_SDD_KIT).
-	env := func(k string) string {
-		if k == "RESEARCH_SDD_KIT" {
-			return filepath.Join(root, "kit", "research-sdd")
-		}
-		return ""
-	}
-	if got, ok := kitRootOf(cli.Stdio{Cwd: root, Env: env}, "", errf); !ok || got != wantKit {
-		t.Errorf("kit resolution: %q %v", got, ok)
-	}
-	if _, ok := kitRootOf(cli.Stdio{Cwd: root, Env: func(string) string { return "" }}, "", errf); ok {
-		t.Error("no kit anywhere must fail")
 	}
 }
 

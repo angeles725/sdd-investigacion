@@ -34,9 +34,10 @@ func runStubbed(t *testing.T, retroFiles files, env map[string]string, st gateSt
 	root := sc.build(t)
 	tb := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(tb, "clean-check.sh"), []byte("#!/bin/sh\n"), 0o755))
-	oldV, oldG, oldR, oldC := verifyState, ghList, reconcileRun, cleanCheckRun
-	t.Cleanup(func() { verifyState, ghList, reconcileRun, cleanCheckRun = oldV, oldG, oldR, oldC })
+	oldV, oldG, oldR, oldC, oldD := verifyState, ghList, reconcileRun, cleanCheckRun, dueRun
+	t.Cleanup(func() { verifyState, ghList, reconcileRun, cleanCheckRun, dueRun = oldV, oldG, oldR, oldC, oldD })
 	verifyState = func([]string, cli.Stdio) int { return 0 }
+	dueRun = legacyDue
 	okGH := func(gh.Options, ...string) (gh.RunResult, error) { return gh.RunResult{State: gh.StateOK}, nil }
 	okRec := func([]string, time.Duration, cli.Stdio) probeResult { return probeResult{} }
 	okCC := func(string, string, time.Duration, cli.Stdio) probeResult { return probeResult{} }
@@ -554,8 +555,9 @@ func TestKnobBounds(t *testing.T) {
 // The aggregate budget is measured on the run's clock: with a clock that advances past a non-zero budget, the walk
 // stops before the first probe and names the budget in seconds. A run without a clock never sees time pass.
 func TestIssuesGateAggregateBudgetOnAnAdvancingClock(t *testing.T) {
-	oldG, oldR := ghList, reconcileRun
-	defer func() { ghList, reconcileRun = oldG, oldR }()
+	oldG, oldR, oldD := ghList, reconcileRun, dueRun
+	defer func() { ghList, reconcileRun, dueRun = oldG, oldR, oldD }()
+	dueRun = legacyDue
 	ghList = func(gh.Options, ...string) (gh.RunResult, error) {
 		return gh.RunResult{State: gh.StateError, RC: 1}, nil
 	}

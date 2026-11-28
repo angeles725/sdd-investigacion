@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/gh"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/issuesdue"
 )
 
 // ghDefaultBound is the bound in seconds of one gh call (RSDD_GH_TIMEOUT overrides it). The legacy script ran
@@ -91,7 +90,7 @@ func runCommand(args []string, s cli.Stdio, h hooks) int {
 			return 1
 		}
 	}
-	kitRoot, ok := kitRootOf(s, toolbelt, errf)
+	kitRoot, ok := issuesdue.KitRoot(s.Cwd, s.Env, toolbelt, errf)
 	if !ok {
 		return 1
 	}
@@ -112,26 +111,4 @@ func runCommand(args []string, s cli.Stdio, h hooks) int {
 		return 1
 	}
 	return rep.Render(s.Out, s.Err)
-}
-
-// kitRootOf is the legacy KIT_ROOT: two directories above the toolbelt, resolved physically (kit issue #993).
-func kitRootOf(s cli.Stdio, toolbelt string, errf func(string, ...any)) (string, bool) {
-	if toolbelt == "" {
-		p, warns, err := kit.ResolveKitScript("toolbelt/reconcile-issues.sh", s.Env)
-		for _, w := range warns {
-			errf("%s", w)
-		}
-		if err != nil {
-			errf("reconcile-issues: cannot find the kit toolbelt: %v", err)
-			return "", false
-		}
-		toolbelt = filepath.Dir(p)
-	}
-	if !filepath.IsAbs(toolbelt) {
-		toolbelt = filepath.Join(s.Cwd, toolbelt)
-	}
-	if r, err := filepath.EvalSymlinks(toolbelt); err == nil {
-		toolbelt = r
-	}
-	return filepath.Dir(filepath.Dir(toolbelt)), true
 }

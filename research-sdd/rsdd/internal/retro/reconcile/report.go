@@ -3,6 +3,8 @@ package reconcile
 import (
 	"fmt"
 	"io"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/issuesdue"
 )
 
 // Delta is one finding of an audit: a retro row id, the retro file it belongs to (base name) and, for an orphaned
@@ -75,6 +77,14 @@ func (r *Report) out(format string, args ...any) {
 func (r *Report) degrade(format string, args ...any) {
 	r.Degraded = fmt.Sprintf(format, args...)
 	r.Notes = append(r.Notes, r.Degraded)
+}
+
+// sink is the Report as the receiver of the due computation's typed states.
+func (r *Report) sink() issuesdue.Sink {
+	return issuesdue.Sink{Note: r.note, Degrade: r.degrade, Fail: r.fail, OutOfScope: func(line string) {
+		r.OutOfScopeMarker = line
+		r.Notes = append(r.Notes, line)
+	}}
 }
 
 func (r *Report) fail(format string, args ...any) {

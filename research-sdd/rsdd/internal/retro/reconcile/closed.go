@@ -8,11 +8,11 @@ import (
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/git"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/issuesdue"
 )
 
 // The closed-issue classes of reconcile-issues.sh (kit issues #1555, #1709, #1773): a row with no OPEN issue may
-// have shipped through an issue closed as completed. This file holds the closed-cache record reader, the
-// closure-evidence grammar and the git reachability probe; classify (audit.go) applies them.
+// have shipped through an issue closed as completed. This file holds the record reader, the evidence grammar and the git probe.
 
 const recordSep = "\x1e"
 
@@ -50,7 +50,7 @@ func closedRecords(bodies, prefix, rowID string) (rec string, ignored int) {
 			}
 		}
 		cur.WriteString(l + "\n")
-		if p := strings.Index(l, pfx); p >= 0 && leadingID(l[p+len(pfx):]) == rowID && rowID != "" {
+		if p := strings.Index(l, pfx); p >= 0 && issuesdue.LeadingID(l[p+len(pfx):]) == rowID && rowID != "" {
 			hit = true
 		}
 	}
