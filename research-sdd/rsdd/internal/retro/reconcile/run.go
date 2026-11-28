@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/gh"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/issuesdue"
 )
 
 // ErrUsage marks a call without the one thing every audit needs (a retro or All, a kit root, a working
@@ -92,7 +92,7 @@ func once(ctx context.Context, o Options) (Report, error) {
 		return Report{}, fmt.Errorf("%w: no environment reader given", ErrUsage)
 	}
 	rep := &Report{}
-	limitText, limit, bad := listLimit(o.Env)
+	limitText, limit, bad := issuesdue.ListLimit(o.Env)
 	if bad != "" {
 		rep.degrade("%s", bad)
 		return *rep, nil
@@ -113,49 +113,15 @@ func once(ctx context.Context, o Options) (Report, error) {
 	return *rep, nil
 }
 
-// resolveAndAudit is the single-retro branch of the legacy main dispatch: validate the path (absent-input),
-// derive the target NAME exactly as stage-retro-issues.sh does (kit issue #1287), then audit.
+// resolveAndAudit is the single-retro branch of the legacy main dispatch: resolve the retro and its target
+// (issuesdue.ResolveTarget), then audit.
 func resolveAndAudit(ctx context.Context, g *ghClient, sess *session, rep *Report, o Options) {
-	cwd, env := o.Cwd, o.Env
-	retro := o.Retro
-	if abs := absPath(cwd, retro); !isRegular(abs) {
-		rep.fail("absent-input: retro not found: %s", retro)
+	retro, name, ok := issuesdue.ResolveTarget(o.KitRoot, o.Cwd, o.Retro, o.Env, rep.sink())
+	if !ok {
 		return
-	}
-	dir := filepath.Dir(retro)
-	retro = filepath.Join(absPath(cwd, dir), filepath.Base(retro))
-	targetDir := filepath.Dir(filepath.Dir(retro))
-	targetsMD := filepath.Join(o.KitRoot, "research-sdd", "TARGETS.md")
-	res, err := kit.NameForRetro(targetsMD, retro, cwd, env)
-	for _, w := range res.Warnings {
-		rep.note("%s", w)
-	}
-	name := res.Name
-	switch {
-	case err == nil && name != "":
-	case err != nil && kit.RC(err) == 1:
-		rep.note("%s", err.Error())
-		rep.fail("reconcile-issues: cannot resolve target for '%s' — operational failure reading %s (see message above)", retro, targetsMD)
-		return
-	default:
-		// No registered ancestor: a flat layout keeps the WARN + basename fallback; a structural directory is
-		// refused (the writer refuses it too, so no issue can exist).
-		name = filepath.Base(targetDir)
-		if name == "corpus" || name == "retros" {
-			rep.fail("reconcile-issues: cannot resolve target for '%s' — no ancestor directory is registered in %s (basename '%s' is a structural directory, not a target)", retro, targetsMD, name)
-			return
-		}
-		rep.note("WARN: target directory '%s' not found in %s — using basename '%s'", targetDir, targetsMD, name)
 	}
 	(&audit{ctx: ctx, sess: sess, gh: g, closed: o.ClosedCache, rep: rep, path: retro, base: filepath.Base(retro), target: name, cache: o.IssuesCache}).run()
 	sess.shallowNote(rep)
-}
-
-func absPath(cwd, p string) string {
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(cwd, p)
-	}
-	return filepath.Clean(p)
 }
 
 func isRegular(p string) bool {

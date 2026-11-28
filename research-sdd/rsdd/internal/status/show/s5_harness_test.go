@@ -201,11 +201,12 @@ func runGoS5(t testing.TB, sc s5Scenario, root string, e s5Env, d s5Drive) []out
 	t.Helper()
 	seamMu.Lock()
 	defer seamMu.Unlock()
-	oldV, oldG, oldR, oldP, oldC := verifyState, ghList, reconcileRun, reconcilePrefix, cleanCheckRun
+	oldV, oldG, oldR, oldP, oldC, oldD := verifyState, ghList, reconcileRun, reconcilePrefix, cleanCheckRun, dueRun
 	defer func() {
-		verifyState, ghList, reconcileRun, reconcilePrefix, cleanCheckRun = oldV, oldG, oldR, oldP, oldC
+		verifyState, ghList, reconcileRun, reconcilePrefix, cleanCheckRun, dueRun = oldV, oldG, oldR, oldP, oldC, oldD
 	}()
 	verifyState = func([]string, cli.Stdio) int { return 0 }
+	dueRun = legacyDue // the scenarios' reconcile is a canned fake that answers cached probes too (see legacyDue)
 	switch {
 	case d.replay != nil:
 		ghList, reconcileRun, cleanCheckRun = d.replay.ghList, d.replay.reconcile, d.replay.cleanCheck

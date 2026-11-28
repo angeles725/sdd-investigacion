@@ -13,8 +13,8 @@ import (
 )
 
 // The ISSUES-DUE gate, the --next terminal (issues_due_gate). When the NEXT walk is exhausted, every retro under the
-// target is probed for deltas no GitHub issue tracks (`retro reconcile`, one probe per retro); the first retro with
-// untracked deltas turns the exhausted STOP into ISSUES-DUE, so the caller seeds them as issues.
+// target is probed for deltas no GitHub issue tracks (core/issuesdue, in process; `retro reconcile` to re-verify);
+// the first retro with untracked deltas turns the exhausted STOP into ISSUES-DUE, so the caller seeds them as issues.
 //
 // Anti-silent-zero (§7): "could not look" is never "found nothing". A retro enumeration that failed, a probe that
 // timed out, degraded or failed, an out-of-scope review marker, a batch the aggregate budget cut short: each is named
@@ -141,13 +141,12 @@ func (g *issuesGate) prefetch() string {
 	return f.Name()
 }
 
-// reconcile is one bounded probe of a retro, with or without the batch cache.
+// reconcile is one probe of a retro: in process against the batch cache (dueRun), else a bounded `rsdd retro reconcile`.
 func (g *issuesGate) reconcile(retro, cache string) probeResult {
-	args := []string{retro}
 	if cache != "" {
-		args = []string{"--issues-cache", cache, retro}
+		return dueRun(retro, cache, g.c.s)
 	}
-	return reconcileRun(args, g.secs, g.c.s)
+	return reconcileRun([]string{retro}, g.secs, g.c.s)
 }
 
 // failed classifies a probe that did not exit 0 as unverified coverage and says why on stderr, in the words of the

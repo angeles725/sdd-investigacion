@@ -4,10 +4,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/gh"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/issuesdue"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
 )
@@ -16,14 +18,20 @@ import (
 // these, and no others:
 //
 //	gh issue list ...            the one batch prefetch of the open issue bodies (core/gh, bounded)
-//	rsdd retro reconcile ...     one probe per retro, and one re-verify per untracked retro (this binary, bounded)
+//	rsdd retro reconcile ...     one re-verify per retro the batch reports untracked rows for, and every probe when
+//	                             there is no batch cache (this binary, bounded)
 //	bash clean-check.sh ...      the terminal no-garbage check of an exhausted STOP (bounded)
+//
+// The probe of a retro against the batch cache is not a subprocess: dueRun answers it in process through
+// core/issuesdue, the code `rsdd retro reconcile --issues-cache` itself runs (kit issue #2644), so a status run
+// pays no process start per probed retro.
 //
 // The script ran timeout(1)/gtimeout around gh and reconcile-issues.sh; the bound is core/proc's here, so the
 // "no timeout binary" states of the script do not exist. The script ran reconcile-issues.sh through bash and the
 // shim; the port runs this binary directly, so a status run pays no extra bash start and shim resolution.
 var (
 	ghList          = gh.Run
+	dueRun          = inprocDue
 	reconcileRun    = execReconcile
 	reconcilePrefix = defaultReconcilePrefix
 	cleanCheckRun   = execCleanCheck
@@ -37,6 +45,25 @@ const execMaxBytes = gh.DefaultMaxBytes
 type probeResult struct {
 	out, err string
 	rc       int
+}
+
+// inprocDue is the probe of retro against the batch cache file: the answer of `rsdd retro reconcile [--toolbelt dir]
+// --issues-cache cache retro`, computed here. A stop the command exits 1 on is rc 1 with its stderr; a marker out of
+// scope is rc 0 with that line on stderr; otherwise rc 0 with one `untracked:` line per open row no issue tracks (the
+// gate counts those lines, nothing else of the command's stdout).
+func inprocDue(retro, cache string, s cli.Stdio) probeResult {
+	r := issuesdue.Probe(issuesdue.Query{Retro: retro, Cache: cache, Toolbelt: s.Env("RSDD_TOOLBELT_DIR"), Cwd: s.Cwd, Env: s.Env})
+	switch {
+	case r.Failure != "":
+		return probeResult{err: r.Failure + "\n", rc: 1}
+	case r.OutOfScope != "":
+		return probeResult{err: r.OutOfScope + "\n"}
+	}
+	var out strings.Builder
+	for _, id := range r.Untracked {
+		out.WriteString("untracked: row " + id + "\n")
+	}
+	return probeResult{out: out.String()}
 }
 
 // defaultReconcilePrefix is the command that runs `retro reconcile` for the toolbelt the status script lives in:

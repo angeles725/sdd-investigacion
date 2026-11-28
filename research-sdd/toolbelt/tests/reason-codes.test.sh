@@ -50,14 +50,16 @@ REQUIRED_INPUT=(absent-input empty-input unclassifiable)
 # a regexp.MustCompile pattern, which matches a state rather than emitting one) is reported (the extractor cannot read it).
 # The shim itself is still scanned (rsdd-unavailable, the self-dir note).
 #
-# GO_SRC maps a script basename to its Go package, relative to the scanned toolbelt directory (kit issue #2583). The
+# GO_SRC maps a script basename to its Go package, relative to the scanned toolbelt directory (kit issue #2583). A command
+# whose emitters live in more than one package lists them `+`-separated (`reconcile-issues.sh` also runs the shared
+# internal/core/issuesdue, kit issue #2644); every listed directory is scanned and must hold Go sources. The
 # command -> package lookup is not derivable from the shim (`gate retro` and `gate merge` share internal/gate;
 # `retro stage-issues` lives in internal/retro/stageissues), and a hand-written map re-breaks on the next port
 # (CLAUDE.md section 7), so go_unmapped fails on every rsdd_exec shim that is neither mapped here nor declared in
 # GO_NO_TYPED (shims checked to emit no registry state). An entry whose script is not a shim yet is ignored.
 GO_SRC=(
   "stage-retro-issues.sh=../rsdd/internal/retro/stageissues"   # TOOTH-GOMAP
-  "reconcile-issues.sh=../rsdd/internal/retro/reconcile"   # TOOTH-GOMAP2
+  "reconcile-issues.sh=../rsdd/internal/retro/reconcile+../rsdd/internal/core/issuesdue"   # TOOTH-GOMAP2
   "sweep-audits.sh=../rsdd/internal/sweep"
   "sweep-audits-hook.sh=../rsdd/internal/sweep"
   "sweep-retros.sh=../rsdd/internal/sweep"   # retros.go / retrosjson.go print the absent-input / empty-input / no-match states (kit issue #2605)
@@ -95,15 +97,23 @@ GO_NO_TYPED+=(return-token-gate.sh verify-kit-clean-hook.sh verify-skill-drift-h
 # (kit issue #2563): `code|row emitter label|package dir|literal`. The row counts as emitted only while the literal is
 # still in the package's non-test sources, so a removed emission turns it stale again.
 GO_SHARED=("degraded: missing runtime dependency:|core/probe|../rsdd/internal/core/probe|missing runtime dependency: ")
-# The emit calls the Go packages use: errf/outf (stageissues, gate), .degrade/.note/.fail (reconcile), fmt.* (sweep, reconcile).
-GO_CALL_RE='(errf|outf|\.degrade|\.note|\.fail|fmt\.Fprintf|fmt\.Fprintln|fmt\.Sprintf|fmt\.Errorf)\('
+# The emit calls the Go packages use: errf/outf (stageissues, gate), .degrade/.note/.fail (reconcile), the exported
+# .Degrade/.Note/.Fail of the shared issuesdue Sink (kit issue #2644), fmt.* (sweep, reconcile).
+GO_CALL_RE='(errf|outf|\.degrade|\.Degrade|\.note|\.Note|\.fail|\.Fail|fmt\.Fprintf|fmt\.Fprintln|fmt\.Sprintf|fmt\.Errorf)\('
 
-# go_dir SCRIPT_PATH TOOLBELT_DIR — the mapped Go package directory of the script; rc 1 when unmapped
+# go_dir SCRIPT_PATH TOOLBELT_DIR — the mapped Go package directories of the script, one per line; rc 1 when unmapped
 go_dir() {
-  local b e
+  local b e d
   b="$(basename "$1")"
   for e in "${GO_SRC[@]}"; do
-    if [ "${e%%=*}" = "$b" ]; then printf '%s/%s\n' "$2" "${e#*=}"; return 0; fi
+    [ "${e%%=*}" = "$b" ] || continue
+    e="${e#*=}"
+    while [ -n "$e" ]; do
+      d="${e%%+*}"
+      printf '%s/%s\n' "$2" "$d"
+      case "$e" in *+*) e="${e#*+}" ;; *) e="" ;; esac   # TOOTH-GOMULTI
+    done
+    return 0
   done
   return 1
 }
@@ -144,14 +154,25 @@ go_glob() {
   done
   printf '%s\n' '*.go'
 }
-# go_files DIR [GLOB] — the non-test Go sources of the command, one per line
+# go_files DIRS [GLOB] — the non-test Go sources of the command, one per line; DIRS is one directory or the
+# newline-separated list go_dir prints
 go_files() {
-  local f g="${2:-*.go}"
-  for f in "$1"/$g; do
-    [ -f "$f" ] || continue
-    case "$f" in *_test.go) continue ;; esac   # TOOTH-GOTESTFILE
-    printf '%s\n' "$f"
-  done
+  local d f g="${2:-*.go}"
+  while IFS= read -r d; do
+    for f in "$d"/$g; do
+      [ -f "$f" ] || continue
+      case "$f" in *_test.go) continue ;; esac   # TOOTH-GOTESTFILE
+      printf '%s\n' "$f"
+    done
+  done <<<"$1"
+}
+# go_missing DIRS [GLOB] — the first of the listed directories that holds no Go source (nothing when each one does)
+go_missing() {
+  local d
+  while IFS= read -r d; do
+    if [ -z "$(go_files "$d" "${2:-}")" ]; then printf '%s\n' "$d"; return 0; fi   # TOOTH-GOMISSING
+  done <<<"$1"
+  return 0
 }
 # A Go port can also state an input class by assigning it (`state, reason = "no-match", ...`, `state := "..."`) or by
 # returning it (`return "absent-input", ...`), with no emit call around it (kit issue #2597). Such a non-comment line,
@@ -220,7 +241,7 @@ finding() { printf 'FINDING: %s\n' "$*"; nfind=$((nfind + 1)); }
 rc_check() {
   local reg="$1" dir="$2" rows s path toks tok req found idx i n
   local -a codes=() classes=() emits=() used=()
-  local c cl em ct lc pairs=';' uc e gdir gglob gtoks
+  local c cl em ct lc pairs=';' uc e gdir gglob gmiss gtoks
   nfind=0
 
   if [ ! -f "$reg" ] || [ ! -r "$reg" ]; then
@@ -274,8 +295,9 @@ rc_check() {
     if go_shim "$path"; then
       gdir="$(go_dir "$path" "$dir")"
       gglob="$(go_glob "$path")"
-      if [ -z "$(go_files "$gdir" "$gglob")" ]; then
-        printf 'DEGRADED: absent-input: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$s" "$gdir"; return 2   # TOOTH-GOABSENT
+      gmiss="$(go_missing "$gdir" "$gglob")"
+      if [ -n "$gmiss" ]; then
+        printf 'DEGRADED: absent-input: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$s" "$gmiss"; return 2   # TOOTH-GOABSENT
       fi
       gtoks="$(go_view "$gdir" "$gglob" | awk "$EXTRACT_AWK")" || { printf 'DEGRADED: could not read the Go source %s\n' "$gdir"; return 2; }
       if [ -z "$gtoks" ]; then
@@ -469,7 +491,7 @@ IC_REPORT=''
 # Sets IC_REPORT to the coverage declaration (what was traversed, how each occurrence was classified).
 ic_check() {
   local reg="$1" dir="$2" rows p rel f ln tok cls txt w wf ws wr
-  local c cl em ct i n nfiles=0 nocc=0 key lst row_i e gdir gglob
+  local c cl em ct i n nfiles=0 nocc=0 key lst row_i e gdir gglob gmiss
   local n_counter=0 n_comment=0 n_consumer=0 n_emit=0 n_waived=0 n_py=0 n_maint_files=0
   local -a codes=() classes=() emits=() files=() usedw=() wv=()
   local pairs=';' all='' n_uncl=0
@@ -515,8 +537,9 @@ ic_check() {
     rel="${p#"$dir"/}"
     gdir="$(go_dir "$p" "$dir")"
     gglob="$(go_glob "$p")"
-    if [ -z "$(go_files "$gdir" "$gglob")" ]; then
-      printf 'DEGRADED: absent-input: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$rel" "$gdir"; return 2
+    gmiss="$(go_missing "$gdir" "$gglob")"
+    if [ -n "$gmiss" ]; then
+      printf 'DEGRADED: absent-input: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$rel" "$gmiss"; return 2   # TOOTH-IC-GOABSENT
     fi
     nfiles=$((nfiles + 1))
     f="$(go_view "$gdir" "$gglob" | awk -v F="$rel" "$IC_AWK")" || { printf 'DEGRADED: could not read the Go source %s\n' "$gdir"; return 2; }
@@ -1090,6 +1113,11 @@ mkgofix2() {
   local d="$tmp/$1" g
   mkfix "$1"
   g="$d/rsdd/internal/retro/reconcile"; mkdir -p "$g"
+  mkdir -p "$d/rsdd/internal/core/issuesdue"   # the second mapped package of reconcile-issues.sh (kit issue #2644): its Sink calls
+  printf '%s\n' 'package issuesdue' '' \
+    'func read(sink Sink, path string) {' \
+    '	sink.Degrade("degraded: retro not readable: %s — cannot audit, no verdict", path)' \
+    '}' > "$d/rsdd/internal/core/issuesdue/retro.go"
   printf '%s\n' '#!/usr/bin/env bash' 'rsdd_exec retro reconcile-issues --toolbelt "$_RSDD_SELF" "$@"' > "$d/scripts/reconcile-issues.sh"
   printf '%s\n' 'package reconcile' '' \
     'var reCode = regexp.MustCompile(`^degraded: (gh|jq)`)' \
@@ -1102,6 +1130,8 @@ mkgofix2() {
   edit "$d/reg.md" 's#^\(| `degraded: jq failed on` | degraded | research-sdd-init.sh\) |#\1, reconcile-issues.sh |#'
   edit "$d/reg.md" '/^| `degraded: jq failed on` /a\
 | `degraded: git could not be run in <v> (<v>)` | degraded | reconcile-issues.sh | m13 | fix git |'
+  edit "$d/reg.md" '/^| `degraded: jq failed on` /a\
+| `degraded: retro not readable:` | degraded | reconcile-issues.sh | m14 | fix the retro path |'
   edit "$d/reg.md" 's#^\(| `degraded: rsdd-unavailable` | degraded | lib/rsdd-exec.sh\) |#\1, reconcile-issues.sh |#'
   printf '%s\n' 'printf '"'"'degraded: rsdd-unavailable — %s\n'"'"' "$1" >&2' >> "$d/scripts/reconcile-issues.sh"
 }
@@ -1113,6 +1143,17 @@ expect "Go emitter: a fmt.Sprintf code in a mapped package must be a registry ro
 mkgofix2 go2_fprintf
 printf '%s\n' 'func g(out io.Writer) { fmt.Fprintf(out, "degraded: only fprintf sees this — x\n") }' >> "$tmp/go2_fprintf/rsdd/internal/retro/reconcile/run.go"
 expect "Go emitter: fmt.Fprintf is a recognised emit call" 1 "$tmp/go2_fprintf/reg.md" "$tmp/go2_fprintf/scripts" 'unlisted code emitted by reconcile-issues.sh: degraded: only fprintf sees this'
+# the second mapped package: its call alone makes the row emitted, and dropping it is a stale emitter, never a silent pass
+mkgofix2 go2_second_drop; printf '%s\n' 'package issuesdue' 'func read() {}' > "$tmp/go2_second_drop/rsdd/internal/core/issuesdue/retro.go"
+expect "Go emitter: a code only the second mapped package emits goes stale when that package stops emitting it" 1 "$tmp/go2_second_drop/reg.md" "$tmp/go2_second_drop/scripts" "stale row: degraded code never emitted by a scanned script: degraded: retro not readable:"
+mkgofix2 go2_second_unlisted
+printf '%s\n' 'func g(sink Sink) { sink.Degrade("degraded: brand new issuesdue code — x") }' >> "$tmp/go2_second_unlisted/rsdd/internal/core/issuesdue/retro.go"
+expect "Go emitter: a new code in the second mapped package must be a registry row (unlisted)" 1 "$tmp/go2_second_unlisted/reg.md" "$tmp/go2_second_unlisted/scripts" 'unlisted code emitted by reconcile-issues.sh: degraded: brand new issuesdue code'
+mkgofix2 go2_second_stray
+printf '%s\n' 'var msg = "degraded: via a variable"' >> "$tmp/go2_second_stray/rsdd/internal/core/issuesdue/retro.go"
+expect "Go emitter: a degraded: line outside an emit call in the second mapped package is unclassifiable" 1 "$tmp/go2_second_stray/reg.md" "$tmp/go2_second_stray/scripts" 'unclassifiable degraded: line in reconcile-issues.sh Go source retro.go'
+mkgofix2 go2_second_absent; rm -rf "$tmp/go2_second_absent/rsdd/internal/core/issuesdue"
+expect "Go emitter: a missing second mapped package is DEGRADED absent-input naming it, though the first one has sources" 2 "$tmp/go2_second_absent/reg.md" "$tmp/go2_second_absent/scripts" 'DEGRADED: absent-input: reconcile-issues.sh is a rsdd shim but its Go source is absent or empty: .*/core/issuesdue'
 mkgofix2 go2_absent; rm -rf "$tmp/go2_absent/rsdd"
 expect "Go emitter: a mapped shim whose Go dir is absent is DEGRADED absent-input" 2 "$tmp/go2_absent/reg.md" "$tmp/go2_absent/scripts" 'DEGRADED: absent-input: reconcile-issues.sh is a rsdd shim'
 mkgofix2 go2_unmapped
@@ -1141,6 +1182,28 @@ printf '%s\n' '#!/usr/bin/env bash' 'rsdd_exec brand new-port "$@"' > "$tmp/i_go
 expect_ic "input scan: an rsdd_exec shim with no map entry fails, named" 1 i_go2_unmapped 'rsdd shim with no GO_SRC entry and not in GO_NO_TYPED: brand-new-port.sh'
 mkgoifix2 i_go2_absent; rm -rf "$tmp/i_go2_absent/rsdd"
 expect_ic "input scan: a mapped shim without its Go dir is DEGRADED absent-input" 2 i_go2_absent 'DEGRADED: absent-input: sweep-audits.sh is a rsdd shim'
+
+# a shim whose emitters sit in two mapped packages (kit issue #2644): the second is the shared core/issuesdue Sink
+mkgoifix4() {
+  local d="$tmp/$1" g
+  mkifix "$1"
+  g="$d/rsdd/internal/retro/reconcile"; mkdir -p "$g" "$d/rsdd/internal/core/issuesdue"
+  printf '%s\n' '#!/usr/bin/env bash' 'rsdd_exec retro reconcile-issues --toolbelt "$_RSDD_SELF" "$@"' > "$d/tb/reconcile-issues.sh"
+  printf '%s\n' 'package reconcile' 'func f() {}' > "$g/run.go"
+  printf '%s\n' 'package issuesdue' '' \
+    'func g(sink Sink, p string) {' \
+    '	sink.Note("unclassifiable: delta section found but it produced no items in %s — needs manual review", p)' \
+    '	sink.Fail("absent-input: retro not found: %s", p)' \
+    '}' > "$d/rsdd/internal/core/issuesdue/rows.go"
+  edit "$d/reg.md" 's#^\(| `unclassifiable` | input | lib/b.sh\) |#\1, reconcile-issues.sh |#'
+  edit "$d/reg.md" 's#^\(| `absent-input` | input | a.sh\) |#\1, reconcile-issues.sh |#'
+}
+mkgoifix4 i_go_multi
+expect_ic "input scan: the Sink calls of the second mapped package are the shim's emitters (#2644)" 0 i_go_multi
+mkgoifix4 i_go_multi_drop; printf '%s\n' 'package issuesdue' 'func g() {}' > "$tmp/i_go_multi_drop/rsdd/internal/core/issuesdue/rows.go"
+expect_ic "input scan: a state only the second mapped package emitted goes stale when it is dropped (#2644)" 1 i_go_multi_drop "stale emitter: row lists reconcile-issues.sh but reconcile-issues.sh never emits 'unclassifiable'"
+mkgoifix4 i_go_multi_absent; rm -rf "$tmp/i_go_multi_absent/rsdd/internal/core/issuesdue"
+expect_ic "input scan: a missing second mapped package is DEGRADED absent-input naming it (#2644)" 2 i_go_multi_absent 'DEGRADED: absent-input: reconcile-issues.sh is a rsdd shim but its Go source is absent or empty: .*/core/issuesdue'
 
 # --- Go ports beyond calls (kit issue #2597): an rsdd_exec_hook shim, and a typed state ASSIGNED (or returned) in Go
 # mkgoifix3 NAME SHIM CMD ROW GOLINE... — an input-scan fixture: tb/SHIM runs CMD, internal/sweep holds GOLINEs, and the
@@ -1238,6 +1301,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth go-map       go_good    0 1 '/# TOOTH-GOMAP$/d'
   tooth go-map2      go2_good   0 1 '/# TOOTH-GOMAP2$/d'
   tooth go-map-absent go2_absent 2 1 '/# TOOTH-GOMAP2$/d'
+  # the multi-package map (kit issue #2644): dropping the second directory, from the entry or from the list parser, goes red
+  tooth go-map-second    go2_good 0 1 '/# TOOTH-GOMAP2$/s,+\.\./rsdd/internal/core/issuesdue,,'
+  tooth go-multi         go2_good 0 1 '/# TOOTH-GOMULTI/s/e="\${e#\*+}"/e=""/'
+  tooth go-missing-second go2_second_absent 2 1 '/# TOOTH-GOMISSING/s/if \[.*\]; then/if false; then/'
+  tooth go-multi-files   go2_good 0 2 '/^go_files() {/,/^}/s,done <<<"\$1",done <<<"${1%%/rsdd/internal/core*}",'
+  tooth go-call-Degrade-cap go2_good 0 1 '/^GO_CALL_RE=/s/|\\.Degrade//'
   tooth go-unmapped  go2_unmapped 1 0 '/# TOOTH-GOUNMAPPED-FINDING/s/finding /: /'
   tooth go-call-degrade  go2_good 0 1 '/^GO_CALL_RE=/s/|\\.degrade//'
   tooth go-call-errorf   go2_good 0 1 '/^GO_CALL_RE=/s/|fmt\\.Errorf//'
@@ -1267,6 +1336,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ictooth ic-go-note     i_go2        0 1 '/^GO_CALL_RE=/s/|\\.note//'
   ictooth ic-go-fail     i_go2        0 1 '/^GO_CALL_RE=/s/|\\.fail//'
   ictooth ic-go-map      i_go2        0 1 '/"sweep-audits.sh=/d'
+  # the multi-package map (kit issue #2644) and the exported Sink calls of core/issuesdue
+  ictooth ic-go-map-second i_go_multi 0 1 '/# TOOTH-GOMAP2$/s,+\.\./rsdd/internal/core/issuesdue,,'
+  ictooth ic-go-multi    i_go_multi   0 1 '/# TOOTH-GOMULTI/s/e="\${e#\*+}"/e=""/'
+  ictooth ic-go-missing-second i_go_multi_absent 2 0 '/# TOOTH-IC-GOABSENT/s/return 2/return 0/'
+  ictooth ic-go-note-cap i_go_multi   0 1 '/^GO_CALL_RE=/s/|\\.Note//'
+  ictooth ic-go-fail-cap i_go_multi   0 1 '/^GO_CALL_RE=/s/|\\.Fail//'
   # Go ports beyond calls (kit issue #2597): the hook pattern, the assign / return rule, the comment filter, the file glob
   ictooth ic-hook-shim   i_hook_emit  0 1 '/^GO_SHIM_RE=/s/(_hook)?//'
   ictooth ic-hook-unmapped i_hook_unmapped_solo 1 0 '/^GO_SHIM_RE=/s/(_hook)?//'

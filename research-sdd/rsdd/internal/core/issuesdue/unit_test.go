@@ -1,4 +1,4 @@
-package reconcile
+package issuesdue
 
 import (
 	"reflect"
@@ -19,7 +19,7 @@ func TestIssueRowIDs(t *testing.T) {
 		{"line without id", "Source retro: a/retros/r.md · ", []string{"a/retros/r.md"}, nil},
 	}
 	for _, c := range cases {
-		if got := issueRowIDs(c.bodies, c.prefixes); !reflect.DeepEqual(got, c.want) {
+		if got := IssueRowIDs(c.bodies, c.prefixes); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
 	}
@@ -46,7 +46,7 @@ func TestIDBytesAtTheRangeEdges(t *testing.T) {
 			t.Errorf("isIDByte(%q) = true, want false", c)
 		}
 	}
-	if got := leadingID("aZ09_-z:rest"); got != "aZ09_-z" {
+	if got := LeadingID("aZ09_-z:rest"); got != "aZ09_-z" {
 		t.Errorf("leadingID = %q", got)
 	}
 }
