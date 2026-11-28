@@ -243,3 +243,179 @@ func TestPathFilterTemplatedJobNamePosition(t *testing.T) {
 		}
 	})
 }
+
+// Kit issue #2852 (verifier round): the reader does not decode YAML scalars, so a templated name: it cannot read as a
+// plain one-line scalar without escapes is "could be anything" (fail-closed), because GitHub decodes the scalar first
+// (quote doubling, double-quoted escapes, line folding) and only then expands the expression. Each case below is a
+// name GitHub expands to exactly a required check (or to a spelling of it a lenient comparison would equate).
+const (
+	wfZB    = ".github/workflows/z-b.yml"
+	pfOKJob = "  ok:\n    runs-on: x\n"
+)
+
+// pfZB adds a second workflow, on: pull_request with no path filter, whose jobs are job, to both trees.
+func pfZB(job string) func(*scn) {
+	return func(sc *scn) {
+		for _, tree := range []string{hHead, hPRBase} {
+			sc.workflows[tree][wfZB] = "name: z\non: pull_request\njobs:\n" + job
+		}
+	}
+}
+
+func TestPathFilterJobNameScalarShapeIsFailClosed(t *testing.T) {
+	const docs = `[{"status":"added","filename":"docs/yy.md"}]`
+	carriers := pfWFHead + pfJobTool + pfJobShel
+	why := "cannot parse the jobs of " + wfZB + " (job name shape of lint, head tree)"
+	blocked := notEval("shellcheck", why) + notEval("toolbelt-tests", why) + missingCI
+	named := func(raw string) string { return pfNamed("lint", raw) }
+	cases := []struct {
+		name, job string
+		fixed     bool // run only as written (the position is the point)
+	}{
+		{"1 single-quoted scalar: doubled quote decodes to one quote", named(`'${{ '''' }}shellcheck'`), false},
+		{"1b single-quoted scalar with a lone quote inside", named(`'${{ '' }}shellcheck'`), false},
+		{"2 double-quoted hex escape", named(`"${{ '' }}shell\x63heck"`), false},
+		{"2b double-quoted unicode escape", named(`"${{ '' }}shell\u0063heck"`), false},
+		{"2c escape that decodes to the expression opener", named(`"\x24{{ '' }}shellcheck"`), false},
+		{"2d escaped quote inside a double-quoted scalar", named(`"${{ '' }}\"shellcheck"`), false},
+		{"3 double-quoted scalar continued across lines", "  lint:\n    name: \"shell${{ '' }}\\\n      check\"\n    runs-on: x\n", false},
+		{"3b unbalanced opening quote with a continuation line", "  lint:\n    name: \"${{ matrix.n }}\n      x\"\n    runs-on: x\n", false},
+		{"3c unbalanced opening quote on one line", named(`"${{ '' }}shellcheck`), false},
+		{"3e mismatched outer quotes", named(`"${{ '' }}shellcheck'`), false},
+		{"3f trailing backslash in a plain scalar", named(`${{ '' }}shellcheck\`), false},
+		{"3g a comment cuts the closing quote off", named(`"${{ '' }}shellcheck # "`), false},
+		{"4 plain scalar folded over a deeper-indented line", "  lint:\n    name: ${{ 'rsdd-go-bridge' }}\n      (1/3)\n    runs-on: x\n", false},
+		{"4b plain scalar whose continuation follows a comment line", "  lint:\n    name: ${{ '' }}shell\n    # c\n      check\n    runs-on: x\n", false},
+		{"4c continuation after a blank line", "  lint:\n    name: ${{ '' }}shell\n\n      check\n    runs-on: x\n", false},
+		{"4d continuation is the last line of the file", "  lint:\n    name: ${{ 'rsdd-go-bridge' }}\n      (1/3)", true},
+		{"4e continuation is the last line, with a trailing newline", "  lint:\n    name: ${{ 'rsdd-go-bridge' }}\n      (1/3)\n", true},
+		{"5 CR at the end of the name line only", named("${{ '' }}shellcheck\r"), false},
+		{"5b CR after a literal suffix", named("${{ matrix.n }}check\r"), false},
+		{"5c CR after a closing quote", named("\"${{ '' }}shellcheck\"\r"), false},
+		{"5d CR on the name line, which is the last line of a file without a trailing newline", "  lint:\n    name: ${{ '' }}shellcheck\r", true},
+		{"5e other control character in the value", named("${{ '' }}shell\x01check"), false},
+		{"5f tab inside the value", named("${{ '' }}shell\tcheck"), false},
+	}
+	for _, tc := range cases {
+		jobs := []string{tc.job}
+		if !tc.fixed {
+			jobs = []string{tc.job, tc.job + pfOKJob, pfOKJob + tc.job, pfOKJob + tc.job + pfOKJob, strings.TrimSuffix(tc.job, "\n")}
+		}
+		for i, job := range jobs {
+			t.Run(tc.name+"/variant "+string(rune('a'+i)), func(t *testing.T) {
+				out, rc, _ := pfRun(t, carriers, carriers, docs, pfZB(job))
+				if out != blocked || rc != 1 {
+					t.Fatalf("job=%q\nout=%q\nwant %q rc=%d", job, out, blocked, rc)
+				}
+			})
+		}
+	}
+	t.Run("4f the continuation completes a custom required check", func(t *testing.T) {
+		src := pfWFHead + "  lint:\n    name: ${{ 'rsdd-go-bridge' }}\n      (1/3)\n    runs-on: x\n"
+		sc := pfScanWorkflow(src, "rsdd-go-bridge (1/3)")
+		if sc.unsup != "job name shape of lint" {
+			t.Fatalf("a folded name could be the check: %+v", sc)
+		}
+	})
+}
+
+// Names the scalar rule must keep evaluating: readable plain one-line scalars and quoted ones without escapes.
+func TestPathFilterJobNameScalarShapeStillEvaluated(t *testing.T) {
+	const docs = `[{"status":"added","filename":"docs/yy.md"}]`
+	carriers := pfWFHead + pfJobTool + pfJobShel
+	skip := func(chk string) string {
+		return "merge-gate: note: required check " + chk + " skipped by path filter (" + wfPath + " pull_request.paths matches none of the 1 changed files)\n"
+	}
+	allowed := skip("shellcheck") + skip("toolbelt-tests") + allowLine("passive", bound7) +
+		"merge-gate: merged: PR #7 (head=" + hHead + " cwd=/repo)\nmerge-gate: closure-evidence: skipped: --no-closure-evidence\n"
+	const bridge = "rsdd-go-bridge (${{ matrix.shard }}/3)"
+	cases := []struct{ name, job string }{
+		{"plain", pfNamed("lint", bridge)},
+		{"plain with a trailing comment", pfNamed("lint", bridge+" # bridge")},
+		{"single-quoted without quotes inside", pfNamed("lint", "'"+bridge+"'")},
+		{"double-quoted with a string literal inside", pfNamed("lint", `"${{ matrix.shard == 0 && 'rsdd-go-bridge' || 'x' }}"`)},
+		{"next key at the same indent", "  lint:\n    name: " + bridge + "\n    runs-on: x\n"},
+		{"comment line, then the next key", "  lint:\n    name: " + bridge + "\n    # c\n    runs-on: x\n"},
+		{"next job right after the name", "  lint:\n    name: " + bridge + "\n" + pfOKJob},
+		{"name is the last line, LF", "  lint:\n    name: " + bridge + "\n"},
+		{"name is the last line, no trailing newline", "  lint:\n    name: " + bridge},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, rc, _ := pfRun(t, carriers, carriers, docs, pfZB(tc.job))
+			if out != allowed || rc != 0 {
+				t.Fatalf("job=%q\nout=%q\nwant %q rc=%d", tc.job, out, allowed, rc)
+			}
+		})
+	}
+}
+
+// Whitespace and case (GitHub's behaviour was not verified, so each is decided fail-closed).
+func TestPathFilterJobNameWhitespaceAndCase(t *testing.T) {
+	const docs = `[{"status":"added","filename":"docs/yy.md"}]`
+	carriers := pfWFHead + pfJobTool + pfJobShel
+	why := "cannot parse the jobs of " + wfZB + " (job name shape of lint, head tree)"
+	onlyShellcheck := notEval("shellcheck", why) +
+		"merge-gate: note: required check toolbelt-tests skipped by path filter (" + wfPath + " pull_request.paths matches none of the 1 changed files)\n" +
+		"merge-gate: refuse: ci_missing (shellcheck) (head=" + hHead + ") — CI for this exact head must be green before merging\n"
+	skip := func(chk string) string {
+		return "merge-gate: note: required check " + chk + " skipped by path filter (" + wfPath + " pull_request.paths matches none of the 1 changed files)\n"
+	}
+	allowed := skip("shellcheck") + skip("toolbelt-tests") + allowLine("passive", bound7) +
+		"merge-gate: merged: PR #7 (head=" + hHead + " cwd=/repo)\nmerge-gate: closure-evidence: skipped: --no-closure-evidence\n"
+	for _, raw := range []string{
+		"${{ 'shellcheck ' }}",
+		"${{ ' shellcheck' }}",
+		"${{ '\u00a0shellcheck' }}",
+		"${{ format('  shell{0}  ', matrix.n) }}",
+		"${{ ' ' }}${{ 'shellcheck' }}${{ ' ' }}",
+		"${{ matrix.n }} shellcheck",                // the gap may be blank, so the space is trimmed away
+		"shellcheck ${{ matrix.n }}",                // likewise at the other end
+		"${{ matrix.a }}shellcheck ${{ matrix.b }}", // blank gap at the end only
+		"${{ 'ShellCheck' }}",
+		"SHELL${{ matrix.n }}",
+		"${{ matrix.n }}CHECK",
+		"${{ 'ſhellcheck' }}", // U+017F folds to s
+		"${{ 'shellchecK' }}",
+	} {
+		t.Run("could be shellcheck: "+raw, func(t *testing.T) {
+			out, rc, _ := pfRun(t, carriers, carriers, docs, pfZB(pfNamed("lint", raw)))
+			if out != onlyShellcheck || rc != 1 {
+				t.Fatalf("out=%q\nwant %q rc=%d", out, onlyShellcheck, rc)
+			}
+		})
+	}
+	for _, raw := range []string{
+		"shell ${{ matrix.n }}",   // a space inside is not trimmed away
+		"${{ ' x ' }}",            // trimmed: still not the check
+		"${{ 'shell check' }}",    // inner whitespace stays
+		"${{ matrix.n }} check x", // literal text after the gap
+	} {
+		t.Run("cannot be a required check: "+raw, func(t *testing.T) {
+			out, rc, _ := pfRun(t, carriers, carriers, docs, pfZB(pfNamed("lint", raw)))
+			if out != allowed || rc != 0 {
+				t.Fatalf("out=%q\nwant %q rc=%d", out, allowed, rc)
+			}
+		})
+	}
+	scan := func(id, raw string) pfScan {
+		return pfScanWorkflow(pfWFHead+pfNamed(id, raw), "shellcheck")
+	}
+	t.Run("a whitespace-only possible expansion may be empty: the job id applies", func(t *testing.T) {
+		for _, raw := range []string{"${{ ' ' }}", "${{ '\u00a0' }}", "${{ matrix.s == 0 && ' ' || 'x' }}", "${{ format(' {0} ', matrix.n) }}"} {
+			if sc := scan("shellcheck", raw); sc.unsup != "job name shape of shellcheck" {
+				t.Errorf("%s: a blank name falls back to the id shellcheck: %+v", raw, sc)
+			}
+		}
+	})
+	t.Run("a possible expansion with text does not fall back to the job id", func(t *testing.T) {
+		if sc := scan("shellcheck", "${{ ' x ' }}"); sc.unsup != "" || sc.job {
+			t.Fatalf("%+v", sc)
+		}
+	})
+	t.Run("the job id comparison ignores case", func(t *testing.T) {
+		if sc := scan("ShellCheck", "${{ '' }}"); sc.unsup != "job name shape of ShellCheck" {
+			t.Fatalf("%+v", sc)
+		}
+	})
+}

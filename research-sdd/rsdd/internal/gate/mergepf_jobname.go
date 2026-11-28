@@ -2,6 +2,7 @@ package gate
 
 import (
 	"strings"
+	"unicode"
 )
 
 // JOB NAME EXPANSION (kit issue #2852). A workflow job whose `name:` holds a `${{ ... }}` expression is named by its
@@ -22,6 +23,24 @@ import (
 //   - an alternative that can be empty also stands for the job id (GitHub names a job by its id when the name
 //     expands to nothing), so it could be chk when the id is;
 //   - more than pfMaxAlts alternatives are not enumerated and count as possibly anything.
+//
+// THE SCALAR (the rule above judges the decoded text; GitHub decodes the YAML scalar BEFORE it expands the
+// expression, and this reader decodes none of it): a templated `name:` is read only as a plain one-line scalar with
+// no escapes, or a quoted one whose body has no escape (pfNameScalar). Anything else could be anything, so it voids
+// the evaluation for every required check: a double-quoted scalar containing `\` (an escape such as \x63 or \u0063
+// can spell any character, even the `${{` itself, so this holds for a name without `${{` too); a single-quoted one
+// containing `'` (`''` decodes to one quote); an opening quote without its matching closing quote (or a different one
+// closing it, or a ` # ` comment cutting it off); a trailing `\`; a control character, which includes the CR left on a
+// name: line by a mixed or CRLF line ending, and U+2028/U+2029; a double quote inside a double-quoted scalar; and a
+// continuation line (the next line that is neither blank nor a comment is indented deeper than the `name:` key),
+// which YAML folds into the value with a space. Block scalars and empty values stay unsupported as before.
+//
+// ASSUMPTIONS (GitHub's behaviour could not be verified, so each is decided fail-closed and pinned by a test):
+//   - leading and trailing whitespace of an expansion may be trimmed, so `shellcheck ` (or ` shellcheck`) could be
+//     the check `shellcheck`: alternatives are compared after trimming their ends (pfTrimAlts);
+//   - a whitespace-only expansion may count as empty, so the job id fallback applies to it;
+//   - check names compare case-insensitively (Unicode simple folding, so U+017F also folds to s), and so does the
+//     job id against the check name.
 //
 // So a name with no literal part and an unknown expression (`${{ matrix.n }}`) could be anything and blocks; a name
 // whose literal parts fit chk in order (`shell${{ x }}`, `${{ x }}check` for chk=shellcheck) blocks; the real
@@ -69,10 +88,100 @@ func pfNameCouldBe(v, id, chk string) bool {
 	if !ok {
 		return true
 	}
+	want, idIsChk := pfFold(chk), pfFold(id) == pfFold(chk)
 	for _, a := range alts {
-		if a.matches(chk) || (id == chk && a.matches("")) {
-			return true
+		for _, t := range pfTrimAlts(a) {
+			if t.matches(want) || (idIsChk && t.matches("")) {
+				return true
+			}
 		}
+	}
+	return false
+}
+
+// pfFold maps every rune to the smallest member of its Unicode simple-folding orbit, so two strings that
+// strings.EqualFold equates fold to the same text (strings.ToLower would keep U+017F and U+212A apart).
+func pfFold(s string) string {
+	return strings.Map(func(r rune) rune {
+		m := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			if f < m {
+				m = f
+			}
+		}
+		return m
+	}, s)
+}
+
+// pfTrimAlts are the readings of the alternative as it is compared with a check name: folded, with the whitespace
+// that could end up at either end of the expansion removed. A literal part loses its edge whitespace only at the
+// real edge of the string; when the part at an edge is blank, the unknown gap next to it may be blank too, which is
+// one more reading with that gap removed (so `shell ` + gap is not trimmed to `shell`, but `shell ` + blank gap is).
+func pfTrimAlts(a pfAlt) []pfAlt {
+	parts := make([]string, len(a.parts))
+	for i, p := range a.parts {
+		parts[i] = pfFold(p)
+	}
+	var out []pfAlt
+	var walk func(parts []string)
+	walk = func(parts []string) {
+		t := append([]string{}, parts...)
+		t[0] = strings.TrimLeftFunc(t[0], unicode.IsSpace)
+		t[len(t)-1] = strings.TrimRightFunc(t[len(t)-1], unicode.IsSpace)
+		out = append(out, pfAlt{parts: t, truthy: a.truthy, falsy: a.falsy})
+		if len(parts) > 1 && strings.TrimSpace(parts[0]) == "" {
+			walk(parts[1:])
+		}
+		if len(parts) > 1 && strings.TrimSpace(parts[len(parts)-1]) == "" {
+			walk(parts[:len(parts)-1])
+		}
+	}
+	walk(parts)
+	return out
+}
+
+// pfEscapedName reports whether the raw text after `name:` is a double-quoted scalar with a backslash: its escapes
+// can decode to `${{` (or to any character of a check name), so it is judged like a templated one.
+func pfEscapedName(rest string) bool {
+	t := pfTrimValue(rest)
+	return strings.HasPrefix(t, `"`) && strings.Contains(t, `\`)
+}
+
+// pfNameScalar is the text of the raw `name:` value (the text after the colon) when it is a plain one-line scalar or
+// a quoted one with no escape; false when the reader cannot tell what GitHub decodes it to (see THE SCALAR).
+func pfNameScalar(rest string) (string, bool) {
+	t := pfTrimValue(rest)
+	if t == "" || strings.HasSuffix(t, `\`) {
+		return "", false
+	}
+	for _, r := range t {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return "", false
+		}
+	}
+	if t[0] != '"' && t[0] != '\'' {
+		return t, true
+	}
+	q := t[0]
+	if len(t) < 2 || t[len(t)-1] != q {
+		return "", false
+	}
+	body := t[1 : len(t)-1]
+	if strings.IndexByte(body, q) >= 0 || (q == '"' && strings.Contains(body, `\`)) {
+		return "", false
+	}
+	return body, true
+}
+
+// pfContinues reports whether the first line of rest that is neither blank nor a comment is indented deeper than
+// the name: key at ind spaces, i.e. continues its scalar (a tab counts as indentation, fail-closed).
+func pfContinues(rest []string, ind int) bool {
+	for _, row := range rest {
+		t := strings.TrimLeft(row, " \t")
+		if strings.TrimSpace(t) == "" || t[0] == '#' {
+			continue
+		}
+		return len(row)-len(t) > ind
 	}
 	return false
 }

@@ -34,6 +34,15 @@ type pfScan struct {
 
 // pfStrip is the awk strip(): a trailing ` # comment`, surrounding blanks, then one pair of surrounding quotes.
 func pfStrip(v string) string {
+	v = pfTrimValue(v)
+	if len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'')) {
+		v = v[1 : len(v)-1]
+	}
+	return v
+}
+
+// pfTrimValue is pfStrip without the quote removal: the value text minus a trailing ` # comment` and its blanks.
+func pfTrimValue(v string) string {
 	for i := 0; i < len(v); i++ {
 		if v[i] != ' ' && v[i] != '\t' {
 			continue
@@ -48,11 +57,7 @@ func pfStrip(v string) string {
 		}
 	}
 	v = strings.TrimLeft(v, " \t")
-	v = strings.TrimRight(v, " \t")
-	if len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'')) {
-		v = v[1 : len(v)-1]
-	}
-	return v
+	return strings.TrimRight(v, " \t")
 }
 
 // afterColon is awk's sub(/^[^:]*:/, "", s): the text after the first colon, s itself without one.
@@ -102,7 +107,8 @@ func pfScanWorkflow(src, chk string) pfScan {
 		}
 	}
 	text := src + "\n"
-	for _, raw := range strings.Split(text[:len(text)-1], "\n") {
+	rows := strings.Split(text[:len(text)-1], "\n")
+	for ri, raw := range rows {
 		if t := strings.TrimLeft(raw, " \t"); t == "" || t[0] == '#' {
 			continue
 		}
@@ -198,11 +204,14 @@ func pfScanWorkflow(src, chk string) pfScan {
 					switch {
 					case v == "" || strings.ContainsAny(v[:1], ">|&*!"):
 						unsup("job name shape of " + cur)
-					case strings.Contains(v, "${{"):
+					case strings.Contains(v, "${{") || pfEscapedName(line[5:]):
 						// Kit issue #2852: a name the reader cannot expand only voids the evaluation when
 						// some expansion of it could be chk (pfNameCouldBe, fail-closed); otherwise the job
-						// is named by its expansion, which is not chk, so it is no carrier of chk.
-						if pfNameCouldBe(v, cur, chk) {
+						// is named by its expansion, which is not chk, so it is no carrier of chk. A scalar
+						// the reader cannot decode (pfNameScalar) or that continues on the next line could be
+						// anything, so it voids the evaluation for every chk.
+						dec, ok := pfNameScalar(line[5:])
+						if !ok || pfContinues(rows[ri+1:], ind) || pfNameCouldBe(dec, cur, chk) {
 							unsup("job name shape of " + cur)
 						}
 						expanded[cur] = true
