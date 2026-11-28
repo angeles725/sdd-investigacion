@@ -95,6 +95,7 @@ func pfScanWorkflow(src, chk string) pfScan {
 		ids                          []string
 	)
 	name := map[string]string{}
+	expanded := map[string]bool{} // jobs whose templated name cannot be chk (see pfNameCouldBe)
 	unsup := func(w string) {
 		if sc.unsup == "" {
 			sc.unsup = w
@@ -194,17 +195,27 @@ func pfScanWorkflow(src, chk string) pfScan {
 				}
 				if ind == cind && strings.HasPrefix(line, "name:") {
 					v := pfStrip(line[5:])
-					if v == "" || strings.Contains(v, "${{") || strings.ContainsAny(v[:1], ">|&*!") {
+					switch {
+					case v == "" || strings.ContainsAny(v[:1], ">|&*!"):
 						unsup("job name shape of " + cur)
-					} else {
+					case strings.Contains(v, "${{"):
+						// Kit issue #2852: a name the reader cannot expand only voids the evaluation when
+						// some expansion of it could be chk (pfNameCouldBe, fail-closed); otherwise the job
+						// is named by its expansion, which is not chk, so it is no carrier of chk.
+						if pfNameCouldBe(v, cur, chk) {
+							unsup("job name shape of " + cur)
+						}
+						expanded[cur] = true
+					default:
 						name[cur] = v
+						delete(expanded, cur)
 					}
 				}
 			}
 		}
 	}
 	for _, id := range ids {
-		if name[id] == chk {
+		if name[id] == chk && !expanded[id] {
 			sc.job = true
 		}
 	}

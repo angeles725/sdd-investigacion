@@ -94,6 +94,15 @@ esac
 [ "$(wf_verdict "$TMP/drift-wf.yml" "$WF_FIX")" = FAIL-drifted ] && ok "5a drift control: a modified copy reports FAIL-drifted" || no "5a drift control: modified copy not reported drifted"
 [ "$(wf_verdict "$WF_FIX" "$TMP/no-such-workflow.yml")" = FAIL-absent ] && ok "5b drift control: a missing workflow file reports FAIL-absent, not drifted" || no "5b drift control: missing file not reported absent"
 [ "$(wf_verdict "$WF_FIX" "$WF_FIX")" = PASS ] && ok "5c drift control: identical files report PASS" || no "5c drift control: identical files not reported PASS"
+# 5d. Same guard for the second frozen workflow (kit issue #2852): the matrix job name of .github/workflows/rsdd-go.yml is the
+# shape the templated-job-name tests read, so the fixture must BE the live file.
+REAL_WF_GO="$HERE/../../../.github/workflows/rsdd-go.yml"
+WF_FIX_GO="$HERE/fixtures/merge-gate/wf-real-rsdd-go.yml"
+case "$(wf_verdict "$WF_FIX_GO" "$REAL_WF_GO")" in
+  PASS) ok "5d fixture wf-real-rsdd-go.yml is byte-identical to .github/workflows/rsdd-go.yml";;
+  FAIL-absent) no "5d fixture or workflow absent: $WF_FIX_GO / $REAL_WF_GO (not a drift - restore the missing file)";;
+  *) no "5d fixtures/merge-gate/wf-real-rsdd-go.yml drifted from .github/workflows/rsdd-go.yml (refresh it: cp the workflow over the fixture)";;
+esac
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then

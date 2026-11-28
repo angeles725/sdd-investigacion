@@ -66,7 +66,7 @@ func (r *diffRig) pathFilters() {
 		"othertop":      "env:\n  A: b\non:\n  pull_request:\n    paths:\n      - \"nothing/**\"\npermissions:\n  contents: read\njobs:\n  toolbelt-tests:\n    runs-on: x\n  shellcheck:\n    runs-on: x\n",
 		"jobskey":       "on:\n  pull_request:\n    paths:\n      - \"nothing/**\"\njobs:\n  - bad\n",
 		"jobsflowkey":   "on:\n  pull_request:\n    paths:\n      - \"nothing/**\"\njobs:  \n  toolbelt-tests:\n    runs-on: x\n  shellcheck:\n    runs-on: x\n",
-		"matrixname":    "on:\n  pull_request:\n    paths:\n      - \"nothing/**\"\njobs:\n  toolbelt-tests:\n    runs-on: x\n  shellcheck:\n    runs-on: x\n  other:\n    name: x-${{ matrix.y }}\n",
+		"matrixname":    "on:\n  pull_request:\n    paths:\n      - \"nothing/**\"\njobs:\n  toolbelt-tests:\n    runs-on: x\n  shellcheck:\n    runs-on: x\n  other:\n    name: ${{ matrix.y }}\n",
 		"onheadcomment": "on: # triggers\n  pull_request: # pr\n    paths: # p\n      - \"nothing/**\"\njobs:\n  toolbelt-tests:\n    runs-on: x\n  shellcheck:\n    runs-on: x\n",
 		"pathsdotslash": "on:\n  pull_request:\n    paths:\n      - \"./docs/**\"\njobs:\n  toolbelt-tests:\n    runs-on: x\n  shellcheck:\n    runs-on: x\n",
 		"atsign":        "on:\n  pull_request:\n    paths:\n      - \"a/@@DS@@\"\njobs:\n  toolbelt-tests:\n    runs-on: x\n  shellcheck:\n    runs-on: x\n",
