@@ -67,7 +67,7 @@ Ruled 2026-11-06: approved as declared exceptions (go-port.md section 8), under 
 ## 4. CI check names that must survive
 
 Today: `toolbelt-shard (1-4)`, `toolbelt-tests`, `toolbelt-extras` (nightly), `shellcheck`; `rsdd-go`,
-`rsdd-go-bridge (n/3)`, `rsdd-go-test`; PR Validation (gate scripts, issue reference, status:approved, type label,
+`rsdd-go-bridge (n)` (n = 1-3; `(0)` on schedule/dispatch; the job has no `name:` since #2852, GitHub names the matrix job), `rsdd-go-test`; PR Validation (gate scripts, issue reference, status:approved, type label,
 RED evidence); `flake-hunt` (nightly). Merge tooling requires `shellcheck,toolbelt-tests`
 (`internal/gate/merge.go:116`) [checked]. Branch protection is not visible from the tree.
 
