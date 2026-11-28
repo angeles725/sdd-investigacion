@@ -1,0 +1,1 @@
+{"args":["lint","review-slices","--cwd","/nonexistent-rsdd-review-slices"],"env":{"PATH":"/usr/bin:/bin"}}

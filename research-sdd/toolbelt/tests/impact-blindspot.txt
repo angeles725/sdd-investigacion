@@ -38,7 +38,7 @@ merge-gate reach=research-sdd/toolbelt/lib/* uses eval on built text; the script
 mutant reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 pi-hooks builds a script name at run time (${x}.sh)
 pi-tier-agents loops over a toolbelt glob
-plan-review-slices reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+plan-review-slices reach=research-sdd/toolbelt/lib/* the shim sources lib/rsdd-exec.sh and the suite mutates a copy of the shim in a throwaway kit skeleton; kept although the detector does not flag it
 reconcile-issues reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 reconcile-issues-delta-forms reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
 reconcile-issues-dismissed reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)

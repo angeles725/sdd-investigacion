@@ -74,7 +74,7 @@ research-sdd/toolbelt/tests/niagara-security-audit.test.sh 8
 research-sdd/toolbelt/tests/pi-hooks-behavior.test.mjs 26
 research-sdd/toolbelt/tests/pi-hooks.test.sh 691
 research-sdd/toolbelt/tests/pi-tier-agents.test.sh 43
-research-sdd/toolbelt/tests/plan-review-slices.test.sh 4
+research-sdd/toolbelt/tests/plan-review-slices.test.sh 2
 research-sdd/toolbelt/tests/pr-check-permissions.test.sh 1
 research-sdd/toolbelt/tests/probe.test.sh 1
 research-sdd/toolbelt/tests/profile-invariants.test.sh 10

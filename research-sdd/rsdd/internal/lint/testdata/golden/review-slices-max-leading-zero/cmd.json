@@ -1,0 +1,1 @@
+{"args":["lint","review-slices","--max-lines","05"],"env":{"PATH":"/usr/bin:/bin"}}
