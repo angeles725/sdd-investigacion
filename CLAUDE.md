@@ -180,7 +180,8 @@ asserted but never executed (#2184). The checks below make each one mechanical, 
    script exits 2, which Claude Code treats as a blocking error. Research targets keep the hook's default
    mode (only the self-matching `pkill -f` refusal).
 3. Put the executed RED in the PR body as `RED: <suite> <case-or-test-name> — <failing output excerpt>`
-   (one line per proving case; the suite must exist in the repository or the PR), or
+   (one line per proving case; the suite must exist in the repository or the PR; a Go test is cited as
+   `RED: <path>_test.go <TestName[/subtest]> — <failing output excerpt>`), or
    `RED: n/a — <reason>` (at least 20 characters, specific) when RED cannot be executed. The
    `Check RED Evidence` job in `pr-check.yml` fails a PR that changes production scripts without one
    (`.github/scripts/parse-red-evidence.cjs`). "Production" is one rule, implemented in that script and in

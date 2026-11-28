@@ -63,6 +63,7 @@ Closes #
 
 <!-- REQUIRED when the PR changes production scripts (kit issue #2208; CLAUDE.md §4). The "Check RED Evidence" job parses this. -->
 <!-- Replace the line below with one line per proving case: the suite, the case name, and an excerpt of the FAILING output from running it against the pre-fix code. -->
+<!-- A Go test is cited as `RED: <path>_test.go <TestName[/subtest]> — <failing output excerpt>` (name starts with Test, Fuzz, Benchmark or Example + an upper-case letter, digit or _). -->
 <!-- When RED genuinely cannot be executed, replace it with a single line `RED: n/a — <specific reason, at least 20 characters>`. Do not keep both. -->
 <!-- Unedited placeholders fail the check on purpose. -->
 

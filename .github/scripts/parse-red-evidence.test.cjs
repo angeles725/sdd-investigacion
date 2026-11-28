@@ -208,3 +208,105 @@ test('the workflow wires the gate through the module (no raw-body regex of its o
   assert.match(workflow, /listFiles/);
   assert.match(workflow, /name: Check RED Evidence/);
 });
+
+// Kit issue #2858: a RED line may cite a Go test file (the bash-to-Go port writes its tests in Go).
+const GO_SUITE = 'research-sdd/rsdd/internal/maint/writercheck/classify_test.go';
+const GO_GOOD = `RED: ${GO_SUITE} TestIsProductionBoundaries — got false want true`;
+
+test('a Go test file with a Test name parses into suite, name and excerpt', () => {
+  const r = parseRedEvidence(GO_GOOD);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.evidence, [{ suite: GO_SUITE, name: 'TestIsProductionBoundaries', excerpt: 'got false want true' }]);
+});
+
+test('a Go test name may be a subtest path with slashes, and Fuzz/Benchmark/Example/digit/underscore starts are accepted', () => {
+  for (const name of [
+    'TestFoo/sub_case',
+    'TestFoo/a/b/c',
+    'TestFoo/sub_case/deeper',
+    'FuzzParse',
+    'BenchmarkParse',
+    'ExampleParse',
+    'Test1',
+    'Test_foo',
+  ]) {
+    const r = parseRedEvidence(`RED: a/b_test.go ${name} — --- FAIL: ${name} (0.00s)`);
+    assert.deepEqual(r.errors, [], name);
+    assert.equal(r.evidence.length, 1, name);
+    assert.equal(r.evidence[0].name, name, name);
+  }
+});
+
+test('a plain .go file is refused and the message names every accepted form', () => {
+  const r = parseRedEvidence('RED: research-sdd/rsdd/internal/x/foo.go TestFoo — got 1 want 2');
+  assert.equal(r.evidence.length, 0);
+  assert.equal(r.errors.length, 1);
+  for (const form of ['*.test.sh', '*.test.mjs', '*.test.cjs', '*.test.py', '*_test.go']) {
+    assert.ok(r.errors[0].reason.includes(form), `${form} in: ${r.errors[0].reason}`);
+  }
+});
+
+test('a Go test file with no test name is refused', () => {
+  const r = parseRedEvidence(`RED: ${GO_SUITE} — got false want true`);
+  assert.equal(r.evidence.length, 0);
+  assert.equal(r.errors.length, 1);
+  assert.match(r.errors[0].reason, /missing the case or test name/);
+});
+
+test('a Go test name must start with Test, Fuzz, Benchmark or Example followed by an upper-case letter, digit or underscore', () => {
+  for (const name of ['testFoo', 'Testfoo', 'Foo', 'fuzzParse', 'Benchmarkparse', 'Examplex', 'Test', 'Test/foo', 'TestFoo/', 'TestFoo//x']) {
+    const r = parseRedEvidence(`RED: ${GO_SUITE} ${name} — got false want true`);
+    assert.equal(r.evidence.length, 0, name);
+    assert.equal(r.errors.length, 1, name);
+    assert.match(r.errors[0].reason, /Test.*Fuzz.*Benchmark.*Example/, name);
+    assert.ok(r.errors[0].reason.includes(name), `names the offender: ${r.errors[0].reason}`);
+  }
+});
+
+test('a Go suite that is not tracked in the repository or the PR files is refused, exactly like the other suites', () => {
+  const known = [GO_SUITE, 'research-sdd/toolbelt/foo.sh'];
+  const prod = ['research-sdd/toolbelt/foo.sh'];
+  assert.equal(checkRedEvidence(GO_GOOD, prod, known).ok, true);
+  const bad = checkRedEvidence('RED: ghost_test.go TestGhost — got false want true', prod, known);
+  assert.equal(bad.ok, false);
+  assert.match(bad.problems[0], /ghost_test\.go/);
+  assert.match(bad.problems[0], /not found/);
+  // a bare file name resolves as a path suffix, a non-segment suffix does not
+  assert.equal(checkRedEvidence('RED: classify_test.go TestIsProductionBoundaries — got false want true', prod, known).ok, true);
+  assert.equal(checkRedEvidence('RED: ssify_test.go TestIsProductionBoundaries — got false want true', prod, known).ok, false);
+});
+
+test('Go placeholders stay refused', () => {
+  for (const line of [
+    'RED: <suite>_test.go TestFoo — got false want true',
+    `RED: ${GO_SUITE} <TestName> — got false want true`,
+    `RED: ${GO_SUITE} TestFoo — <failing output excerpt>`,
+    `RED: ${GO_SUITE} TestFoo — TBD`,
+  ]) {
+    const r = parseRedEvidence(line);
+    assert.equal(r.evidence.length, 0, line);
+    assert.equal(r.errors.length, 1, line);
+  }
+});
+
+test('a body mixing a valid shell line and a valid Go line passes, in either order', () => {
+  const known = ['research-sdd/toolbelt/tests/foo.test.sh', GO_SUITE];
+  for (const body of [`${GOOD}\n${GO_GOOD}`, `${GO_GOOD}\nprose\n${GOOD}`]) {
+    const r = checkRedEvidence(body, PROD, known);
+    assert.equal(r.ok, true, body);
+    assert.equal(r.evidence.length, 2, body);
+  }
+});
+
+test('the bad-suite error text names all accepted forms', () => {
+  const r = parseRedEvidence('RED: foo.sh case — expected 3 got 0');
+  assert.equal(r.errors.length, 1);
+  for (const form of ['*.test.sh', '*.test.mjs', '*.test.cjs', '*.test.py', '*_test.go']) {
+    assert.ok(r.errors[0].reason.includes(form), `${form} in: ${r.errors[0].reason}`);
+  }
+});
+
+test('the workflow failure message shows the Go form as well', () => {
+  const workflow = readFileSync(resolve(__dirname, '../workflows/pr-check.yml'), 'utf8');
+  assert.match(workflow, /RED: <path>_test\.go <TestName\[\/subtest\]>/);
+});

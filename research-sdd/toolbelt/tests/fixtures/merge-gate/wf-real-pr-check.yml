@@ -226,6 +226,8 @@ jobs:
                 result.production.map((p) => `  - ${p}`).join('\n') +
                 '\n\nAdd to the PR body (reviewer-visible text; comments and code fences do not count):\n' +
                 '  RED: <suite>.test.sh <case-or-test-name> — <failing output excerpt from the pre-fix run>\n' +
+                'or, for a Go test file:\n' +
+                '  RED: <path>_test.go <TestName[/subtest]> — <failing output excerpt from the pre-fix run>\n' +
                 'or, when RED cannot be executed:\n' +
                 '  RED: n/a — <reason>\n' +
                 'See CLAUDE.md section 4 (Writer checklist).'
