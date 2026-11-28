@@ -137,20 +137,18 @@ func (v fsView) findStates(target string) []string {
 	}
 	var walk func(p string, depth int)
 	walk = func(p string, depth int) {
-		f, err := os.Open(v.At(p))
-		if err != nil {
-			return
-		}
-		names, _ := f.Readdirnames(-1)
-		f.Close()
-		sort.Strings(names)
-		for _, n := range names {
+		// os.ReadDir sorts by name, bytewise. The entry type comes with the listing, so no entry is lstat-ed (kit issue
+		// #2686): a symlink reports as a symlink, never as the directory it points at, as Lstat did.
+		ents, _ := os.ReadDir(v.At(p))
+		for _, e := range ents {
+			n := e.Name()
 			ep := p + "/" + n
 			if strings.HasSuffix(p, "/") {
 				ep = p + n
 			}
 			visit(ep, n)
-			if st, err := os.Lstat(v.At(ep)); err == nil && st.IsDir() && depth < 3 {
+			// A .git directory is not entered: every path under it holds "/.git/", which visit refuses (kit issue #2686).
+			if e.IsDir() && depth < 3 && n != ".git" {
 				walk(ep, depth+1)
 			}
 		}
@@ -170,14 +168,15 @@ func (v fsView) regularMarkdown(dir string) []string {
 	if err != nil {
 		return nil
 	}
-	names, _ := f.Readdirnames(-1)
+	ents, _ := f.ReadDir(-1) // directory order; the entry type comes with the listing, so no file is lstat-ed (kit issue #2686)
 	f.Close()
 	var out []string
-	for _, n := range names {
+	for _, e := range ents {
+		n := e.Name()
 		if !strings.HasSuffix(n, ".md") {
 			continue
 		}
-		if st, err := os.Lstat(v.At(dir + "/" + n)); err == nil && st.Mode().IsRegular() {
+		if e.Type().IsRegular() {
 			if strings.HasSuffix(dir, "/") {
 				out = append(out, dir+n)
 			} else {

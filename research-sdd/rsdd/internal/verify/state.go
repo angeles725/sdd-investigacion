@@ -103,6 +103,8 @@ type verifier struct {
 	// and every state file of one directory asked for the same listing and regexp filter (kit issue #2645).
 	blockCounts map[blockCountKey]string
 	mdListing   map[string][]string
+	// indexHolders memoizes indexHasPlaceholders per INDEX.md path (kit issue #2686).
+	indexHolders map[string]bool
 	// gapCorp is the drift check's block-file corpus of the target, opened once per run (kit issue #2645).
 	gapCorp   *gapdrift.Corpus
 	gapErr    error
@@ -122,7 +124,7 @@ var (
 	reIndexHolder    = regexp.MustCompile(`<[A-Z][A-Z0-9_-]*>`)
 	reSCProse        = regexp.MustCompile(`(?i)read-only investigable\*{0,2}:[ \t\n\v\f\r]*\*{0,2}[0-9]+`)
 	reSCNumber       = regexp.MustCompile(`(?i)investigable\*{0,2}:[ \t\n\v\f\r]*\*{0,2}[0-9]+`)
-	reCoverageLine   = regexp.MustCompile(`(?i)coverage metric|declared gaps closed|gaps? closed|coverage \(after`)
+	reCoverageLine   = foldAlt{regexp.MustCompile(`(?i)coverage metric|declared gaps closed|gaps? closed|coverage \(after`), []string{"coverage metric", "gap closed", "gaps closed", "coverage (after"}}
 	reHistory        = regexp.MustCompile(`^##[ \t\n\v\f\r]+(iteration )?history`)
 	reHeading2       = regexp.MustCompile(`^##[ \t\n\v\f\r]`)
 	reGapRows        = regexp.MustCompile(`^[ \t\n\v\f\r]*\|[^|]*\|[ \t\n\v\f\r]*B[0-9]+-G[0-9]+`)
@@ -422,7 +424,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 
 	idx := dir + "/INDEX.md"
 	if intGT(or(ondisk, "0"), 0) && v.fs.IsFile(idx) {
-		if b, err := v.fs.Read(idx); err == nil && matchesAnyLine(reIndexHolder, string(b)) {
+		if v.indexHasPlaceholders(idx) {
 			if kswHas("p7-index-placeholder") {
 				v.echo("   INFO   INDEX.md placeholder WARN suppressed (known_stale_warns: p7-index-placeholder)")
 			} else {
@@ -523,31 +525,8 @@ func (v *verifier) mdLines(dir string) []string {
 	return l
 }
 
-// literalPrefix reports whether a focus prefix is plain ERE literals ([A-Za-z0-9_-] only), for which a line can
-// match `(^|/)PREFIX(block|bloque)...` only if it contains PREFIX.
-func literalPrefix(p string) bool {
-	for i := 0; i < len(p); i++ {
-		c := p[i]
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
-			return false
-		}
-	}
-	return true
-}
-
 func (v *verifier) countBlocksUncached(dir, prefix string) string {
-	lines := v.mdLines(dir)
-	if literalPrefix(prefix) { // an empty prefix is literal too: every line contains it
-		// A cheap necessary condition first: the POSIX regexp then runs only on the plausible lines (#2645).
-		var keep []string
-		for _, l := range lines {
-			if strings.Contains(l, prefix) {
-				keep = append(keep, l)
-			}
-		}
-		lines = keep
-	}
-	out, _ := kit.FilterBlockFiles(lines, false, prefix)
+	out, _ := kit.FilterBlockFiles(v.mdLines(dir), false, prefix) // literal-prefix and bare patterns skip the regexp (kit issue #2686)
 	return fmt.Sprint(len(out))
 }
 
@@ -599,6 +578,22 @@ func knownStaleWarns(lines []string) string {
 	return strings.TrimRight(strings.TrimLeft(val, shellx.WsClass), shellx.WsClass)
 }
 
+// indexHasPlaceholders reports whether the INDEX.md at idx still holds template placeholders. Every state file of a
+// directory asks about the same INDEX.md and the corpus is read-only for the length of a run, so the file is read and
+// scanned once per path (kit issue #2686); an unreadable file reads as no placeholder, as it always did.
+func (v *verifier) indexHasPlaceholders(idx string) bool {
+	if has, ok := v.indexHolders[idx]; ok {
+		return has
+	}
+	b, err := v.fs.Read(idx)
+	has := err == nil && matchesAnyLine(reIndexHolder, string(b))
+	if v.indexHolders == nil {
+		v.indexHolders = map[string]bool{}
+	}
+	v.indexHolders[idx] = has
+	return has
+}
+
 func matchesAnyLine(re *regexp.Regexp, text string) bool {
 	return firstLineMatching(shellx.RecordLines(text), re, func(l string) bool { return strings.Contains(l, "<") }) != ""
 }
@@ -628,7 +623,7 @@ func coverageDenominators(lines []string) []string {
 		if h2 && reHeading2.MatchString(l) {
 			inHist = false
 		}
-		if inHist || !mayContainFold(l, "closed", "coverage metric", "coverage (after") || !reCoverageLine.MatchString(l) {
+		if inHist || !reCoverageLine.MatchString(l) {
 			continue
 		}
 		m := reRatio.FindString(l)

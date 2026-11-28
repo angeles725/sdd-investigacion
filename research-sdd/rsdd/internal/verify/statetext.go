@@ -15,16 +15,75 @@ import (
 // text): false means the regexp cannot match l, true means it may. The only non-ASCII characters Go's case folding
 // maps onto an ASCII letter are U+017F (to "s") and U+212A (to "k"); a line holding either is never filtered.
 func mayContainFold(l string, lits ...string) bool {
-	if strings.Contains(l, "ſ") || strings.Contains(l, "K") {
+	if hasFoldChar(l) {
 		return true
 	}
-	low := asciiLower(l)
 	for _, lit := range lits {
-		if strings.Contains(low, lit) {
+		if containsASCIIFold(l, lit) {
 			return true
 		}
 	}
 	return false
+}
+
+// foldAlt is a (?i) regexp that is an alternation of plain ASCII literals, together with those literals (lower-case).
+// A line holding no non-ASCII fold character is decided by a literal search; only such a character (see hasFoldChar)
+// sends the line to the regexp. lits must spell exactly the language of re: TestFoldAltAgreesWithRegexp pins it.
+type foldAlt struct {
+	re   *regexp.Regexp
+	lits []string
+}
+
+// MatchString is re.MatchString(l).
+func (f foldAlt) MatchString(l string) bool {
+	if hasFoldChar(l) {
+		return f.re.MatchString(l)
+	}
+	for _, lit := range f.lits {
+		if containsASCIIFold(l, lit) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasFoldChar reports whether l holds a non-ASCII character that Go's case folding maps onto an ASCII letter:
+// U+017F (to "s") or U+212A (to "k"). On any other line a (?i) match of ASCII text is an ASCII-only fold.
+func hasFoldChar(l string) bool {
+	return strings.Contains(l, "\u017f") || strings.Contains(l, "\u212a")
+}
+
+// containsASCIIFold is strings.Contains(asciiLower(s), lit) for a lower-case lit, without building the lower-cased
+// copy: this runs on every line of every state file, and the copy was the run's largest allocation (kit issue #2686).
+func containsASCIIFold(s, lit string) bool {
+	n := len(lit)
+	if n == 0 {
+		return true
+	}
+	first, upper := lit[0], lit[0]
+	if first >= 'a' && first <= 'z' {
+		upper = first - ('a' - 'A')
+	}
+	for i := 0; i+n <= len(s); i++ {
+		if c := s[i]; (c == first || c == upper) && foldEqual(s[i+1:i+n], lit[1:]) {
+			return true
+		}
+	}
+	return false
+}
+
+// foldEqual reports whether s lower-cased (ASCII only) is lit; s and lit have the same length.
+func foldEqual(s, lit string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != lit[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // asciiLower is awk tolower on ASCII (the only case the kit's tokens use).
@@ -147,11 +206,11 @@ var (
 func scanEnvelope(lines []string, match func(line string) bool) (string, bool) {
 	in := false
 	for _, l := range lines {
-		if reEnvOpen.MatchString(l) {
+		// Both markers are HTML comments: a line without "<!--" is neither, and nearly every line is that (kit issue #2686).
+		if marker := strings.Contains(l, "<!--"); marker && reEnvOpen.MatchString(l) {
 			in = true
 			continue
-		}
-		if reEnvClose.MatchString(l) {
+		} else if marker && reEnvClose.MatchString(l) {
 			in = false
 		}
 		if in && match(l) {
