@@ -1,0 +1,23 @@
+# vacuous-teeth-2592
+Objective: make `make teeth` truthful for packages whose tests read kit paths outside the Go module (kit issue #2592).
+Branch: fix/2592-teeth-kit-root (off origin/main) · delivery: ask-on-risk, one PR · runner: go test + run-all impacted + teeth via heavy-run.
+
+## Specs
+- S1: Issue #2592 problem statement: "`make teeth` (gremlins v0.6.0) copies only the Go module root (`research-sdd/rsdd`) into a temp `wd-*` for each mutant ... An untagged test that reads a path OUTSIDE the module (e.g. `../../../toolbelt`) fails in every mutant's copy, so the package test fails for every mutant and gremlins reports it KILLED. The result is a vacuous `Lived: 0`."
+- S2: Fix part 1 (issue): "The teeth recipe must prove the unmutated package passes INSIDE gremlins' work-dir copy (or an equivalent module-only copy) before trusting any KILLED; a failing baseline is a typed degraded/fail, never a pass (CLAUDE.md §7)."
+- S3: Fix part 2 (issue): "Enumerate every package whose untagged tests reach outside the module and pay its real teeth debt." In this unit: repoint every out-of-module test read (scout list, L2) through one shared test helper that resolves the research-sdd directory from an environment variable the teeth recipe exports, falling back to the in-tree relative path; paying each package's lived debt is follow-up work per package.
+- S4 (orchestrator decision, L3): CI must not go red on packages whose debt is already known: a checked-in debt list names those packages with issue #2592; the bridge reports their lived mutants as debt instead of failing; any package NOT on the list keeps the fail-on-lived rule; a stale list entry (package with Lived 0) is reported.
+
+## Tasks
+- T1 · S1-S4 · delegated (writer reason: context backstop) · done — commits 574f615b..8993dfa3, PR #2603 (superseded: CI cap, see L5)
+- T2 · S2-S4 · delegated (context backstop) · pending — slice A (superseding PR): kitroot helper + Makefile guard + debt list + bridge; a LISTED package whose module-only baseline fails reports DEBT, unlisted fails
+- T3 · S3 · inline/delegated per slice · pending — repoint slices, a few packages per PR, each removing its packages from the debt list when Lived is paid or reported
+
+## Log
+- L1 (2026-11-03, user, verbatim): "Recuerda que la prioridad es atacar primero lo que nos está deteniendo el flujo de trabajo"
+- L2 (2026-11-03): scout on origin/main 12ec3a8e: FAIL class in corpus, budget, maint, lint, formats, gate, retro/stageissues, core/gfm, core/probe, core/reasons, verify, sweep, corroborate/{kaitai,native,fidelity}; honest SKIP testkit/parity. formats after repoint: Killed 827 Lived 130 Not covered 66.
+- L3 (2026-11-03): decision: one unit for helper + recipe guard + debt list (Risk item 5: CI/Makefile; item 6 test infrastructure), independent verifier required.
+- L4 (2026-11-03): writer done (S1-S4). Verifier (Opus): 2 blockers (parity cross-check read ../../../../toolbelt and SKIPped; suite expected removed formats debt entry) fixed inline in 8993dfa3 and rechecked in a module-only copy (env unset FAIL, set PASS). formats dropped from debt list after #2588 (5cc23c13). RDD: f0586c19, 1b36fc97, 8e6b429b, 8993dfa3 approved (item 5); rest not due. Gate: 185/185 suites, 8646 cases, hermeticity 0; make lint clean. A fidelity SIGHUP test failed only under nohup (#2601, L25). PR #2603 opened.
+- L5 (2026-11-03): #2603 CI: all 3 rsdd-go-bridge shards cancelled at the 25-min cap. Cause: the bridge mutates every non-test file of a package whose tests changed; #2603 edits tests in 15 packages = 154 files, and truthful mutants now run the full package tests (vacuous ones failed fast). corpus alone took ~19.5 min in one shard. Decision (s1): split — slice A lands the mechanism with baseline-fail-on-listed = DEBT (typed, loud, issue-linked), then repoint slices of a few packages each; per L26 slow packages (corpus, verify) also need test-speed work before their teeth fit the cap.
+- L6 (2026-11-03): RDD on slice A c597d4f8: correction_required R3/R4 (CRITICAL): a whole-module run with a listed baseline failure aborted gremlins for every package yet printed PASS. Correction plan captured (150 lines): skip only the failing listed packages, still mutate the rest, FAIL if the remainder cannot run. Writer correcting.
+- L7 (2026-11-03): #2598 (s3) split exposed 88 lived mutants in verify/block hidden by this defect (internal/verify is debt-listed: module-only baseline fails), L44. Decision: T3 repoint slices are owned by the domain's lane (sweep -> s2, verify -> s3, corpus/status -> s4, rest -> s1); s1 sends each lane its package's lived list once repointed; lanes kill or prove equivalent, blockers first.
