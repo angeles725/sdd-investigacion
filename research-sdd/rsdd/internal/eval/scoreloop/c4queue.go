@@ -1,8 +1,9 @@
 package scoreloop
 
 import (
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // queueState is what the status report says about the campaign queue.
@@ -28,9 +29,9 @@ func (q queueState) name() string {
 var (
 	// campaignLine matches `campaign :` and the labelled `campaign[<focus>] :` a multi-focus corpus prints (one
 	// line per queue-bearing focus, never a single bare line).
-	campaignLine = regexp.MustCompile(`campaign(\[[^\]]*\])?[[:space:]]*:`)
-	pendingCount = regexp.MustCompile(`pending=([0-9]+)`)
-	activeCount  = regexp.MustCompile(`active=([0-9]+)`)
+	campaignLine = lazyre.MustCompile(`campaign(\[[^\]]*\])?[[:space:]]*:`)
+	pendingCount = lazyre.MustCompile(`pending=([0-9]+)`)
+	activeCount  = lazyre.MustCompile(`active=([0-9]+)`)
 )
 
 // parseQueue reads EVERY campaign line of the default status report, not just the first.
@@ -56,7 +57,7 @@ func parseQueue(report string) queueState {
 
 // countsOf joins every number the expression captures on the line, one per line; only a single literal "0" is
 // the empty count (so `pending=00`, or two counts on one line, read as open).
-func countsOf(re *regexp.Regexp, line string) string {
+func countsOf(re *lazyre.Regexp, line string) string {
 	var nums []string
 	for _, m := range re.FindAllStringSubmatch(line, -1) {
 		nums = append(nums, m[1])

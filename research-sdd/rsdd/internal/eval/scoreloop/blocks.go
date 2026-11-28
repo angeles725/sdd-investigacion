@@ -3,8 +3,9 @@ package scoreloop
 import (
 	"math"
 	"math/big"
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // blockEntry is one block commit: its commit epoch and its weight (the number of blocks the subject cites).
@@ -31,7 +32,7 @@ type weighed struct {
 	start, end  string // the block numbers as written (leading zeros kept)
 }
 
-var blockNumber = regexp.MustCompile(`^[0-9]+$`)
+var blockNumber = lazyre.MustCompile(`^[0-9]+$`)
 
 // weigh decides whether subject is a block commit and what it weighs. The block reference is looked for only in
 // the region before the first cut. A B<n>-B<m> range weighs m-n+1, capped: a span over the cap (a typo, a

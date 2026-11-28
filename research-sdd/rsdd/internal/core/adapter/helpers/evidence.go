@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsx"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/jsonout"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
 )
 
@@ -37,7 +37,7 @@ var publishFn = fsx.Publish
 
 // safeSchemaRE is _SAFE_SCHEMA_RE. Python's "$" also matches before one
 // trailing newline, which is spelled out here because Go's does not.
-var safeSchemaRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\n?$`)
+var safeSchemaRE = lazyre.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*\n?$`)
 
 func safeSchema(s string) bool { return safeSchemaRE.MatchString(s) }
 

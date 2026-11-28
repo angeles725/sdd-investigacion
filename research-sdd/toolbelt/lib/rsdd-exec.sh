@@ -19,7 +19,9 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
   if [ "$_rsdd_exec_had_self" -eq 1 ]; then _RSDD_SELF="$_rsdd_exec_prev_self"; else unset _RSDD_SELF; fi
   unset _rsdd_exec_had_self _rsdd_exec_prev_self
   _RSDD_EXEC_KIT=""
-  if [ -n "$_RSDD_EXEC_LIBDIR" ]; then _RSDD_EXEC_KIT="$(CDPATH='' cd -P -- "$_RSDD_EXEC_LIBDIR/../.." 2>/dev/null && pwd -P)" || _RSDD_EXEC_KIT=""; fi
+  # The kit root is two levels above the library. LIBDIR came from `pwd -P`, so it holds no symlink and `../..` is the
+  # lexical parent of the parent: no subshell and no cd needed (an empty result of the second strip is the root, "/").
+  if [ -n "$_RSDD_EXEC_LIBDIR" ]; then _RSDD_EXEC_KIT="${_RSDD_EXEC_LIBDIR%/*}"; _RSDD_EXEC_KIT="${_RSDD_EXEC_KIT%/*}"; [ -n "$_RSDD_EXEC_KIT" ] || _RSDD_EXEC_KIT=/; fi
 
   _rsdd_exec_degrade() { printf 'degraded: rsdd-unavailable — %s\n' "$1" >&2; return 2; }
 
@@ -32,9 +34,13 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
 
   # _rsdd_exec_select [FIND-ACTION...] — the ONE definition of the hashed selection (README of
   # rsdd/internal/commands/testdata/source-hash), run from inside the sources directory. The shell hash and the
-  # freshness fingerprint below both go through it, so they can never select different files.
+  # freshness fingerprint below both go through it, so they can never select different files. A directory named
+  # testdata is pruned instead of walked and filtered path by path: everything under it was excluded anyway (the
+  # README's `! -path './testdata/*' ! -path '*/testdata/*'`), and the walk of those trees was most of the fast path's time.
+  # A FILE named testdata is excluded by the last test. With no action, `-print` is added (a bare `-prune -o ...`
+  # would otherwise print the pruned directories too).
   _rsdd_exec_select() {
-    find . -type f \( -name '*.go' ! -name '*_test.go' -o -path ./go.mod -o -path ./go.sum -o -path './vendor/*' -o -path './embed/*' -o -path '*/embed/*' \) ! -path './testdata/*' ! -path '*/testdata/*' ! -name testdata "$@"
+    find . -type d -name testdata -prune -o -type f \( -name '*.go' ! -name '*_test.go' -o -path ./go.mod -o -path ./go.sum -o -path './vendor/*' -o -path './embed/*' -o -path '*/embed/*' \) ! -name testdata "${@:--print}"
   }
 
   # _rsdd_exec_shell_hash SRC — the source hash of the tree at SRC, computed in shell with the selection and the
@@ -158,7 +164,11 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     # fingerprint that cannot be computed) falls through to the full hash.
     if _rsdd_exec_fingerprint "$2" "$1"; then
       fp="$_RSDD_EXEC_FP"
-      stamp="$(cat -- "$(dirname -- "$1")/.rsdd-fp" 2>/dev/null)" || stamp=""
+      # The whole stamp file with builtins only: no cat, no dirname (BIN is <kit>/bin/rsdd, absolute). `$(<file)` is not
+      # used: under a caller's `set -e` a missing file would end the shell. Trailing newlines go, as `$(cat ...)` strips them.
+      stamp=""
+      if [ -f "${1%/*}/.rsdd-fp" ]; then { IFS= read -r -d '' stamp <"${1%/*}/.rsdd-fp"; } 2>/dev/null || :; fi
+      while [ "${stamp: -1}" = $'\n' ]; do stamp="${stamp%?}"; done
       if [ -n "$stamp" ] && [ "$stamp" = "$fp" ]; then return 0; fi
     fi
     _rsdd_exec_tree_hash "$2" || return 2

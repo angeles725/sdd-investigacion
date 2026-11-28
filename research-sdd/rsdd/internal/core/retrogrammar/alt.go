@@ -1,8 +1,9 @@
 package retrogrammar
 
 import (
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // The delta forms real fleet retros use that are neither a row table nor a `### D<N> —` entry (retro_grammar_alt_
@@ -18,9 +19,9 @@ import (
 // column 0 ends the item. Duplicate ids are not resolved here (DupIDs).
 
 var (
-	reNumberedItem = regexp.MustCompile(`^[0-9]+[.)][[:space:]]+`)
-	reH2DeltaLead  = regexp.MustCompile(`^## [Dd]elta +`)
-	reAbbrev       = regexp.MustCompile(`^(e\.g|i\.e|etc|vs|cf|approx|incl)$`)
+	reNumberedItem = lazyre.MustCompile(`^[0-9]+[.)][[:space:]]+`)
+	reH2DeltaLead  = lazyre.MustCompile(`^## [Dd]elta +`)
+	reAbbrev       = lazyre.MustCompile(`^(e\.g|i\.e|etc|vs|cf|approx|incl)$`)
 )
 
 // altItem is one alternative-form delta and the heading line of the group that produced it.

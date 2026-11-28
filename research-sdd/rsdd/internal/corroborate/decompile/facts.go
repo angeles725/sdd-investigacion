@@ -3,12 +3,12 @@ package decompile
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 )
 
 // factsBudgetRe is a valid RSDD_CLASSFACTS_TIMEOUT: 1-99999 seconds, ASCII digits only.
-var factsBudgetRe = regexp.MustCompile(`^[1-9][0-9]{0,4}$`)
+var factsBudgetRe = lazyre.MustCompile(`^[1-9][0-9]{0,4}$`)
 
 // factsResult is what the class-file facts step produced: its first stdout line, the first line of its stderr, its
 // status, and whether its budget ran out first.

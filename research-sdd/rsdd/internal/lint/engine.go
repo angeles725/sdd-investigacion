@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 type unit struct {
@@ -27,7 +29,7 @@ type unit struct {
 	quoted bool
 }
 
-func re(p string) *lazyRE { return newLazyRE(p) }
+func re(p string) *lazyre.Regexp { return lazyre.MustCompile(p) }
 
 var (
 	ws = "[" + wsClass + "]"
@@ -183,7 +185,7 @@ func headingSections(lines []string, fenced map[int]bool) []section {
 	return out
 }
 
-func linesInSections(secs []section, pat *lazyRE) (map[int]bool, int) {
+func linesInSections(secs []section, pat *lazyre.Regexp) (map[int]bool, int) {
 	out := map[int]bool{}
 	n := 0
 	for _, s := range secs {

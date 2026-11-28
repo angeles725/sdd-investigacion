@@ -3,13 +3,14 @@ package hookwiring
 import (
 	"io"
 	"os"
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 var (
-	hasCdRe   = regexp.MustCompile(`(^|[ \t;&|(])cd[ \t]`)
-	shellCRe  = regexp.MustCompile(`^-[a-zA-Z]*c$`)
+	hasCdRe   = lazyre.MustCompile(`(^|[ \t;&|(])cd[ \t]`)
+	shellCRe  = lazyre.MustCompile(`^-[a-zA-Z]*c$`)
 	resultOK  = "ok"
 	resultMis = "miss"
 	resultUnv = "unver"

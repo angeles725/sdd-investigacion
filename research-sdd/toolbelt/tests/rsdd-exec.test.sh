@@ -284,6 +284,19 @@ sc_fp_fast() {   # unchanged tree: the second run takes the fast path (no full h
   fpprobe
   probes
 }
+sc_fp_stampform() {   # the stamp is read whole: trailing newlines are ignored (as $(cat) did), an extra line is not a match
+  fp_warm fpform
+  local before
+  before="$(grep -c '^-- ' "$SHA_LOG")"
+  printf '\n\n' >>"$KIT/bin/.rsdd-fp"
+  doshow newlines shim.sh shalog x
+  printf 'TRAILING-NEW-HASHES=%s\n' "$(($(grep -c '^-- ' "$SHA_LOG") - before))"
+  before="$(grep -c '^-- ' "$SHA_LOG")"
+  printf 'extra-line\n' >>"$KIT/bin/.rsdd-fp"
+  doshow extra shim.sh shalog x
+  printf 'EXTRA-NEW-HASHES=%s\n' "$(($(grep -c '^-- ' "$SHA_LOG") - before))"
+  probes
+}
 sc_fp_settle() {   # the DEFAULT settle window: files written a moment ago are not stamped (a same-tick second write could hide)
   unset RSDD_EXEC_FP_SETTLE; : >"$SHA_LOG"
   mkkit fpsettle; putbin OLDBIN
@@ -382,6 +395,12 @@ sc_fixture() {   # the shell tree hash over the Go fixture equals the hash the G
   fi
   printf 'REF=%s\n' "$(ref_hash "$fx")"
   printf 'WANT=%s\n' "$want"
+  # With no action the selection still prints the selected files and nothing else: the testdata directories it prunes
+  # are not part of the answer (a bare `-prune -o ...` would print them).
+  local p nonfiles=0 listed=0
+  while IFS= read -r p; do listed=$((listed + 1)); [ -f "$fx/$p" ] || nonfiles=$((nonfiles + 1)); done < <(cd -- "$fx" && _rsdd_exec_select)
+  printf 'NOACTION-NONFILES=%s\n' "$nonfiles"
+  printf 'NOACTION-EQ-PRINT0=%s\n' "$([ "$listed" -gt 0 ] && [ "$listed" -eq "$(cd -- "$fx" && _rsdd_exec_select -print0 | tr -cd '\0' | wc -c)" ] && echo yes || echo no)"
 }
 sc_nosha() {   # no sha tool: go run rsdd-srchash stands in for the shell hash
   mkkit nosha; putbin OLD
@@ -882,6 +901,8 @@ LS="$(val_of "$R" LIBSYM)"; MS="$(val_of "$R" MAKESYM)"
 if [ -n "$LS" ] && [ "$LS" = "$MS" ]; then ok "the -X symbol equals SOURCE_HASH_SYM of rsdd/Makefile"; else no "the -X symbol equals SOURCE_HASH_SYM of rsdd/Makefile" "lib=[$LS] makefile=[$MS]"; fi
 R="$(scen fixture "$LIB")"
 pchk "shell tree hash over the Go fixture equals expected-hash.txt" "$R" '^FIXTURE=OK$'
+pchk "selection with no action lists selected files only (the pruned testdata directories are not printed)" "$R" '^NOACTION-NONFILES=0$'
+pchk "selection with no action lists exactly what -print0 lists" "$R" '^NOACTION-EQ-PRINT0=yes$'
 eqchk "the README pipeline (ref_hash) agrees with expected-hash.txt on the fixture" "$R" REF WANT
 R="$(scen nosha "$LIB")"
 chk "no sha tool + matching go hash -> binary runs" "$R" fresh '^o\| FAKE-OLD$'
@@ -1213,6 +1234,10 @@ chk "fp [stampdir]: the directory at the stamp path does not grow (no temp file 
 chk "fp [stampdir]: no .rsdd-fp.* temp file left in bin/" "$R" changed '^FPTMP=0$'
 R="$(scen fp_stall "$LIB")"
 chk "fp stall: the binary call outlasts the settle window, files written moments before the fingerprint -> no stamp" "$R" stalled '^STAMPFILE=no$'
+R="$(scen fp_stampform "$LIB")"
+chk "fp stamp: trailing newlines after the fingerprint still match -> the fast path (no full hash)" "$R" newlines '^TRAILING-NEW-HASHES=0$'
+chk "fp stamp: an extra line after the fingerprint is not a match -> one full hash" "$R" extra '^EXTRA-NEW-HASHES=1$'
+chk "fp stamp: an extra line after the fingerprint -> the fresh binary still runs" "$R" extra '^o\| FAKE-OLDBIN$'
 R="$(scen fp_gofallback "$LIB")"
 chk "fp go-fallback: proven fresh by the go hash -> the binary runs" "$R" viago '^o\| FAKE-OLDBIN$'
 pchk "fp go-fallback: the go hash really answered" "$R" '^SRCRUNS=1$'
@@ -1310,7 +1335,8 @@ FXG=(--good-has '^FIXTURE=OK$' --bad-lacks '^FIXTURE=OK$' --bad-lacks "$CRASH")
 mk fixture-test-files "s# ! -name '\\*_test.go'##" && tt fixture-test-files fixture "${FXG[@]}"
 mk fixture-embed "s# -o -path './embed/\\*' -o -path '\\*/embed/\\*'##" && tt fixture-embed fixture "${FXG[@]}"
 mk fixture-vendor "s# -o -path './vendor/\\*'##" && tt fixture-vendor fixture "${FXG[@]}"
-mk fixture-testdata "s# ! -path './testdata/\\*' ! -path '\\*/testdata/\\*'##" && tt fixture-testdata fixture "${FXG[@]}"
+mk fixture-testdata "s#-type d -name testdata -prune -o ##" && tt fixture-testdata fixture "${FXG[@]}"
+mk select-noaction-prints-pruned 's#"\${@:--print}"#"$@"#' && tt select-noaction-prints-pruned fixture --good-has '^NOACTION-NONFILES=0$' --bad-lacks '^NOACTION-NONFILES=0$' --bad-lacks "$CRASH"
 mk fixture-gomod "s# -o -path ./go.mod -o -path ./go.sum##" && tt fixture-gomod fixture "${FXG[@]}"
 mk fixture-sort 's#LC_ALL=C sort -z#LC_ALL=C sort -rz#' && tt fixture-sort fixture "${FXG[@]}"
 mk fixture-nul "s|printf '%s\\\\0%s\\\\n'|printf '%s %s\\\\n'|" && tt fixture-nul fixture "${FXG[@]}"
@@ -1326,8 +1352,12 @@ mk fp-ignores-listing 's#"\$listing" "\$binline"#"" "$binline"#' &&
   tt fp-ignores-listing fp_change-add "${FPB[@]}"
 mk fp-failure-is-fresh 's#^    if _rsdd_exec_fingerprint "\$2" "\$1"; then#    _rsdd_exec_fingerprint "$2" "$1" || return 0\n    if true; then#' &&
   tt fp-failure-is-fresh fp_change-badfind "${FPB[@]}"
-mk fp-stamp-unread-is-fresh 's#stamp="\$(cat -- "\$(dirname -- "\$1")/.rsdd-fp" 2>/dev/null)" || stamp=""#stamp="$(cat -- "$(dirname -- "$1")/.rsdd-fp" 2>/dev/null)" || stamp="$fp"#' &&
+mk fp-stamp-unread-is-fresh 's#^      stamp=""$#      stamp="$fp"#' &&
   tt fp-stamp-unread-is-fresh fp_change-stampdir "${FPB[@]}"
+mk fp-stamp-first-line-only "s#IFS= read -r -d '' stamp#IFS= read -r stamp#" &&
+  tt fp-stamp-first-line-only fp_stampform --good-has '^EXTRA-NEW-HASHES=1$' --bad-lacks '^EXTRA-NEW-HASHES=1$' --bad-lacks "$CRASH"
+mk fp-stamp-newlines-kept 's#^      while \[ "\${stamp: -1}" = \$.\\n. \]; do stamp="\${stamp%?}"; done$#      :#' &&
+  tt fp-stamp-newlines-kept fp_stampform --good-has '^TRAILING-NEW-HASHES=0$' --bad-lacks '^TRAILING-NEW-HASHES=0$' --bad-lacks "$CRASH"
 mk fp-ref-after-hash 's#"\$fp" "\$t0" || true#"$fp" "$EPOCHSECONDS" || true#' &&
   tt fp-ref-after-hash fp_stall --good-has '^STAMPFILE=no$' --bad-lacks '^STAMPFILE=no$' --bad-lacks "$CRASH"
 mk fp-gofallback-stamped 's# \&\& \[ "\$_RSDD_EXEC_HASHSRC" = shell \]##' &&
@@ -1451,7 +1481,7 @@ mk kit-root-unchecked 's#if \[ -z "\$kit" \]; then _RSDD_EXEC_WHY="cannot resolv
 # race: no atomic rename is covered above (handshake scenario)
 
 # --- review batch for #2384: testdata files, hash disagreement, bounded lock wait, shasum, symlinks
-mk fixture-symlink 's#find \. -type f#find -L . -type f#' && tt fixture-symlink fixture "${FXG[@]}"
+mk fixture-symlink 's#find \. -type d#find -L . -type d#' && tt fixture-symlink fixture "${FXG[@]}"
 mk testdata-file-kept "s# ! -name testdata##" &&
   tt testdata-file-kept testdata_file --good-has '^GOCALLS=0$' --bad-lacks '^GOCALLS=0$' --bad-lacks "$CRASH"
 mk disagree-loops 's#if \[ "\$crc" -eq 1 \] \&\& _rsdd_exec_disagree_known "\$kit"; then exit 11; fi#:#' &&

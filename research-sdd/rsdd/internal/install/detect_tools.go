@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // `rsdd install detect-tools` is the Go port of toolbelt/detect-tools.sh: probe the REAL availability of the
@@ -117,7 +117,7 @@ func dirname(p string) string {
 	return filepath.Dir(p)
 }
 
-var statusWord = regexp.MustCompile(`AVAILABLE|UNUSABLE|MISSING|PROBE_FAILED`)
+var statusWord = lazyre.MustCompile(`AVAILABLE|UNUSABLE|MISSING|PROBE_FAILED`)
 
 // statusOf is the status of a label in the report: the first status word of the first line holding
 // "  <label> " (`grep -F | grep -oE | head -1`), "" when no such line carries one.

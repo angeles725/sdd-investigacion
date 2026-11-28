@@ -8,7 +8,6 @@ import (
 	"math/big"
 	"os"
 	pathpkg "path"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/jsonout"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Port of analysis_manifest.py: create, validate and verify analysis-manifest.v1 documents.
@@ -33,13 +33,13 @@ const pyWS = `\t\n\v\f\r \x1c-\x1f\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\
 const ii = "İı"
 
 var (
-	hashRE     = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
-	locationRE = regexp.MustCompile(`\A([^:]+):([1-9][0-9]*)(?:-([1-9][0-9]*))?\z`)
-	schemeRE   = regexp.MustCompile(`\A[A-Za-z][A-Za-z0-9+.-]*:`)
+	hashRE     = lazyre.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
+	locationRE = lazyre.MustCompile(`\A([^:]+):([1-9][0-9]*)(?:-([1-9][0-9]*))?\z`)
+	schemeRE   = lazyre.MustCompile(`\A[A-Za-z][A-Za-z0-9+.-]*:`)
 
-	secretKeyRE = regexp.MustCompile(`(?i)(secret|token|passw(?:or)?d|credent[i` + ii + `]al|pr[i` + ii + `]vate|ap[i` + ii + `][_-]?key|auth|cook[i` + ii + `]e)`)
+	secretKeyRE = lazyre.MustCompile(`(?i)(secret|token|passw(?:or)?d|credent[i` + ii + `]al|pr[i` + ii + `]vate|ap[i` + ii + `][_-]?key|auth|cook[i` + ii + `]e)`)
 
-	secretValueRE = regexp.MustCompile(`(?i)(bearer[` + pyWS + `]+[^` + pyWS + `]+` +
+	secretValueRE = lazyre.MustCompile(`(?i)(bearer[` + pyWS + `]+[^` + pyWS + `]+` +
 		`|ghp_[A-Za-z0-9` + ii + `]{20,}` +
 		`|xoxb-[A-Za-z0-9` + ii + `-]{10,}` +
 		`|eyJ[A-Za-z0-9` + ii + `_-]{10,}\.` +
@@ -48,7 +48,7 @@ var (
 		`|(?:secret|token|passw(?:or)?d|ap[i` + ii + `][_-]?key|author[i` + ii + `]zat[i` + ii + `]on|cook[i` + ii + `]e)[` + pyWS + `]*[:=])`)
 
 	// Python's $ also matches before a trailing newline.
-	secretOptionRE = regexp.MustCompile(`(?i)(?:\A|[-_])(?:passw(?:or)?d|token|secret|credent[i` + ii + `]al|pr[i` + ii + `]vate[-_]?key|ap[i` + ii + `][-_]?key|author[i` + ii + `]zat[i` + ii + `]on|cook[i` + ii + `]e)(?:\n?\z|[-_])`)
+	secretOptionRE = lazyre.MustCompile(`(?i)(?:\A|[-_])(?:passw(?:or)?d|token|secret|credent[i` + ii + `]al|pr[i` + ii + `]vate[-_]?key|ap[i` + ii + `][-_]?key|author[i` + ii + `]zat[i` + ii + `]on|cook[i` + ii + `]e)(?:\n?\z|[-_])`)
 )
 
 var envAllowlist = map[string]bool{

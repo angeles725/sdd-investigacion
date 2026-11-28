@@ -23,11 +23,12 @@ import (
 	"math"
 	"math/big"
 	"reflect"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Options selects an output form.
@@ -72,7 +73,7 @@ type encoder struct {
 	indirections int
 }
 
-var numberSyntax = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
+var numberSyntax = lazyre.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
 
 func (e *encoder) newline(depth int) {
 	e.buf.WriteByte('\n')

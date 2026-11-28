@@ -3,11 +3,11 @@ package sweep
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Port of research-sdd/toolbelt/sweep-breakthroughs-hook.sh (kit issue #2360), `rsdd sweep breakthroughs --hook
@@ -31,7 +31,7 @@ const (
 
 var (
 	btEmptyPrefix = "INFO: corpus exists, no block files (empty-input):"
-	reBTNoMatch   = regexp.MustCompile(`^INFO: no tagged breakthroughs in corpus \(no-match[^)]*\):`)
+	reBTNoMatch   = lazyre.MustCompile(`^INFO: no tagged breakthroughs in corpus \(no-match[^)]*\):`)
 )
 
 // The sweep exits 1 only when it could not run (a finding never fails it), so a panic, which hookenv.Guard reports

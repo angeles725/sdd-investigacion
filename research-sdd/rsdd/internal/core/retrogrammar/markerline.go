@@ -1,11 +1,12 @@
 package retrogrammar
 
 import (
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
-var reMarkerHere = regexp.MustCompile(`^<!--[[:space:]]*review-status:`)
+var reMarkerHere = lazyre.MustCompile(`^<!--[[:space:]]*review-status:`)
 
 // markerLine is retro_marker_line: the raw first review-status line ANYWHERE in the file, `<!--` after at most
 // three spaces, skipping fenced code blocks. Its fence rules are the lib's own, not defence's: an opener may be

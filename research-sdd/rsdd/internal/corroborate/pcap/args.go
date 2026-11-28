@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // A small argparse: just the behaviour the two legacy tools had, so a caller's command line means the same
@@ -43,7 +44,7 @@ type parsedArgs struct {
 	num map[string]*big.Int
 }
 
-var negativeNumber = regexp.MustCompile(`^-[0-9]+$|^-[0-9]*\.[0-9]+$`)
+var negativeNumber = lazyre.MustCompile(`^-[0-9]+$|^-[0-9]*\.[0-9]+$`)
 
 // usageError is argparse's error(): the usage block, then "<prog>: error: <message>", exit status 2.
 func (c cmdline) usageError(w io.Writer, msg string) int {

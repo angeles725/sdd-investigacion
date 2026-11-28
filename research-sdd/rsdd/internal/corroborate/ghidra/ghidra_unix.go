@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/adapter/helpers"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsx"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/jsonout"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // deps are the process-wide facts the pipeline reads, injectable so a test needs no particular mount table.
@@ -57,7 +57,7 @@ func execute(args []string, s cli.Stdio, d deps) int {
 	return status
 }
 
-var versionRe = regexp.MustCompile(`(?m)^application\.version=([^\r\n]+)$`)
+var versionRe = lazyre.MustCompile(`(?m)^application\.version=([^\r\n]+)$`)
 
 // run is the whole pipeline. It returns the exit status of a published evidence directory (0 complete or partial,
 // 1 failed) or an error when nothing was published. The stage is removed on every path that does not publish it, but

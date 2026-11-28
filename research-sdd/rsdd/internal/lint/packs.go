@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 const (
@@ -40,7 +42,7 @@ func gap(n int) string { return nonWordNL + fmt.Sprintf(`(?:.{0,%d}`, n-2) + non
 // reCI compiles p case-insensitively with Python's extra folds: under re.IGNORECASE the ASCII letter `i` also matches
 // U+0130 and U+0131 (Go folds k to U+212A and s to U+017F, like Python, but not these two). The pattern is the
 // lookaround-free Go dialect plus this rule: letters inside a character class are not supported (panics at init).
-func reCI(p string) *lazyRE { return newLazyRE("(?i)" + foldI(p)) }
+func reCI(p string) *lazyre.Regexp { return lazyre.MustCompile("(?i)" + foldI(p)) }
 
 func foldI(p string) string {
 	var b strings.Builder
@@ -222,7 +224,7 @@ func newLinter() *linter {
 	}
 }
 
-var packNameRE = newLazyRE(`^[a-z0-9][a-z0-9-]*$`)
+var packNameRE = lazyre.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // loadPacks is load_packs: idempotent per name; the first failure aborts and nothing is linted.
 func (lt *linter) loadPacks(names []string) error {

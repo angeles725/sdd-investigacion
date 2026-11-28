@@ -1,9 +1,10 @@
 package retrogrammar
 
 import (
-	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // RowState is retro_marker_row_state's typed answer for one row of a PARTIAL retro (kit issue #1944).
@@ -19,8 +20,8 @@ const (
 )
 
 var (
-	reInnerParen  = regexp.MustCompile(`[[:space:]]*\([^()]*\)`)
-	reDismissedSg = regexp.MustCompile(`(^|[^A-Za-z])DISMISSED:[^;]*`)
+	reInnerParen  = lazyre.MustCompile(`[[:space:]]*\([^()]*\)`)
+	reDismissedSg = lazyre.MustCompile(`(^|[^A-Za-z])DISMISSED:[^;]*`)
 )
 
 // MarkerRowState is retro_marker_row_state. An id in both lists reads shipped (it did ship). Ids compare as

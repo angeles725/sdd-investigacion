@@ -1,6 +1,6 @@
 package secretscan
 
-import "regexp"
+import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 
 // rule is one high-confidence secret-value pattern. Each is specific enough to be near-zero false-positive and none
 // matches a bare hex hash, a sha256 citation or a byte dump (the load-bearing anti-false-positive). Literals are
@@ -9,7 +9,7 @@ type rule struct {
 	Label    string
 	Pattern  string
 	Literals []string
-	re       *regexp.Regexp
+	re       *lazyre.Regexp
 }
 
 // ruleSpecs is the data of the seven rules, in report order.
@@ -29,9 +29,7 @@ var rules = compileRules(ruleSpecs)
 func compileRules(specs []rule) []rule {
 	out := make([]rule, len(specs))
 	for i, r := range specs {
-		re := regexp.MustCompile(r.Pattern)
-		re.Longest()
-		r.re = re
+		r.re = lazyre.MustCompileLongest(r.Pattern)
 		out[i] = r
 	}
 	return out

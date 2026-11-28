@@ -2,8 +2,9 @@ package sweep
 
 import (
 	"bytes"
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // How sweep-tools.sh decides that a tool is RECORDED: a T-row in any retro of the target, or a row of the
@@ -15,10 +16,10 @@ type readFunc func(path string) ([]byte, error)
 
 var (
 	// reTRow is `grep -E '^\| T[0-9]+'`: a table row that opens with a T-number.
-	reTRow = regexp.MustCompile(`^\| T[0-9]+`)
+	reTRow = lazyre.MustCompile(`^\| T[0-9]+`)
 	// reLedgerSeparator is the `grep -vE '^\|[[:space:]]*[-:]+[[:space:]]*\|'` of the ledger: a separator row.
 	// Like the script's, it also drops a row whose first cell is only dashes or colons.
-	reLedgerSeparator = regexp.MustCompile(`^\|[ \t\n\v\f\r]*[-:]+[ \t\n\v\f\r]*\|`)
+	reLedgerSeparator = lazyre.MustCompile(`^\|[ \t\n\v\f\r]*[-:]+[ \t\n\v\f\r]*\|`)
 )
 
 // ledgerState is the three distinguishable states of tools/README.md (CLAUDE.md section 7); a ledger that

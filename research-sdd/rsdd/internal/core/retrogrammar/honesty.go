@@ -1,8 +1,9 @@
 package retrogrammar
 
 import (
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // retro_grammar_has_honesty (§912): does the retro carry a §18 honesty line in a PURE accepted location? It reads
@@ -17,13 +18,13 @@ import (
 //      `### Proposed|Delta|Deltas` heading or a `#`/`###` letter+digit heading, or `# <digit>` (outside the section).
 
 var (
-	reHonestVerdict = regexp.MustCompile(`^## ([0-9]+\. )?honest verdict([[:space:]]|$)`)
-	reVetoH2Word    = regexp.MustCompile(`^## (proposed|delta|deltas)([[:space:]]|$)`)
-	reVetoH2ID      = regexp.MustCompile(`^## [A-Za-z][0-9]+([^a-zA-Z0-9]|$)`) // RSDD_H2_VETO
-	reVetoH3Word    = regexp.MustCompile(`^###[[:space:]]+(proposed|delta|deltas)([[:space:]]|$)`)
-	reVetoHashID    = regexp.MustCompile(`^(#|###)[[:space:]]+[A-Za-z][0-9]|^#[[:space:]]+[0-9]`)
-	reMarkerLead    = regexp.MustCompile(`^[-*+>][[:space:]]*`)
-	reDirty         = regexp.MustCompile(`^([-*+][[:space:]]|#{1,6}[[:space:]]|\||[0-9]+[.)]([[:space:]]|$)|[a-zA-Z][)]([[:space:]]|$)|•|\[[ xX]\]([[:space:]]|$))`)
+	reHonestVerdict = lazyre.MustCompile(`^## ([0-9]+\. )?honest verdict([[:space:]]|$)`)
+	reVetoH2Word    = lazyre.MustCompile(`^## (proposed|delta|deltas)([[:space:]]|$)`)
+	reVetoH2ID      = lazyre.MustCompile(`^## [A-Za-z][0-9]+([^a-zA-Z0-9]|$)`) // RSDD_H2_VETO
+	reVetoH3Word    = lazyre.MustCompile(`^###[[:space:]]+(proposed|delta|deltas)([[:space:]]|$)`)
+	reVetoHashID    = lazyre.MustCompile(`^(#|###)[[:space:]]+[A-Za-z][0-9]|^#[[:space:]]+[0-9]`)
+	reMarkerLead    = lazyre.MustCompile(`^[-*+>][[:space:]]*`)
+	reDirty         = lazyre.MustCompile(`^([-*+][[:space:]]|#{1,6}[[:space:]]|\||[0-9]+[.)]([[:space:]]|$)|[a-zA-Z][)]([[:space:]]|$)|•|\[[ xX]\]([[:space:]]|$))`)
 	honestyVariants = map[string]bool{
 		"no new deltas; the kit already covers this run.":  true,
 		"no new deltas; nothing to add.":                   true,

@@ -1,18 +1,18 @@
 package sweep
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // The pointers of BREAKTHROUGHS.md (METHODOLOGY section 22): the block `path:line` tokens of the "how" column of
 // the ledger table | # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |.
 
 // reCellPointer is the awk match(rest, /`[^`]+:[0-9]+`/): a backtick-wrapped path:digits token.
-var reCellPointer = regexp.MustCompile("`[^`]+:[0-9]+`")
+var reCellPointer = lazyre.MustCompile("`[^`]+:[0-9]+`")
 
 const asciiSpace = " \t\n\v\f\r"
 

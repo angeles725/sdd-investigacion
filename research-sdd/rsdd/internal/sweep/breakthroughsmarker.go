@@ -3,16 +3,17 @@ package sweep
 import (
 	"fmt"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // The marker of a breakthrough block and the drift pass over the ledger pointers.
 
 // reMarker is the one recognized marker form: a header-blockquote line `^>[[:space:]]*\*\*Breakthrough:\*\*`.
 // A prose "HITO", a bare "BREAKTHROUGH" or the word anywhere else in the line is not the marker.
-var reMarker = regexp.MustCompile(`^>[ \t\n\v\f\r]*\*\*Breakthrough:\*\*`)
+var reMarker = lazyre.MustCompile(`^>[ \t\n\v\f\r]*\*\*Breakthrough:\*\*`)
 
 // fileLines are the lines of data as grep -n and sed -n number them: a final newline ends the last line.
 func fileLines(data []byte) []string {

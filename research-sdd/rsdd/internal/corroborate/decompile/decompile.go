@@ -24,12 +24,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/probe"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/classfile"
@@ -48,10 +48,10 @@ const (
 )
 
 var (
-	secondsRe   = regexp.MustCompile(`^[0-9]{1,6}$`)
-	killAfterRe = regexp.MustCompile(`^[1-9][0-9]{0,3}$`)
-	threadsRe   = regexp.MustCompile(`^[1-9][0-9]{0,3}$`)
-	heapRe      = regexp.MustCompile(`^[1-9][0-9]{0,5}[mMgG]$`)
+	secondsRe   = lazyre.MustCompile(`^[0-9]{1,6}$`)
+	killAfterRe = lazyre.MustCompile(`^[1-9][0-9]{0,3}$`)
+	threadsRe   = lazyre.MustCompile(`^[1-9][0-9]{0,3}$`)
+	heapRe      = lazyre.MustCompile(`^[1-9][0-9]{0,5}[mMgG]$`)
 )
 
 // tools resolves the Java installation and the tools around it (core/probe in production).

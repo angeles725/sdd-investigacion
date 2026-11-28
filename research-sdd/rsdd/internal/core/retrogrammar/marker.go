@@ -1,8 +1,9 @@
 package retrogrammar
 
 import (
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Review-status markers (lib/retro-status.sh, METHODOLOGY §18): the `<!-- review-status: … -->` line that closes
@@ -14,12 +15,12 @@ import (
 // ASCII case-insensitive (the bash grep -i under LC_ALL=C): lines are folded with lower first.
 
 var (
-	reStatusWord   = regexp.MustCompile(`<!--[[:space:]]*review-status:[[:space:]]*[a-z]+`)
-	reStatusMarker = regexp.MustCompile(`<!--[[:space:]]*review-status:`)
-	reScopeMarker  = regexp.MustCompile(`^[[:space:]]*<!--[[:space:]]*review-status:`)
-	reExcluded     = regexp.MustCompile(`^[[:space:]]*<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->[[:space:]]*$`)
-	reWaived       = regexp.MustCompile(`^[[:space:]]*<!--[[:space:]]*retro-waived:[[:space:]]*[^[:space:]>][^>]*-->[[:space:]]*$`)
-	reBareMarker   = regexp.MustCompile(`^[[:space:]]*review-status:`)
+	reStatusWord   = lazyre.MustCompile(`<!--[[:space:]]*review-status:[[:space:]]*[a-z]+`)
+	reStatusMarker = lazyre.MustCompile(`<!--[[:space:]]*review-status:`)
+	reScopeMarker  = lazyre.MustCompile(`^[[:space:]]*<!--[[:space:]]*review-status:`)
+	reExcluded     = lazyre.MustCompile(`^[[:space:]]*<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->[[:space:]]*$`)
+	reWaived       = lazyre.MustCompile(`^[[:space:]]*<!--[[:space:]]*retro-waived:[[:space:]]*[^[:space:]>][^>]*-->[[:space:]]*$`)
+	reBareMarker   = lazyre.MustCompile(`^[[:space:]]*review-status:`)
 )
 
 // StatusFromMarkerLine is retro_status_from_marker_line: the lowercased status word of the first
@@ -104,7 +105,7 @@ func isH1(l string) bool {
 	return strings.HasPrefix(s, "#") && (len(s) == 1 || s[1] != '#')
 }
 
-func anyLower(lines []string, re *regexp.Regexp) bool {
+func anyLower(lines []string, re *lazyre.Regexp) bool {
 	for _, l := range lines {
 		if re.MatchString(lower(l)) {
 			return true

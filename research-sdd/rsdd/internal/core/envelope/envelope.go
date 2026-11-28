@@ -16,11 +16,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/state"
 )
 
@@ -62,7 +62,7 @@ type Envelope struct {
 	Items []Object
 }
 
-var schemaSyntax = regexp.MustCompile(`^research-sdd\.[a-z0-9][a-z0-9-]*/v[0-9]+$`)
+var schemaSyntax = lazyre.MustCompile(`^research-sdd\.[a-z0-9][a-z0-9-]*/v[0-9]+$`)
 
 // Validate checks the invariants of json-envelope.v1.md: a well-formed schema id, a valid state, a null
 // reason exactly for OK, integer counters, items that each lead with a string "kind", and items non-empty

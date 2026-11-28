@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"math"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // BrewPrefix is rsdd_brew_prefix: RSDD_BREW_PREFIX, HOMEBREW_PREFIX, `brew --prefix` stdout (its exit code
@@ -115,7 +116,7 @@ func (p *Prober) JavaHome() (string, error) {
 	return "", &Degraded{Tool: "java 21"}
 }
 
-var javaVersion = regexp.MustCompile(`.*version "([0-9]+)(\.[0-9]+)?.*`)
+var javaVersion = lazyre.MustCompile(`.*version "([0-9]+)(\.[0-9]+)?.*`)
 
 // java21Usable is rsdd_java_21_usable: java and javap executable, and `timeout T java -version` (2>&1)
 // exits 0 with a first line naming a major version >= 21.

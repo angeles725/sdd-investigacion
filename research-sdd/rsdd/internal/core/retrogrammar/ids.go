@@ -1,15 +1,16 @@
 package retrogrammar
 
 import (
-	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Delta-id rules shared by every parser of table rows and `## Delta <ID> —` headings (_RG_AWK_ID_FN, kit issues
 // #1934 #1938). The bash consumers (stage-retro-issues.sh, reconcile-issues.sh) embed the same awk functions.
 
-var reDeltaIDShape = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)?$`)
+var reDeltaIDShape = lazyre.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)?$`)
 
 // DeltaID is rg_delta_id: a delta id written in capitals, one capital letter (`A`) or at most 8 capitals/digits
 // carrying a digit or one hyphen (`R1`, `SO2`, `SPKI-A`). A bare word (`ID`, `DELTA`, `TOTAL`) is not an id.

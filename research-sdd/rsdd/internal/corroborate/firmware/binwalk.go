@@ -3,17 +3,17 @@ package firmware
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsx"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 const supportedBinwalkMajor = "2"
 
 // versionRe reads the banner of Binwalk 2.x ("Binwalk v2.3.3") and 3.x ("binwalk 3.1.0"). The usage line of 3.x
 // ("Usage: binwalk [OPTIONS]") names no version and must not match.
-var versionRe = regexp.MustCompile(`\b[Bb]inwalk (?:v([^` + pyWS + `]+)|(\p{Nd}[^` + pyWS + `]*))`)
+var versionRe = lazyre.MustCompile(`\b[Bb]inwalk (?:v([^` + pyWS + `]+)|(\p{Nd}[^` + pyWS + `]*))`)
 
 // binwalkVersion is the version a --help or --version output announces, or "" when it announces none.
 func binwalkVersion(text string) string {

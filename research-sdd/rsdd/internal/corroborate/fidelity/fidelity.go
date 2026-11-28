@@ -22,13 +22,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/probe"
 )
 
@@ -47,7 +47,7 @@ const (
 	toolBound      = time.Hour
 )
 
-var timeoutRe = regexp.MustCompile(`^[1-9][0-9]{0,5}$`)
+var timeoutRe = lazyre.MustCompile(`^[1-9][0-9]{0,5}$`)
 
 // Cmd is one external program run.
 type Cmd struct {

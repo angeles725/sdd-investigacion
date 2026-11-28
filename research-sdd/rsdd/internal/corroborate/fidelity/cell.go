@@ -6,14 +6,15 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 var (
-	poolRef  = regexp.MustCompile(`#[0-9]+(, *[0-9]+)?`)
-	engineRe = regexp.MustCompile(`^.*\(engine=([A-Za-z0-9_.-]*)[ )].*$`)
+	poolRef  = lazyre.MustCompile(`#[0-9]+(, *[0-9]+)?`)
+	engineRe = lazyre.MustCompile(`^.*\(engine=([A-Za-z0-9_.-]*)[ )].*$`)
 )
 
 // javaFiles is `find DIR -maxdepth 1 -type f -name '*.java' | sort`.

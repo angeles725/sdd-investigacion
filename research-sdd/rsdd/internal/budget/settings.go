@@ -7,6 +7,8 @@ import (
 	"io"
 	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // The SessionStart selection of verify-session-budget.sh, which the script did with one jq program. The rules are
@@ -17,9 +19,9 @@ var sources = []string{"startup", "resume", "clear", "compact", "fork"}
 
 // exactClass is the matcher alphabet that makes a value an exact string or a list of exact strings.
 // altSplit is the jq split("[|,]"; null).
-var altSplit = regexp.MustCompile(`[|,]`)
+var altSplit = lazyre.MustCompile(`[|,]`)
 
-var exactClass = regexp.MustCompile(`^[A-Za-z0-9_ ,|-]+$`)
+var exactClass = lazyre.MustCompile(`^[A-Za-z0-9_ ,|-]+$`)
 
 // parseSettings reads settings.json the way `jq -e 'type == "object"'` judged it. The script's jq accepted a
 // stream of JSON values and judged the last one; here exactly one object is required (declared divergence).

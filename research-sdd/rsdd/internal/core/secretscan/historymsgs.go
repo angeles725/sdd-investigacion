@@ -3,16 +3,17 @@ package secretscan
 import (
 	"bytes"
 	"io"
-	"regexp"
 	"sort"
 	"strconv"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Commit objects: a secret typed into a commit message, or into an author, committer or extra header field, is never
 // removed by redacting content. The raw objects are read with `rev-list HEAD | cat-file --batch`, which (unlike
 // `git log`) is immune to i18n.logOutputEncoding and i18n.commitEncoding: it returns the bytes as stored.
 
-var missingObject = regexp.MustCompile(`(?m)^[0-9a-f]{40}(?:[0-9a-f]{24})? missing$`)
+var missingObject = lazyre.MustCompile(`(?m)^[0-9a-f]{40}(?:[0-9a-f]{24})? missing$`)
 
 // scanCommits returns the line numbers of the batch stream that hold a high-confidence match, ascending and unique.
 // The stream is the legacy one ("<sha> commit <size>", the object, a LF, for each commit), so the numbers agree.

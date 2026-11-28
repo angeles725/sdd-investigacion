@@ -1,8 +1,9 @@
 package scoreloop
 
 import (
-	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // nextVerdict is what `research-sdd-status.sh --next` said.
@@ -14,8 +15,8 @@ type nextVerdict struct {
 }
 
 var (
-	outlineCovered = regexp.MustCompile(`^outline fully covered \([0-9]+/[0-9]+\)$`)
-	bracketNote    = regexp.MustCompile(`\[[^\]]*\]`)
+	outlineCovered = lazyre.MustCompile(`^outline fully covered \([0-9]+/[0-9]+\)$`)
+	bracketNote    = lazyre.MustCompile(`\[[^\]]*\]`)
 )
 
 const (

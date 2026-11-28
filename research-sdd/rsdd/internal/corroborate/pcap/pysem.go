@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // This file holds the few CPython string semantics the legacy tools relied on and the output depends on:
@@ -161,9 +162,9 @@ func illFormedLen(b []byte) int {
 }
 
 var (
-	intRe   = regexp.MustCompile(`^[+-]?[0-9](?:_?[0-9])*$`)
-	floatRe = regexp.MustCompile(`^[+-]?(?:(?:[0-9](?:_?[0-9])*)(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$`)
-	specRe  = regexp.MustCompile(`^[+-]?(?:inf|infinity|nan)$`)
+	intRe   = lazyre.MustCompile(`^[+-]?[0-9](?:_?[0-9])*$`)
+	floatRe = lazyre.MustCompile(`^[+-]?(?:(?:[0-9](?:_?[0-9])*)(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$`)
+	specRe  = lazyre.MustCompile(`^[+-]?(?:inf|infinity|nan)$`)
 )
 
 // parseInt is int(str) in base 10 for a token without whitespace: a sign, digits with single underscores

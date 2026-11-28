@@ -3,11 +3,11 @@ package sweep
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // Port of research-sdd/toolbelt/sweep-tools-hook.sh (kit issue #2361), `rsdd sweep tools --hook`: the
@@ -29,7 +29,7 @@ const (
 	toolsHookBreakdown  = "Run toolbelt/sweep-tools.sh for per-target breakdown."
 )
 
-var reUnrecorded = regexp.MustCompile(`([0-9]+) unrecorded`)
+var reUnrecorded = lazyre.MustCompile(`([0-9]+) unrecorded`)
 
 func runToolsHook(o options, s cli.Stdio, read readFunc) int {
 	var buf bytes.Buffer // one writer for both streams: the script's `2>&1`

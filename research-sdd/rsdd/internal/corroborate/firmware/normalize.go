@@ -3,11 +3,12 @@ package firmware
 import (
 	"cmp"
 	"math/big"
-	"regexp"
 	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/lazyre"
 )
 
 // pyWS is the class Python's \s means for str patterns: ASCII whitespace, the file/group/record/unit
@@ -16,8 +17,8 @@ const pyWS = `\t\n\v\f\r \x1c-\x1f\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\
 
 var (
 	// Python's \d for str patterns is any Unicode decimal digit.
-	findingRe = regexp.MustCompile(`^[` + pyWS + `]*(\p{Nd}+)[` + pyWS + `]+0x([0-9a-fA-F]+)[` + pyWS + `]+(.+?)[` + pyWS + `]*$`)
-	ansiRe    = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	findingRe = lazyre.MustCompile(`^[` + pyWS + `]*(\p{Nd}+)[` + pyWS + `]+0x([0-9a-fA-F]+)[` + pyWS + `]+(.+?)[` + pyWS + `]*$`)
+	ansiRe    = lazyre.MustCompile(`\x1b\[[0-9;]*m`)
 )
 
 // finding is one Binwalk output line: its offset (any size, like Python's int), the offset in hex, and the
