@@ -423,3 +423,8 @@ shellcheck stays green for the remaining shell; both harnesses usable at every m
   Go build hygiene: GOTMPDIR per lane outside /tmp, no leftover binaries, worktree removed after merge, and only
   session 1 runs `go clean -cache` (when GOCACHE > 5G).
 - Next: phase 0 close-out merges, then phase 2 lanes A/B/C in the order of the table above.
+- 2026-11-28 (T8b of kit-improvements-2026-11-28, epic #2270): `serial-console.sh` ported to `rsdd serial console` (`internal/serial/console`,
+  subpackage of the serial domain; the script is a shim). Oracle: the frozen script under `testdata/legacy/` (sha256 pinned); the differential
+  covers every scenario of its table byte for byte (stdout, stderr, exit code, file tree) with PowerShell replaced by stubs on a private PATH.
+  The companion suite keeps the shim contract plus five end-to-end cases; the other cases moved to the Go differential and its two mutation
+  controls moved to Go (guard table at the head of `scenario_test.go`).

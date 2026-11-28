@@ -1,16 +1,30 @@
 #!/usr/bin/env bash
-# serial-console.test.sh — companion test for serial-console.sh.
-# Covers: usage/exit-code contracts, POWERSHELL_BIN stub injection, run
-# validations, preservation output, mkdir and tee error paths, and mutation
-# proof.
-# Exit: 0 all held · 1 regression · 2 harness error
+# serial-console.test.sh — shim contract of serial-console.sh (kit issue #2270, T8b).
 #
-# Tests assert CURRENT script behavior; a failing assertion against the live
-# script is a potential script bug — it is documented, not worked around.
-
+# serial-console.sh is a compatibility shim over `rsdd serial console` (Go). The command's behavior - the argument
+# validation order, the interop check, the evidence file, the preservation guards (exit 4 and 5), every message and
+# every exit code - is covered by the Go tests in research-sdd/rsdd/internal/serial/console: a differential over every
+# scenario of its table against the frozen pre-port script (testdata/legacy, sha256 pinned), a replay of its recorded answers
+# that also runs without bash, golden cases through the registry entry, and table tests for the quoting of the two
+# coreutils messages. This suite checks what the shim itself owns: it forwards arguments, the exit code and stderr
+# unchanged, and it degrades through rsdd-exec (typed, exit 2) when rsdd cannot run. It also keeps a few end-to-end
+# cases through the real binary and, under --prove-teeth, mutation controls on the shim.
+#
+# Disposition of the cases of the pre-port suite (18 cases, 2 mutation controls; kit issue #2270, T8b):
+#   kept end to end through the shim and the real binary: 2 (usage), 4 (absent interop), 6 (check OK),
+#     15 (run OK: evidence file, preserved line, exit 0), 18 (tee failure: exit 5, nothing cited);
+#   moved to Go (differential + replay, same inputs): 3 usage-unknown-mode*, 5 absent-*-check, 7 check-* (output
+#     variants), 8-9 validate-no-args..five-args, 10 validate-dash-dir-*, 11 validate-port-*, 12 validate-baud-*,
+#     13 validate-empty-command, 14 absent-*-run, 16 run-exit-7-is-mirrored, 17 run-mkdir-*;
+#   teeth A (tee -> /dev/null, post-tee [ ! -f ] guard) and B (exit 5 -> exit 0) mutated the bash body, which is gone:
+#     they moved to the Go scenarios run-tee-permission-denied and run-evidence-file-vanishes-after-tee, mutation
+#     checked by hand against internal/serial/console/run.go (see the guard table at the head of scenario_test.go).
+#
+# Exit: 0 all held · 1 regression · 2 harness error
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../serial-console.sh"
+TOOLBELT="$HERE/.."
+SUT="$TOOLBELT/serial-console.sh"
 
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -18,231 +32,149 @@ no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 echo "== serial-console.test.sh =="
 
-# ---- 1. Existence ------------------------------------------------------------
-[ -f "$SUT" ] \
-  && ok "1 serial-console.sh exists at $SUT" \
-  || no "1 serial-console.sh NOT found at $SUT"
-
-if [ ! -f "$SUT" ]; then
-  for n in 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do
-    no "$n (skipped: SUT missing)"
-  done
-  echo "== $pass passed · $fail failed =="
-  exit 2
-fi
-
-# ---- Temp workspace ----------------------------------------------------------
+[ -f "$SUT" ] && [ -x "$SUT" ] && [ -f "$TOOLBELT/lib/rsdd-exec.sh" ] || { echo "FATAL: absent-input: shim or lib/rsdd-exec.sh" >&2; exit 2; }
 TMP="$(mktemp -d)"
 trap 'chmod -R 755 "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 
-# Path guaranteed not to exist — simulates an absent POWERSHELL_BIN.
-ABSENT="$TMP/no-such-powershell"
+# A stand-in rsdd: prints one argument per line, says something on stderr and exits with a chosen code.
+STUB="$TMP/rsdd-stub"
+cat > "$STUB" <<'STUBEOF'
+#!/usr/bin/env bash
+for a in "$@"; do printf 'ARG[%s]\n' "$a"; done
+echo "stub-stderr" >&2
+exit "${STUB_RC:-7}"
+STUBEOF
+chmod +x "$STUB"
 
-# make_stub <dir> <exit_code> <text>
-# Creates an executable stub at <dir>/stub-pwsh.sh that ignores all arguments
-# (PowerShell flags), prints <text> to stdout, and exits <exit_code>.
-# Returns (prints) the stub's absolute path.
-# Assumption: <text> contains no single-quote characters.
+# shim_run SHIM [args...] -> SOUT SERR SRC
+shim_run() { SOUT="$(RSDD_BIN="$STUB" STUB_RC="${STUB_RC:-7}" bash "$1" "${@:2}" 2>"$TMP/serr")"; SRC=$?; SERR="$(cat "$TMP/serr")"; }
+
+# 1. arguments, exit code and stderr pass through
+shim_run "$SUT" run 'a b' COM3 9600 ''
+want=$'ARG[serial]\nARG[console]\nARG[run]\nARG[a b]\nARG[COM3]\nARG[9600]\nARG[]'
+if [ "$SOUT" = "$want" ]; then ok "1 arguments reach rsdd verbatim after 'serial console' (spaces and an empty argument kept)"
+else no "1 arguments (out=[$SOUT])"; fi
+if [ "$SRC" -eq 7 ]; then ok "1 exit code of rsdd is the shim's exit code"; else no "1 exit code (rc=$SRC)"; fi
+if [ "$SERR" = "stub-stderr" ]; then ok "1 stderr of rsdd passes through"; else no "1 stderr (err=[$SERR])"; fi
+
+# 2. rsdd cannot run: typed degraded state, never a clean 0, no evidence
+out="$(RSDD_BIN="$TMP/does-not-exist" bash "$SUT" run "$TMP/degraded" COM3 9600 'show ver' 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && [ ! -e "$TMP/degraded" ]; then
+  ok "2 rsdd cannot run -> typed 'degraded: rsdd-unavailable', exit 2, no evidence written"
+else no "2 degrade (rc=$rc out=[$out])"; fi
+
+# 3. A shim whose lib/rsdd-exec.sh is missing says so and exits 2.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/serial-console.sh"
+out="$(bash "$TMP/nolib/serial-console.sh" check 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && grep -qF 'rsdd-exec.sh missing beside' <<< "$out"; then
+  ok "3 library missing -> 'rsdd-exec.sh missing beside <shim>', exit 2"
+else no "3 missing lib (rc=$rc out=[$out])"; fi
+
+# 4. The shim is the template and nothing else: no PowerShell driver, no tee, no preservation logic left behind.
+if grep -qF 'rsdd_exec serial console "$@"' "$SUT" && ! grep -qE 'System\.IO\.Ports|powershell\.exe -|tee -- |mkdir -p' "$SUT"; then
+  ok "4 shim body is 'rsdd_exec serial console \"\$@\"' with no PowerShell / tee / mkdir logic left"
+else no "4 shim body"; fi
+
+# ---- End to end through the real binary --------------------------------------
+# $RSDD_BIN wins; otherwise one binary is built into the suite temp dir (never into the tree). Without Go the
+# end-to-end group is a typed SKIP (FAIL under RSDD_REQUIRE_GO=1): the shim checks above never need it.
+real_rsdd=""
+if [ -n "${RSDD_BIN:-}" ] && [ -x "${RSDD_BIN:-}" ]; then real_rsdd="$RSDD_BIN"
+elif command -v go >/dev/null 2>&1; then
+  if ( cd "$TOOLBELT/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$TMP/rsdd" ./cmd/rsdd ) >"$TMP/build.log" 2>&1; then real_rsdd="$TMP/rsdd"
+  else echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/build.log" >&2; exit 2; fi
+fi
+
+# make_stub <dir> <exit_code> <text>: an executable stand-in for powershell.exe that ignores its arguments, prints
+# <text> (no single quote in it) and exits <exit_code>. Prints the stub's path.
 make_stub() {
   local dir="$1" rc="$2" txt="$3" stub
-  mkdir -p -- "$dir"
-  stub="$dir/stub-pwsh.sh"
-  {
-    printf '%s\n' '#!/usr/bin/env bash'
-    # Ignore all positional args; emit the canned output line.
-    printf '%s\n' "printf '%s\\n' '$txt'"
-    printf 'exit %s\n' "$rc"
-  } > "$stub"
-  chmod +x "$stub"
-  printf '%s' "$stub"
+  mkdir -p -- "$dir"; stub="$dir/stub-pwsh.sh"
+  { printf '%s\n' '#!/usr/bin/env bash'; printf '%s\n' "printf '%s\\n' '$txt'"; printf 'exit %s\n' "$rc"; } > "$stub"
+  chmod +x "$stub"; printf '%s' "$stub"
 }
 
-# ---- 2. No mode → usage + exit 2 --------------------------------------------
-OUT="$(bash "$SUT" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && grep -qF 'usage' <<<"$OUT" \
-  && ok "2 no mode → exit 2 + usage on stderr" \
-  || no "2 no mode → expected exit 2 + usage, got exit=$RC out=[$OUT]"
+if [ -z "$real_rsdd" ]; then
+  if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then no "e2e: rsdd-unavailable: go not in PATH and no executable RSDD_BIN (RSDD_REQUIRE_GO=1)"
+  else echo "SKIP e2e (rsdd-unavailable: go not in PATH and no executable RSDD_BIN; set RSDD_REQUIRE_GO=1 to fail instead)"; fi
+else
+  q() { RSDD_BIN="$real_rsdd" bash "$SUT" "$@"; }
+  ABSENT="$TMP/no-such-powershell"
 
-# ---- 3. Unknown mode → usage + exit 2 + "unknown mode" message --------------
-OUT="$(bash "$SUT" frobble 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && grep -qF 'unknown mode' <<<"$OUT" \
-  && ok "3 unknown mode → exit 2 + unknown-mode message" \
-  || no "3 unknown mode → expected exit 2 + unknown-mode, got exit=$RC out=[$OUT]"
+  # 5. (old 2) no mode: exit 2 and the usage on stderr
+  OUT="$(q 2>&1)"; RC=$?
+  if [ "$RC" -eq 2 ] && grep -qF 'usage:' <<< "$OUT" && grep -qF 'serial-console.sh run <target-dir> <com-port> <baud> <command>' <<< "$OUT"; then ok "5 no mode: exit 2 + usage on stderr"
+  else no "5 no mode (rc=$RC out=[$OUT])"; fi
 
-# ---- 4. list + absent POWERSHELL_BIN → exit 3 + interop message -------------
-OUT="$(POWERSHELL_BIN="$ABSENT" bash "$SUT" list 2>&1)"; RC=$?
-[ "$RC" -eq 3 ] && grep -qF 'cannot reach' <<<"$OUT" \
-  && ok "4 list + absent bin → exit 3 + interop message" \
-  || no "4 list + absent bin → expected exit 3 + interop msg, got exit=$RC out=[$OUT]"
+  # 6. (old 4) absent PowerShell: exit 3 and the interop hint, no evidence directory made
+  OUT="$(POWERSHELL_BIN="$ABSENT" q run "$TMP/t6" COM3 9600 'show ver' 2>&1)"; RC=$?
+  if [ "$RC" -eq 3 ] && grep -qF 'cannot reach Windows PowerShell' <<< "$OUT" && grep -qF 'WSLInterop' <<< "$OUT" && [ ! -e "$TMP/t6" ]; then
+    ok "6 absent PowerShell: exit 3 + interop hint, nothing created"
+  else no "6 absent PowerShell (rc=$RC out=[$OUT])"; fi
 
-# ---- 5. check + absent POWERSHELL_BIN → exit 3 ------------------------------
-OUT="$(POWERSHELL_BIN="$ABSENT" bash "$SUT" check 2>&1)"; RC=$?
-[ "$RC" -eq 3 ] \
-  && ok "5 check + absent bin → exit 3" \
-  || no "5 check + absent bin → expected exit 3, got exit=$RC out=[$OUT]"
+  # 7. (old 6) check against a stub that answers OK
+  S7="$(make_stub "$TMP/s7" 0 OK)"
+  OUT="$(POWERSHELL_BIN="$S7" q check 2>&1)"; RC=$?
+  if [ "$RC" -eq 0 ] && [ "$OUT" = "interop: OK ($S7 reachable)" ]; then ok "7 check + OK stub: exit 0 + 'interop: OK'"
+  else no "7 check (rc=$RC out=[$OUT])"; fi
 
-# ---- 6. check + stub printing "OK" → exit 0 + "interop: OK" ----------------
-STUB6="$(make_stub "$TMP/t6" 0 "OK")"
-OUT="$(POWERSHELL_BIN="$STUB6" bash "$SUT" check 2>&1)"; RC=$?
-[ "$RC" -eq 0 ] && grep -qF 'interop: OK' <<<"$OUT" \
-  && ok "6 check + OK stub → exit 0 + 'interop: OK'" \
-  || no "6 check + OK stub → expected exit 0 + interop: OK, got exit=$RC out=[$OUT]"
+  # 8. (old 15) run: evidence file, citation line, exit 0
+  T8="$TMP/t8"; mkdir -p -- "$T8"; S8="$(make_stub "$TMP/s8" 0 'hw output line')"
+  OUT="$(POWERSHELL_BIN="$S8" q run "$T8" COM3 9600 'show version' 2>&1)"; RC=$?
+  F8="$(find "$T8/sources/probes" -name 'serial-COM3-*.txt' 2>/dev/null | head -1)"
+  if [ "$RC" -eq 0 ] && grep -qF 'preserved: ' <<< "$OUT" && grep -qF '[CERT-hw]' <<< "$OUT" && [ -n "$F8" ] && grep -qF 'hw output line' "$F8" && grep -qF '# port: COM3  baud: 9600  cmd: show version' "$F8"; then
+    ok "8 run: evidence file written, 'preserved: ... [CERT-hw]' printed, exit 0"
+  else no "8 run (rc=$RC file=[$F8] out=[$OUT])"; fi
 
-# ---- 7. check + stub printing non-OK output → exit 3 -----------------------
-STUB7="$(make_stub "$TMP/t7" 0 "FAIL_OUTPUT")"
-OUT="$(POWERSHELL_BIN="$STUB7" bash "$SUT" check 2>&1)"; RC=$?
-[ "$RC" -eq 3 ] \
-  && ok "7 check + non-OK stub output → exit 3" \
-  || no "7 check + non-OK stub → expected exit 3, got exit=$RC out=[$OUT]"
-
-# ---- 8. run: too few args → exit 2 + usage ----------------------------------
-OUT="$(bash "$SUT" run /tmp COM3 9600 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && grep -qF 'usage' <<<"$OUT" \
-  && ok "8 run: too few args → exit 2 + usage" \
-  || no "8 run: too few args → expected exit 2 + usage, got exit=$RC out=[$OUT]"
-
-# ---- 9. run: too many args → exit 2 + usage ---------------------------------
-OUT="$(bash "$SUT" run /tmp COM3 9600 cmd extra 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && grep -qF 'usage' <<<"$OUT" \
-  && ok "9 run: too many args → exit 2 + usage" \
-  || no "9 run: too many args → expected exit 2 + usage, got exit=$RC out=[$OUT]"
-
-# ---- 10. run: dash-leading target-dir → exit 2 ------------------------------
-# no_dash() rejects paths that start with '-'; the error message says
-# "must not start with '-'".
-OUT="$(bash "$SUT" run -bad-dir COM3 9600 "show ver" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && grep -qF "must not start with" <<<"$OUT" \
-  && ok "10 run: dash-leading target-dir → exit 2 + must-not-start-with message" \
-  || no "10 run: dash-leading target-dir → expected exit 2, got exit=$RC out=[$OUT]"
-
-# ---- 11. run: bad COM port (lowercase) → exit 2 + com-port message ----------
-OUT="$(bash "$SUT" run "$TMP" com3 9600 "show ver" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && grep -qF 'com-port' <<<"$OUT" \
-  && ok "11 run: bad COM port (lowercase) → exit 2 + com-port message" \
-  || no "11 run: bad COM port → expected exit 2 + com-port msg, got exit=$RC out=[$OUT]"
-
-# ---- 12. run: non-numeric baud → exit 2 + baud message ---------------------
-OUT="$(bash "$SUT" run "$TMP" COM3 fast "show ver" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && grep -qF 'baud' <<<"$OUT" \
-  && ok "12 run: non-numeric baud → exit 2 + baud message" \
-  || no "12 run: non-numeric baud → expected exit 2 + baud msg, got exit=$RC out=[$OUT]"
-
-# ---- 13. run: empty command → exit 2 + empty message -----------------------
-OUT="$(bash "$SUT" run "$TMP" COM3 9600 "" 2>&1)"; RC=$?
-[ "$RC" -eq 2 ] && grep -qF 'empty' <<<"$OUT" \
-  && ok "13 run: empty command → exit 2 + empty message" \
-  || no "13 run: empty command → expected exit 2 + empty msg, got exit=$RC out=[$OUT]"
-
-# ---- 14. run + absent POWERSHELL_BIN (all args valid) → exit 3 + interop ---
-# The have() check is after validation; pass all valid args to reach it.
-OUT="$(POWERSHELL_BIN="$ABSENT" bash "$SUT" run "$TMP" COM3 9600 "show ver" 2>&1)"; RC=$?
-[ "$RC" -eq 3 ] && grep -qF 'cannot reach' <<<"$OUT" \
-  && ok "14 run + absent bin → exit 3 + interop message" \
-  || no "14 run + absent bin → expected exit 3 + interop msg, got exit=$RC out=[$OUT]"
-
-# ---- 15. run OK (stub rc=0) → file created + preserved: [CERT-hw] + exit 0 -
-TDIR15="$TMP/t15-target"
-mkdir -p -- "$TDIR15"
-STUB15="$(make_stub "$TMP/t15-stub" 0 "hw output line")"
-OUT15="$(POWERSHELL_BIN="$STUB15" bash "$SUT" run "$TDIR15" COM3 9600 "show version" 2>&1)"
-RC15=$?
-FILE15="$(find "$TDIR15/sources/probes" -name 'serial-COM3-*.txt' 2>/dev/null | head -1)"
-[ "$RC15" -eq 0 ] \
-  && grep -qF 'preserved:' <<<"$OUT15" \
-  && grep -qF '[CERT-hw]' <<<"$OUT15" \
-  && [ -n "$FILE15" ] && [ -f "$FILE15" ] \
-  && ok "15 run OK (rc=0) → file created + 'preserved: [CERT-hw]' in output + exit 0" \
-  || no "15 run OK → expected exit 0 + preserved file + preserved: [CERT-hw], got exit=$RC15 file=[$FILE15] out=[$OUT15]"
-
-# ---- 16. run: stub exits non-zero → SUT mirrors that rc --------------------
-TDIR16="$TMP/t16-target"
-mkdir -p -- "$TDIR16"
-STUB16="$(make_stub "$TMP/t16-stub" 7 "hw error text")"
-OUT16="$(POWERSHELL_BIN="$STUB16" bash "$SUT" run "$TDIR16" COM3 9600 "show ver" 2>&1)"
-RC16=$?
-[ "$RC16" -eq 7 ] \
-  && ok "16 run: stub exits 7 → SUT mirrors rc=7" \
-  || no "16 run: stub exits 7 → expected exit 7, got exit=$RC16 out=[$OUT16]"
-
-# ---- 17. mkdir failure → exit 4 + error message ----------------------------
-# Pre-create TDIR with mode 555 so mkdir cannot create sources/probes inside.
-# POWERSHELL_BIN must be present to pass the have() check before mkdir.
-TDIR17="$TMP/t17-nowrite"
-mkdir -p -- "$TDIR17"
-chmod 555 "$TDIR17"
-STUB17="$(make_stub "$TMP/t17-stub" 0 "hw")"
-OUT17="$(POWERSHELL_BIN="$STUB17" bash "$SUT" run "$TDIR17" COM3 9600 "show ver" 2>&1)"
-RC17=$?
-chmod 755 "$TDIR17"
-[ "$RC17" -eq 4 ] && grep -qF 'cannot create preservation dir' <<<"$OUT17" \
-  && ok "17 mkdir failure → exit 4 + cannot-create-preservation-dir message" \
-  || no "17 mkdir failure → expected exit 4 + cannot create preservation dir, got exit=$RC17 out=[$OUT17]"
-
-# ---- 18. tee failure → exit 5 + error message -------------------------------
-# Pre-create OUTDIR with mode 555 so mkdir -p succeeds (dir already exists)
-# but tee cannot create the output file inside.
-TDIR18="$TMP/t18-target"
-OUTDIR18="$TDIR18/sources/probes"
-mkdir -p -- "$OUTDIR18"
-chmod 555 "$OUTDIR18"
-STUB18="$(make_stub "$TMP/t18-stub" 0 "hw output")"
-OUT18="$(POWERSHELL_BIN="$STUB18" bash "$SUT" run "$TDIR18" COM3 9600 "show ver" 2>&1)"
-RC18=$?
-chmod 755 "$OUTDIR18"
-[ "$RC18" -eq 5 ] && grep -qF 'preservation FAILED' <<<"$OUT18" \
-  && ok "18 tee failure → exit 5 + preservation-failed message" \
-  || no "18 tee failure → expected exit 5 + preservation FAILED, got exit=$RC18 out=[$OUT18]"
+  # 9. (old 18) tee failure: exit 5, nothing cited. A read-only evidence directory (not a root scenario).
+  T9="$TMP/t9"; mkdir -p -- "$T9/sources/probes"; chmod 555 "$T9/sources/probes"; S9="$(make_stub "$TMP/s9" 0 'hw output')"
+  OUT="$(POWERSHELL_BIN="$S9" q run "$T9" COM3 9600 'show ver' 2>&1)"; RC=$?
+  chmod 755 "$T9/sources/probes"
+  if [ "$RC" -eq 5 ] && grep -qF 'preservation FAILED' <<< "$OUT" && ! grep -qF 'preserved:' <<< "$OUT"; then ok "9 tee failure: exit 5 + preservation-FAILED, no citation line"
+  else no "9 tee failure (rc=$RC out=[$OUT])"; fi
+fi
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: mutation controls for serial-console.sh (shim); the command's own guards are mutation checked in Go --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
-  mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain_or_count fail "$l" "$SUT" "$o" "$@" || return 1; }
-  echo "-- teeth: mutants of serial-console.sh must be caught by specific assertions --"
-
-  # Tooth A: redirect 'tee -- "$OUT"' to /dev/null so the evidence file is never
-  # written at $OUT.  The post-tee guard '[ ! -f "$OUT" ]' then fires → exit 5.
-  # Test 15 checks exit 0 AND file existence AND 'preserved:' in output — all three
-  # fail on this mutant.  This proves a load-bearing guard (not just a cosmetic echo).
-  if mk_sed "teeth A" "$TMP/mutant-a.sh" 's|tee -- "\$OUT"|tee -- /dev/null|'; then
-    chmod +x "$TMP/mutant-a.sh"
-    TDIR_A="$TMP/teeth-a-target"
-    mkdir -p -- "$TDIR_A"
-    STUB_A="$(make_stub "$TMP/teeth-a-stub" 0 "hw")"
-    MUTANT_A_RC=0
-    MUTANT_A_OUT="$(POWERSHELL_BIN="$STUB_A" bash "$TMP/mutant-a.sh" run \
-      "$TDIR_A" COM3 9600 "show ver" 2>&1)" || MUTANT_A_RC=$?
-    MUTANT_A_FILE="$(find "$TDIR_A/sources/probes" -name 'serial-COM3-*.txt' 2>/dev/null | head -1)"
-    # Exact BAD verdict (kit issue #1576): the post-tee guard fires → exit exactly 5 with its typed
-    # message. A bare non-zero would also accept a crash of the mutant that never reached the guard.
-    if [ "$MUTANT_A_RC" -eq 5 ] && [ -z "$MUTANT_A_FILE" ] && grep -qF 'preservation FAILED' <<<"$MUTANT_A_OUT"; then
-      ok "teeth A: tee→/dev/null → no evidence file + exit exactly 5 + preservation-FAILED message → test 15 assertions catch it (RED)"
-    else
-      no "teeth A: mutant with /dev/null tee should exit 5 with 'preservation FAILED' and no file but did not (rc=$MUTANT_A_RC file=${MUTANT_A_FILE:-absent} out=[$MUTANT_A_OUT])"
-    fi
-  fi  # else: refusal already counted by mk_sed
-
-  # Tooth B: replace 'exit 5' (preservation-fail guard) with 'exit 0'.
-  # Test 18's exit-code check for 5 must catch this → assertion goes RED.
-  if mk_sed "teeth B" "$TMP/mutant-b.sh" 's/exit 5$/exit 0/'; then
-    chmod +x "$TMP/mutant-b.sh"
-    TDIR_B="$TMP/teeth-b-target"
-    OUTDIR_B="$TDIR_B/sources/probes"
-    mkdir -p -- "$OUTDIR_B"
-    chmod 555 "$OUTDIR_B"
-    STUB_B="$(make_stub "$TMP/teeth-b-stub" 0 "hw")"
-    MUTANT_B_RC=0
-    { POWERSHELL_BIN="$STUB_B" bash "$TMP/mutant-b.sh" run \
-      "$TDIR_B" COM3 9600 "show ver" >/dev/null 2>&1; } || MUTANT_B_RC=$?
-    chmod 755 "$OUTDIR_B"
-    if [ "$MUTANT_B_RC" -eq 0 ]; then
-      ok "teeth B: exit 5 → exit 0 mutant → test 18 assertion catches it (RED)"
-    else
-      no "teeth B: exit 5 → exit 0 mutant exited rc=$MUTANT_B_RC, expected 0 (test 18's exit-code check would not go red)"
-    fi
-  fi  # else: refusal already counted by mk_sed
+  # mk NAME SEDEXPR -> a mutant shim with the lib beside it in $TMP/mt/NAME; sets MS or returns 1
+  mk() {
+    local d="$TMP/mt/$1"
+    mkdir -p "$d/lib" && cp "$TOOLBELT/lib/rsdd-exec.sh" "$d/lib/"   # stage-libs-ok: the shim sources only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case
+    if mutant_sed "$SUT" "$d/serial-console.sh" "$2" 2>/dev/null; then MS="$d/serial-console.sh"; return 0; fi
+    no "teeth $1: could not build mutant (pattern not found / refused by lib/mutant.sh)"; return 1
+  }
+  # A: arguments no longer forwarded
+  if mk A 's#^rsdd_exec serial console "\$@"#rsdd_exec serial console#'; then
+    shim_run "$MS" check
+    [ "$SOUT" != $'ARG[serial]\nARG[console]\nARG[check]' ] && ok "teeth A: arguments dropped -> forwarding check goes red" || no "teeth A: mutant still forwards — THEATER"
+  fi
+  # B: wrong subcommand
+  if mk B 's#^rsdd_exec serial console#rsdd_exec serial consol#'; then
+    shim_run "$MS" check
+    [ "$SOUT" != $'ARG[serial]\nARG[console]\nARG[check]' ] && ok "teeth B: wrong command name -> forwarding check goes red" || no "teeth B: mutant still forwards — THEATER"
+  fi
+  # C: the degraded path swallowed (library guard replaced by exit 0)
+  if mk C 's#exit 2; }   \# SENTINEL-RSDD-EXEC-GUARD#exit 0; }   \# SENTINEL-RSDD-EXEC-GUARD#'; then
+    mkdir -p "$TMP/mt/C-nolib"; cp "$MS" "$TMP/mt/C-nolib/serial-console.sh"
+    out="$(bash "$TMP/mt/C-nolib/serial-console.sh" check 2>&1)"; rc=$?
+    [ "$rc" -ne 2 ] && ok "teeth C: missing-library guard exits 0 -> case 3 goes red" || no "teeth C: mutant still exits 2 — THEATER"
+  fi
+  # D: the exit code is laundered
+  if mk D 's#^rsdd_exec serial console "\$@"#( rsdd_exec serial console "$@" ); exit 0#'; then
+    shim_run "$MS" check
+    [ "$SRC" -ne 7 ] && ok "teeth D: exit code laundered to 0 -> exit-code check goes red" || no "teeth D: mutant still forwards rc 7 — THEATER"
+  fi
+  # E: the end-to-end group is real: a shim pointed at the capture command no longer answers the interop check
+  if [ -n "$real_rsdd" ] && mk E 's#^rsdd_exec serial console#rsdd_exec serial frame-capture#'; then
+    SE="$(make_stub "$TMP/se" 0 OK)"
+    OUT="$(POWERSHELL_BIN="$SE" RSDD_BIN="$real_rsdd" bash "$MS" check 2>&1)"
+    if [ "$OUT" = "interop: OK ($SE reachable)" ]; then no "teeth E: the wrong command still answered the interop check — THEATER"
+    else ok "teeth E: wrong command -> the end-to-end check goes red"; fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
-[ "$fail" -eq 0 ] || exit 1
+[ "$fail" -eq 0 ]

@@ -91,6 +91,7 @@ GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pca
   resume-state.sh resume-render.sh verify-block.sh verify-registry-hook.sh)   # verify-registry-hook.sh emits only the envelope of verify-registry.sh's states
 # The rsdd_exec_hook shims the scan newly sees (kit issue #2597), checked to emit no registry input state of their own.
 GO_NO_TYPED+=(return-token-gate.sh verify-kit-clean-hook.sh verify-skill-drift-hook.sh verify-tool-catalog-hook.sh)
+GO_NO_TYPED+=(serial-console.sh)   # exit 3 keeps the legacy stderr; no registry input state
 # GO_SHARED lists degraded rows whose emitter is a shared Go package that several ports call, not one shim's package
 # (kit issue #2563): `code|row emitter label|package dir|literal`. The row counts as emitted only while the literal is
 # still in the package's non-test sources, so a removed emission turns it stale again.

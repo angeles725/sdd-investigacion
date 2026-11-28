@@ -1,0 +1,5 @@
+unknown mode: frobble (list|check|run)
+usage:
+  serial-console.sh list
+  serial-console.sh check
+  serial-console.sh run <target-dir> <com-port> <baud> <command>

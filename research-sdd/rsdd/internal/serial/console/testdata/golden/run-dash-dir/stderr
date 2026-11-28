@@ -1,0 +1,1 @@
+serial-console.sh: <target-dir> must not start with '-': -t

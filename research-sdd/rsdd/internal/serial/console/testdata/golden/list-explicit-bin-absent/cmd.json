@@ -1,0 +1,1 @@
+{"args": ["serial", "console", "list"], "env": {"PATH": "/nonexistent", "POWERSHELL_BIN": "/nonexistent/pwsh"}}
