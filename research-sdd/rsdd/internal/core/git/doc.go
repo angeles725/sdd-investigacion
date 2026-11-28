@@ -23,6 +23,8 @@
 // exit status (exit 1 of rev-parse --verify --quiet, merge-base, merge-base --is-ancestor) answers it as a value
 // instead of an error, so a caller can tell "no" from "could not ask".
 //
+// RunWithStderr is Run that also returns stderr; WithoutSelectors drops the variables that name another repository.
+//
 // Differences, by design: every run is bounded (the bash never bounds git); stdin is /dev/null; the caller's
 // environment is passed whole (Runner.Env), as the bash inherits it, and nothing is read from the process.
 package git

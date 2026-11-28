@@ -53,8 +53,17 @@ type Runner struct {
 }
 
 // Run is `git -C <dir> <args>` (an empty dir leaves git in the current directory) and returns its stdout. On
-// an *ExitError the stdout is still returned.
+// an *ExitError the stdout is still returned. Stderr of a run that succeeds is dropped; RunWithStderr keeps it.
 func (r Runner) Run(dir string, args ...string) ([]byte, error) {
+	out, _, err := r.RunWithStderr(dir, args...)
+	return out, err
+}
+
+// RunWithStderr is Run that also returns what git wrote on stderr, whatever the exit code: a warning of a run
+// that exits 0 (an unreadable directory under `ls-files --others`) is the case Run cannot show. The errors are
+// Run's. Stdout and stderr are returned wherever Run returns stdout; a git that could not be started returns
+// neither.
+func (r Runner) RunWithStderr(dir string, args ...string) (stdout, stderr []byte, err error) {
 	bin := r.Bin
 	if bin == "" {
 		bin = "git"
@@ -69,17 +78,17 @@ func (r Runner) Run(dir string, args ...string) ([]byte, error) {
 	}
 	switch {
 	case errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist): // a *proc.SpawnError from the lookup
-		return nil, fmt.Errorf("%w: %v", ErrMissing, err)
+		return nil, nil, fmt.Errorf("%w: %v", ErrMissing, err)
 	case err != nil:
-		return nil, fmt.Errorf("git: %w", err)
+		return nil, nil, fmt.Errorf("git: %w", err)
 	case res.Reason == proc.ReasonTimeout:
-		return res.Stdout, fmt.Errorf("%w after %v: git %s", ErrTimeout, r.timeout(), strings.Join(args, " "))
+		return res.Stdout, res.Stderr, fmt.Errorf("%w after %v: git %s", ErrTimeout, r.timeout(), strings.Join(args, " "))
 	case res.Reason == proc.ReasonOutputCap:
-		return res.Stdout, fmt.Errorf("%w (%d bytes): git %s", ErrOutputCap, r.maxBytes(), strings.Join(args, " "))
+		return res.Stdout, res.Stderr, fmt.Errorf("%w (%d bytes): git %s", ErrOutputCap, r.maxBytes(), strings.Join(args, " "))
 	case code != 0:
-		return res.Stdout, &ExitError{Args: args, Code: code, Stderr: string(res.Stderr)}
+		return res.Stdout, res.Stderr, &ExitError{Args: args, Code: code, Stderr: string(res.Stderr)}
 	}
-	return res.Stdout, nil
+	return res.Stdout, res.Stderr, nil
 }
 
 func (r Runner) timeout() time.Duration {
