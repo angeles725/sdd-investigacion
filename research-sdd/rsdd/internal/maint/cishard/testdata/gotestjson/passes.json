@@ -1,0 +1,8 @@
+{"Time":"2026-11-06T08:23:08.530706233-06:00","Action":"start","Package":"example.com/fx/passes"}
+{"Time":"2026-11-06T08:23:08.534687485-06:00","Action":"run","Package":"example.com/fx/passes","Test":"TestF"}
+{"Time":"2026-11-06T08:23:08.535180073-06:00","Action":"output","Package":"example.com/fx/passes","Test":"TestF","Output":"=== RUN   TestF\n","OutputType":"frame"}
+{"Time":"2026-11-06T08:23:08.535318589-06:00","Action":"output","Package":"example.com/fx/passes","Test":"TestF","Output":"--- PASS: TestF (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-11-06T08:23:08.535332156-06:00","Action":"pass","Package":"example.com/fx/passes","Test":"TestF","Elapsed":0}
+{"Time":"2026-11-06T08:23:08.535340989-06:00","Action":"output","Package":"example.com/fx/passes","Output":"PASS\n","OutputType":"frame"}
+{"Time":"2026-11-06T08:23:08.535416363-06:00","Action":"output","Package":"example.com/fx/passes","Output":"ok  \texample.com/fx/passes\t0.004s\n"}
+{"Time":"2026-11-06T08:23:08.535431818-06:00","Action":"pass","Package":"example.com/fx/passes","Elapsed":0.005}
