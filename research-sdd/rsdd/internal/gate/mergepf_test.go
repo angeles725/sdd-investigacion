@@ -3,17 +3,22 @@ package gate
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
-// The workflow fixtures are the bash suite's own, read in place.
-const mgFixtures = "../../../toolbelt/tests/fixtures/merge-gate"
+// mgFixture is the path of one of the bash suite's own workflow fixtures, read in place through kitroot so that the
+// module-only copy of the mutation job (RSDD_TEST_RESEARCH_SDD) finds it too.
+func mgFixture(t testing.TB, name string) string {
+	t.Helper()
+	return kitroot.Path(t, "toolbelt", "tests", "fixtures", "merge-gate", name)
+}
 
 func wfFixture(t *testing.T, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(mgFixtures, name))
+	b, err := os.ReadFile(mgFixture(t, name))
 	if err != nil {
 		t.Fatal(err)
 	}
