@@ -22,7 +22,8 @@ import (
 //     is not understood, so the name is treated as possibly anything;
 //   - an alternative that can be empty also stands for the job id (GitHub names a job by its id when the name
 //     expands to nothing), so it could be chk when the id is;
-//   - more than pfMaxAlts alternatives are not enumerated and count as possibly anything.
+//   - more than pfMaxAlts alternatives, or an alternative of more than pfMaxParts parts, are not enumerated and count as
+//     possibly anything (the trimmed readings of an alternative are O(parts^2); an earlier recursion was exponential).
 //
 // THE SCALAR (the rule above judges the decoded text; GitHub decodes the YAML scalar BEFORE it expands the
 // expression, and this reader decodes none of it): a templated `name:` is read only as a plain one-line scalar with
@@ -35,9 +36,40 @@ import (
 // continuation line (the next line that is neither blank nor a comment is indented deeper than the `name:` key),
 // which YAML folds into the value with a space. Block scalars and empty values stay unsupported as before.
 //
+// THE REST OF THE JOB (pfJobNameTrust). The reader looks at one line at a time, so a `name:` line at the job-key indent
+// is a key only if no value opened earlier in the job swallowed it: in
+//
+//	shellcheck:
+//	  runs-on: "foo
+//	  name: bridge-${{ matrix.n }}"
+//
+// there is no `name` key at all and GitHub names the check `shellcheck`. So a job with a templated `name:` is judged
+// "could be anything" (the typed note `job name shape of <job>`, for every required check) when
+//   - any line of the job (the job key line included), outside a block scalar's content, leaves a double quote, a single
+//     quote or a `[`/`{` open at its end (after dropping a ` #` comment outside quotes), or has a value that starts with
+//     a quote that is not closed on the line (pfLineShape; deliberately over-approximate: an apostrophe in a plain
+//     scalar counts as an opening quote); this holds wherever the line is, before or after the name line; or
+//   - the job has more than one `name:` line at the job-key indent (YAML keeps one; which one is not decided here).
+//
+// Scoping: only quotes and flow collections can carry a line across the job-key indent (a block scalar's content and a
+// plain scalar's continuation lines are indented deeper than the key that holds them, so they cannot hide a key at the
+// job-key indent). So the content of a block scalar (`run: |`, `path: >-`, `- |`; a line whose last token is the
+// indicator after `key:` or `-`) is skipped, not scanned: shell text with an apostrophe or a `{` there is not a
+// hidden value, and the real rsdd-go-bridge job (`run: |` under steps, `${{ ... '[0]' ... }}` expressions, comments
+// with apostrophes) stays evaluated. The block scalar ends at the first line at or left of its key's indent.
+//
+// NOT CLOSED HERE (they exist in the original too, are independent of a templated name, and are tracked in the
+// follow-up kit issue): a quoted `"name":` key, a flow-mapping job, `? name`, `name :`, `Name:`, `name: null`/`~` with the
+// id fallback, a non-templated name followed by CR, a column-0 or tab-led line inside a multi-line scalar that hides later
+// jobs, and a fake non-templated `name:` line inside a multi-line scalar.
+//
+// SCOPE NOTE (differs from the original): a NON-templated double-quoted name containing a backslash (`"shell\x63heck"`)
+// now voids the evaluation for every check, because an escape can spell any character of a check name; the original
+// read it literally and went on.
+//
 // ASSUMPTIONS (GitHub's behaviour could not be verified, so each is decided fail-closed and pinned by a test):
 //   - leading and trailing whitespace of an expansion may be trimmed, so `shellcheck ` (or ` shellcheck`) could be
-//     the check `shellcheck`: alternatives are compared after trimming their ends (pfTrimAlts);
+//     the check `shellcheck`: alternatives are compared after trimming their ends (pfEachTrimmed);
 //   - a whitespace-only expansion may count as empty, so the job id fallback applies to it;
 //   - check names compare case-insensitively (Unicode simple folding, so U+017F also folds to s), and so does the
 //     job id against the check name.
@@ -50,6 +82,10 @@ import (
 
 // pfMaxAlts bounds the alternatives enumerated for one name; beyond it the name counts as possibly anything.
 const pfMaxAlts = 64
+
+// pfMaxParts bounds the parts (literal text between unknown gaps) of one alternative that are enumerated; beyond it the
+// name counts as possibly anything. The readings of an alternative grow with the square of its parts (pfEachTrimmed).
+const pfMaxParts = 32
 
 // pfAlt is one possible expansion: literal parts separated by unknown gaps (one part = exactly that text), and
 // whether it can be a truthy / falsy GitHub expression value.
@@ -90,10 +126,11 @@ func pfNameCouldBe(v, id, chk string) bool {
 	}
 	want, idIsChk := pfFold(chk), pfFold(id) == pfFold(chk)
 	for _, a := range alts {
-		for _, t := range pfTrimAlts(a) {
-			if t.matches(want) || (idIsChk && t.matches("")) {
-				return true
-			}
+		if len(a.parts) > pfMaxParts {
+			return true
+		}
+		if pfEachTrimmed(a, func(t pfAlt) bool { return t.matches(want) || (idIsChk && t.matches("")) }) {
+			return true
 		}
 	}
 	return false
@@ -113,31 +150,39 @@ func pfFold(s string) string {
 	}, s)
 }
 
-// pfTrimAlts are the readings of the alternative as it is compared with a check name: folded, with the whitespace
-// that could end up at either end of the expansion removed. A literal part loses its edge whitespace only at the
-// real edge of the string; when the part at an edge is blank, the unknown gap next to it may be blank too, which is
-// one more reading with that gap removed (so `shell ` + gap is not trimmed to `shell`, but `shell ` + blank gap is).
-func pfTrimAlts(a pfAlt) []pfAlt {
-	parts := make([]string, len(a.parts))
+// pfEachTrimmed calls yield with each reading of the alternative as it is compared with a check name, until yield
+// returns true (then it returns true too): folded, with the whitespace that could end up at either end of the
+// expansion removed. A literal part loses its edge whitespace only at the real edge of the string; when the part at an
+// edge is blank, the unknown gap next to it may be blank too, which is one more reading with that gap removed (so
+// `shell ` + gap is not trimmed to `shell`, but `shell ` + blank gap is). The readings are exactly the pairs (f, b) of
+// f blank parts dropped from the front and b from the back, f+b < len(parts): O(k^2) readings for k parts (an earlier
+// recursion that dropped from both ends was exponential in k). The parts of a reading are only valid during the call.
+func pfEachTrimmed(a pfAlt, yield func(pfAlt) bool) bool {
+	n := len(a.parts)
+	folded, blank := make([]string, n), make([]bool, n)
 	for i, p := range a.parts {
-		parts[i] = pfFold(p)
+		folded[i] = pfFold(p)
+		blank[i] = strings.TrimSpace(folded[i]) == ""
 	}
-	var out []pfAlt
-	var walk func(parts []string)
-	walk = func(parts []string) {
-		t := append([]string{}, parts...)
-		t[0] = strings.TrimLeftFunc(t[0], unicode.IsSpace)
-		t[len(t)-1] = strings.TrimRightFunc(t[len(t)-1], unicode.IsSpace)
-		out = append(out, pfAlt{parts: t, truthy: a.truthy, falsy: a.falsy})
-		if len(parts) > 1 && strings.TrimSpace(parts[0]) == "" {
-			walk(parts[1:])
+	buf := make([]string, n)
+	for f := 0; f < n; f++ {
+		if f > 0 && !blank[f-1] {
+			break
 		}
-		if len(parts) > 1 && strings.TrimSpace(parts[len(parts)-1]) == "" {
-			walk(parts[:len(parts)-1])
+		for b := 0; f+b < n; b++ {
+			if b > 0 && !blank[n-b] {
+				break
+			}
+			t := buf[:n-f-b]
+			copy(t, folded[f:n-b])
+			t[0] = strings.TrimLeftFunc(t[0], unicode.IsSpace)
+			t[len(t)-1] = strings.TrimRightFunc(t[len(t)-1], unicode.IsSpace)
+			if yield(pfAlt{parts: t, truthy: a.truthy, falsy: a.falsy}) {
+				return true
+			}
 		}
 	}
-	walk(parts)
-	return out
+	return false
 }
 
 // pfEscapedName reports whether the raw text after `name:` is a double-quoted scalar with a backslash: its escapes
@@ -451,4 +496,104 @@ func pfOperandAlts(a string) ([]pfAlt, bool) {
 		return nil, false
 	}
 	return []pfAlt{pfAny}, true
+}
+
+// pfJobNameTrust reports whether the templated name of a job cannot be trusted: it has a templated `name:` line and
+// either more than one `name:` line at the job-key indent or a line that leaves a value open (see THE REST OF THE JOB).
+func pfJobNameTrust(templated bool, names int, tainted bool) bool {
+	return templated && (names > 1 || tainted)
+}
+
+// pfLineEnd scans one line (YAML indentation already removed): the index where a ` #` comment starts outside quotes
+// (len(s) when there is none), and whether a double quote, a single quote or a `[`/`{` is still open there. Inside
+// double quotes a backslash escapes the next character; inside single quotes a doubled quote is one quote.
+func pfLineEnd(s string) (cut int, open bool) {
+	var q byte
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case q == '"':
+			if c == '\\' {
+				i++
+			} else if c == '"' {
+				q = 0
+			}
+		case q == '\'':
+			if c == '\'' {
+				if i+1 < len(s) && s[i+1] == '\'' {
+					i++
+				} else {
+					q = 0
+				}
+			}
+		case c == '"' || c == '\'':
+			q = c
+		case c == '[' || c == '{':
+			depth++
+		case (c == ']' || c == '}') && depth > 0:
+			depth--
+		case c == '#' && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t'):
+			return i, depth > 0
+		}
+	}
+	return len(s), q != 0 || depth > 0
+}
+
+// pfLineShape classifies one line of a job: open when the line leaves a quote or a flow collection open (the value
+// goes on in the next line, where it can hide a key), else block when the line opens a block scalar (its last token
+// is `|` or `>` with optional chomping/indentation indicators, right after `key:` or `-` or alone).
+func pfLineShape(line string) (open, block bool) {
+	cut, open := pfLineEnd(line)
+	if open {
+		return true, false
+	}
+	s := line[:cut]
+	// a value that starts with a quote and is not closed on the line, whatever an earlier stray quote did to the
+	// scan above (`it's: "foo's`): after each `key:` and after leading `-` items
+	starts := []int{}
+	for rest, off := s, 0; ; {
+		t := strings.TrimLeft(rest, " \t")
+		if t != "-" && !strings.HasPrefix(t, "- ") {
+			break
+		}
+		off += len(rest) - len(t) + 1
+		rest = rest[len(rest)-len(t)+1:]
+		starts = append(starts, off)
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] == ':' && (i+1 == len(s) || s[i+1] == ' ' || s[i+1] == '\t') {
+			starts = append(starts, i+1)
+		}
+	}
+	for _, at := range starts {
+		v := strings.TrimLeft(s[at:], " \t")
+		if v != "" && (v[0] == '"' || v[0] == '\'') {
+			if _, o := pfLineEnd(v); o {
+				return true, false
+			}
+		}
+	}
+	f := strings.FieldsFunc(s, func(r rune) bool { return r == ' ' || r == '\t' })
+	if len(f) == 0 || !pfBlockIndicator(f[len(f)-1]) {
+		return false, false
+	}
+	if len(f) == 1 {
+		return false, true
+	}
+	prev := f[len(f)-2]
+	return false, prev == "-" || strings.HasSuffix(prev, ":")
+}
+
+// pfBlockIndicator is `|` or `>` followed by at most two chomping (`+`/`-`) or indentation (digit) indicators.
+func pfBlockIndicator(t string) bool {
+	if len(t) == 0 || len(t) > 3 || (t[0] != '|' && t[0] != '>') {
+		return false
+	}
+	for _, c := range t[1:] {
+		if c != '+' && c != '-' && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
 }

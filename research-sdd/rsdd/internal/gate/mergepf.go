@@ -106,6 +106,17 @@ func pfScanWorkflow(src, chk string) pfScan {
 			sc.unsup = w
 		}
 	}
+	// What the current job's lines say about how far its templated `name:` can be trusted (pfJobNameTrust).
+	var (
+		names, blockInd         int  // `name:` lines at the job-key indent; the indent of the open block scalar's key
+		templated, tainted, blk bool // a templated name line; a line leaves a value open; inside a block scalar's content
+	)
+	finish := func() {
+		if cur != "" && pfJobNameTrust(templated, names, tainted) {
+			unsup("job name shape of " + cur)
+		}
+		names, blockInd, templated, tainted, blk = 0, 0, false, false, false
+	}
 	text := src + "\n"
 	rows := strings.Split(text[:len(text)-1], "\n")
 	for ri, raw := range rows {
@@ -115,6 +126,7 @@ func pfScanWorkflow(src, chk string) pfScan {
 		ind := len(raw) - len(strings.TrimLeft(raw, " "))
 		line := raw[ind:]
 		if ind == 0 {
+			finish()
 			sec, eind, ev, kind, mode, jind, cur, cind = "", 0, "", 0, "", 0, "", 0
 			switch {
 			case strings.HasPrefix(line, "on:"):
@@ -184,6 +196,7 @@ func pfScanWorkflow(src, chk string) pfScan {
 				jind = ind
 			}
 			if ind == jind {
+				finish()
 				if !pfJobKey(line) {
 					unsup("job key shape: " + line)
 					cur = ""
@@ -193,13 +206,25 @@ func pfScanWorkflow(src, chk string) pfScan {
 				name[id] = id
 				ids = append(ids, id)
 				cur, cind = id, 0
+				open, block := pfLineShape(line)
+				tainted, blk, blockInd = open, block, ind
 				continue
 			}
 			if cur != "" {
 				if cind == 0 {
 					cind = ind
 				}
+				if blk && ind > blockInd {
+					continue // content of a block scalar: deeper than its key, so it can hide no key of the job
+				}
+				blk = false
+				if open, block := pfLineShape(line); open {
+					tainted = true
+				} else if block {
+					blk, blockInd = true, ind
+				}
 				if ind == cind && strings.HasPrefix(line, "name:") {
+					names++
 					v := pfStrip(line[5:])
 					switch {
 					case v == "" || strings.ContainsAny(v[:1], ">|&*!"):
@@ -215,6 +240,7 @@ func pfScanWorkflow(src, chk string) pfScan {
 							unsup("job name shape of " + cur)
 						}
 						expanded[cur] = true
+						templated = true
 					default:
 						name[cur] = v
 						delete(expanded, cur)
@@ -223,6 +249,7 @@ func pfScanWorkflow(src, chk string) pfScan {
 			}
 		}
 	}
+	finish()
 	for _, id := range ids {
 		if name[id] == chk && !expanded[id] {
 			sc.job = true
