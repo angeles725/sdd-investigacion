@@ -72,6 +72,9 @@ jobs:
       # SKIP for a missing sandbox / type stripping FAILS instead, so it cannot read as stable.
       RSDD_REQUIRE_BWRAP: "1"
       RSDD_REQUIRE_NODE_TS: "1"
+      # Kit issue #2727: a missing or too-old Go toolchain must FAIL the shard up front (rsdd-unavailable, never a
+      # silent per-suite degrade). Same flag as the toolbelt shard job; the build step below honours it.
+      RSDD_REQUIRE_GO: "1"
       # Inputs reach the shell ONLY through env (never interpolated into run:). Schedule runs have no
       # inputs, so the defaults below apply.
       INPUT_RUNS: ${{ github.event.inputs.runs || '3' }}
@@ -100,6 +103,33 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "24"
+
+      - name: Set up Go
+        # Kit issue #2727: same action pin and go-version-file as the toolbelt-tests shard job.
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: research-sdd/rsdd/go.mod
+          cache: false # go.mod-only keys never refresh (no go.sum); same setting as toolbelt-tests.yml (kit issue #2488)
+
+      - name: Build rsdd once and export RSDD_BIN
+        # Kit issue #2727. Same recipe as run-all.sh's _rsdd_bin_prepare (the Makefile `build` target: the source
+        # hash is stamped so the binary reads as fresh to lib/rsdd-exec.sh). Built ONCE per shard, outside the
+        # repo tree and outside the hunted suites' own TMPDIR, so no hunted suite rebuilds it under CPU load.
+        # RSDD_BIN reaches the hunt step (and every suite it launches) through GITHUB_ENV.
+        run: |
+          set -eu
+          mod="$GITHUB_WORKSPACE/research-sdd/rsdd"
+          sym="$(sed -n 's/^SOURCE_HASH_SYM := //p' "$mod/Makefile")"
+          [ -n "$sym" ] || { echo "::error::no SOURCE_HASH_SYM in $mod/Makefile"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/rsdd-bin"
+          out="$RUNNER_TEMP/rsdd-bin/rsdd"
+          hash="$(cd "$mod" && go run ./cmd/rsdd-srchash .)"
+          [ -n "$hash" ] || { echo "::error::rsdd-srchash printed no hash"; exit 1; }
+          (cd "$mod" && CGO_ENABLED=0 go build -ldflags "-s -w -X $sym=$hash" -o "$out" ./cmd/rsdd)
+          [ -f "$out" ] && [ -x "$out" ] || { echo "::error::go build produced no executable at $out"; exit 1; }
+          go version
+          echo "rsdd built at $out (source hash $hash)"
+          echo "RSDD_BIN=$out" >> "$GITHUB_ENV"
 
       - name: Install bubblewrap and enable unprivileged user namespaces
         run: |
