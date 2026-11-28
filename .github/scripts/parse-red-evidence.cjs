@@ -6,16 +6,24 @@
 // reviewer-visible PR body text (HTML comments and fenced code are ignored, exactly as for issue references):
 //
 //   RED: <suite> <case-or-test-name> — <failing output excerpt>
+//   RED: <path>_test.go <TestName[/subtest...]> — <failing output excerpt>          (a Go test file, kit issue #2858)
 //   RED: n/a — <reason RED cannot be executed>
 //
-// <suite> is a test file name (`foo.test.sh`, `foo.test.mjs`, `foo.test.cjs`, `foo.test.py`; a path is fine).
+// <suite> is a test file name (`foo.test.sh`, `foo.test.mjs`, `foo.test.cjs`, `foo.test.py`, `foo_test.go`; a path is
+// fine). For a Go test file the name is the Go test path: Test|Fuzz|Benchmark|Example + an upper-case letter, digit or
+// `_` (what `go test` requires to run it), then optional `/subtest` segments (`TestFoo/sub_case`).
 // The separator before the excerpt is an em dash, an en dash or a double hyphen surrounded by spaces (a single
 // hyphen is not accepted: test names contain them). Placeholders (`<...>`, TBD, TODO) fail closed.
 // Mirrors parse-linked-issues.cjs: returns plain data and errors, never throws on bad input.
 
 const { stripHiddenText } = require('./parse-linked-issues.cjs');
 
-const SUITE_PATTERN = /^[^\s]*\.test\.(?:sh|mjs|cjs|py)$/;
+const SUITE_PATTERN = /^[^\s]*(?:\.test\.(?:sh|mjs|cjs|py)|_test\.go)$/;
+const GO_SUITE_PATTERN = /_test\.go$/;
+const ACCEPTED_SUITES = '*.test.sh, *.test.mjs, *.test.cjs, *.test.py or *_test.go';
+// Top-level Go test name: the prefix `go test` recognises, then a character that is not a lower-case letter (digit, `_`
+// or an upper-case letter); subtests are `/`-separated, non-empty segments. Only the first word of the name is checked.
+const GO_TEST_NAME = /^(?:Test|Fuzz|Benchmark|Example)[\p{Lu}\p{Nd}_][^\s/]*(?:\/[^\s/]+)*$/u;
 const SEPARATOR = /\s(?:—|–|--)\s/;
 // A whole field that is a `<...>` template token or a stand-in word; a `<` inside real output is fine.
 const PLACEHOLDER = /^\s*(?:<[^>]*>|tbd|todo|n\/a|none|-)\s*$/i;
@@ -90,9 +98,14 @@ function parseRedEvidence(body) {
     } else if (/[<>]/.test(suite)) {
       errors.push({ raw, reason: `"${suite}" contains angle brackets (a template placeholder?)` });
     } else if (!SUITE_PATTERN.test(suite)) {
-      errors.push({ raw, reason: `"${suite}" is not a test file name (expected *.test.sh, *.test.mjs, *.test.cjs or *.test.py)` });
+      errors.push({ raw, reason: `"${suite}" is not a test file name (expected ${ACCEPTED_SUITES})` });
     } else if (name.length === 0) {
       errors.push({ raw, reason: 'missing the case or test name after the suite' });
+    } else if (GO_SUITE_PATTERN.test(suite) && !GO_TEST_NAME.test(name.split(/\s/)[0])) {
+      errors.push({
+        raw,
+        reason: `"${name.split(/\s/)[0]}" is not a Go test name for ${suite} (expected Test, Fuzz, Benchmark or Example followed by an upper-case letter, digit or _, optionally with /subtest segments)`,
+      });
     } else if (excerpt.length < MIN_TEXT) {
       errors.push({ raw, reason: `the failing output excerpt must be at least ${MIN_TEXT} characters` });
     } else {
