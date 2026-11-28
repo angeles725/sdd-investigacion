@@ -1,0 +1,712 @@
+{
+ "annotated-tag-base": {
+  "out": "SLICE 1 a607c587849f..a607c587849f commits=1 lines=12 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=12 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "bare-repository": {
+  "out": "SLICE 1 a607c587849f..a607c587849f commits=1 lines=12 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=12 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "base-ref-a-tree": {
+  "out": "plan-review-slices: base ref 'base^{tree}' does not resolve to a commit (pass --base-ref)\n",
+  "err": "",
+  "rc": 2
+ },
+ "base-ref-default-absent": {
+  "out": "plan-review-slices: base ref 'origin/main' does not resolve to a commit (pass --base-ref)\n",
+  "err": "",
+  "rc": 2
+ },
+ "base-ref-detached-head": {
+  "out": "SLICE 1 aa718b896f9b..aa718b896f9b commits=1 lines=5 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=5 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "base-ref-empty-string": {
+  "out": "plan-review-slices: base ref '' does not resolve to a commit (pass --base-ref)\n",
+  "err": "",
+  "rc": 2
+ },
+ "base-ref-looks-like-option": {
+  "out": "plan-review-slices: base ref '--foo' does not resolve to a commit (pass --base-ref)\n",
+  "err": "",
+  "rc": 2
+ },
+ "base-ref-unknown": {
+  "out": "plan-review-slices: base ref 'no-such-ref' does not resolve to a commit (pass --base-ref)\n",
+  "err": "",
+  "rc": 2
+ },
+ "base-ref-unrelated-history": {
+  "out": "plan-review-slices: no merge-base between 'main' and HEAD (unrelated or shallow history)\n",
+  "err": "",
+  "rc": 2
+ },
+ "base-ref-with-quote": {
+  "out": "plan-review-slices: base ref 'it's' does not resolve to a commit (pass --base-ref)\n",
+  "err": "",
+  "rc": 2
+ },
+ "binary-absent-no-field": {
+  "out": "SLICE 1 4f9353b3016a..4f9353b3016a commits=1 lines=40 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=40 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "binary-only-commit": {
+  "out": "SLICE 1 e6a06237147f..e6a06237147f commits=1 lines=0 binary=2 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=0 max=400 binary=2\n",
+  "err": "",
+  "rc": 0
+ },
+ "binary-summed-across-slices": {
+  "out": "SLICE 1 4f9353b3016a..3dce00888ac1 commits=4 lines=45 binary=2 base=135eec91923d\nPLAN: 1 slice(s) commits=4 lines=45 max=400 binary=2\n",
+  "err": "",
+  "rc": 0
+ },
+ "binary-summed-small-budget": {
+  "out": "SLICE 1 4f9353b3016a..4f9353b3016a commits=1 UNSPLITTABLE lines=40 base=135eec91923d\nSLICE 2 bf3a7ce0e986..3dce00888ac1 commits=3 lines=5 binary=2 base=4f9353b3016a\nPLAN: 2 slice(s) commits=4 lines=45 max=10 binary=2\n",
+  "err": "",
+  "rc": 0
+ },
+ "binary-typed": {
+  "out": "SLICE 1 4f9353b3016a..bf3a7ce0e986 commits=2 lines=40 binary=1 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=40 max=400 binary=1\n",
+  "err": "",
+  "rc": 0
+ },
+ "boundary-commit-above-max": {
+  "out": "SLICE 1 fc22f23bbab9..fc22f23bbab9 commits=1 UNSPLITTABLE lines=200 base=135eec91923d\nSLICE 2 be12ab73b1d8..be12ab73b1d8 commits=1 UNSPLITTABLE lines=200 base=fc22f23bbab9\nPLAN: 2 slice(s) commits=2 lines=400 max=199\n",
+  "err": "",
+  "rc": 0
+ },
+ "boundary-commit-equals-max": {
+  "out": "SLICE 1 fc22f23bbab9..fc22f23bbab9 commits=1 lines=200 base=135eec91923d\nSLICE 2 be12ab73b1d8..be12ab73b1d8 commits=1 lines=200 base=fc22f23bbab9\nPLAN: 2 slice(s) commits=2 lines=400 max=200\n",
+  "err": "",
+  "rc": 0
+ },
+ "boundary-equal-fits": {
+  "out": "SLICE 1 fc22f23bbab9..be12ab73b1d8 commits=2 lines=400 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=400 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "boundary-one-below-splits": {
+  "out": "SLICE 1 fc22f23bbab9..fc22f23bbab9 commits=1 lines=200 base=135eec91923d\nSLICE 2 be12ab73b1d8..be12ab73b1d8 commits=1 lines=200 base=fc22f23bbab9\nPLAN: 2 slice(s) commits=2 lines=400 max=399\n",
+  "err": "",
+  "rc": 0
+ },
+ "cwd-absent": {
+  "out": "plan-review-slices: --cwd '\u003cROOT\u003e/does-not-exist' is not a directory\n",
+  "err": "",
+  "rc": 2
+ },
+ "cwd-default-dot-in-subdirectory": {
+  "out": "SLICE 1 27fc086b7ca9..27fc086b7ca9 commits=1 lines=8 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=8 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "cwd-empty-string": {
+  "out": "plan-review-slices: --cwd '' is not a directory\n",
+  "err": "",
+  "rc": 2
+ },
+ "cwd-is-a-file": {
+  "out": "plan-review-slices: --cwd '\u003cROOT\u003e/r/seed.txt' is not a directory\n",
+  "err": "",
+  "rc": 2
+ },
+ "cwd-not-a-repository": {
+  "out": "plan-review-slices: '\u003cROOT\u003e/plain' is not a git repository\n",
+  "err": "",
+  "rc": 2
+ },
+ "cwd-not-a-repository-bad-ref-after": {
+  "out": "plan-review-slices: '\u003cROOT\u003e/plain' is not a git repository\n",
+  "err": "",
+  "rc": 2
+ },
+ "cwd-relative-dotdot": {
+  "out": "SLICE 1 27fc086b7ca9..27fc086b7ca9 commits=1 lines=8 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=8 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "cwd-relative-subdirectory": {
+  "out": "SLICE 1 27fc086b7ca9..27fc086b7ca9 commits=1 lines=8 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=8 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "cwd-through-a-symlink": {
+  "out": "SLICE 1 437f723407dd..437f723407dd commits=1 lines=8 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=8 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "cwd-with-spaces": {
+  "out": "SLICE 1 490a32d1bced..490a32d1bced commits=1 lines=3 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=3 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "default-base-origin-main": {
+  "out": "SLICE 1 f9bf38182064..f9bf38182064 commits=1 lines=120 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=120 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "deletions-counted": {
+  "out": "SLICE 1 1c9c42a1a0ac..2b300ff70124 commits=2 lines=170 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=170 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "diverged-uses-merge-base": {
+  "out": "SLICE 1 1e2630d8abc0..1e2630d8abc0 commits=1 lines=33 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=33 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "empty-commit-zero-lines": {
+  "out": "SLICE 1 25ad3c6b7070..bf8c2df49901 commits=3 lines=13 base=135eec91923d\nPLAN: 1 slice(s) commits=3 lines=13 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "empty-commit-zero-lines-tiny-budget": {
+  "out": "SLICE 1 25ad3c6b7070..25ad3c6b7070 commits=1 UNSPLITTABLE lines=10 base=135eec91923d\nSLICE 2 eff567876d0b..bf8c2df49901 commits=2 lines=3 base=25ad3c6b7070\nPLAN: 2 slice(s) commits=3 lines=13 max=3\n",
+  "err": "",
+  "rc": 0
+ },
+ "empty-range": {
+  "out": "EMPTY-RANGE base=base\n",
+  "err": "",
+  "rc": 0
+ },
+ "empty-range-head-as-base": {
+  "out": "EMPTY-RANGE base=HEAD\n",
+  "err": "",
+  "rc": 0
+ },
+ "git-diff-fails": {
+  "out": "plan-review-slices: git diff failed for e4a445b833bd\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-diff-fails-on-the-second-and-third-commit": {
+  "out": "plan-review-slices: git diff failed for c233fb0c1f7c\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-diff-fails-on-the-third-commit": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nplan-review-slices: git diff failed for 743a289d993a\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-empty-tree-empty-answer": {
+  "out": "plan-review-slices: git diff failed for 4149df7304cc\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-empty-tree-fails-on-root": {
+  "out": "plan-review-slices: cannot compute the empty tree for root commit 4149df7304cc\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-environment-is-ignored": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nSLICE 2 c233fb0c1f7c..c233fb0c1f7c commits=1 lines=250 base=e4a445b833bd\nSLICE 3 743a289d993a..743a289d993a commits=1 lines=250 base=c233fb0c1f7c\nPLAN: 3 slice(s) commits=3 lines=750 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "git-git-dir-fails": {
+  "out": "plan-review-slices: '\u003cROOT\u003e/r' is not a git repository\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-merge-base-empty-answer": {
+  "out": "plan-review-slices: no merge-base between 'base' and HEAD (unrelated or shallow history)\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-merge-base-fails": {
+  "out": "plan-review-slices: no merge-base between 'base' and HEAD (unrelated or shallow history)\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-missing": {
+  "out": "DEGRADED: git not found — cannot plan slices\n",
+  "err": "",
+  "rc": 3
+ },
+ "git-missing-before-max-check": {
+  "out": "DEGRADED: git not found — cannot plan slices\n",
+  "err": "",
+  "rc": 3
+ },
+ "git-missing-before-usage": {
+  "out": "DEGRADED: git not found — cannot plan slices\n",
+  "err": "",
+  "rc": 3
+ },
+ "git-numstat-garbage": {
+  "out": "plan-review-slices: malformed numstat row for bfc45673a05a\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-numstat-garbage-on-the-last-of-many": {
+  "out": "SLICE 1 adffe87026b8..1216f91a98a0 commits=2 lines=400 base=135eec91923d\nSLICE 2 7e64d5ea5f8c..7e64d5ea5f8c commits=1 lines=5 base=1216f91a98a0\nSLICE 3 fa7683660d57..fa7683660d57 commits=1 lines=400 base=7e64d5ea5f8c\nSLICE 4 9b94c29be8b4..9b94c29be8b4 commits=1 UNSPLITTABLE lines=401 base=fa7683660d57\nSLICE 5 548da12cf5ba..460c2c352dc2 commits=2 lines=400 base=9b94c29be8b4\nSLICE 6 3423597c5117..7a9b505241a9 commits=2 lines=4 base=460c2c352dc2\nplan-review-slices: malformed numstat row for 5c9582b1846a\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-numstat-garbage-on-the-third-commit": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nplan-review-slices: malformed numstat row for 743a289d993a\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-parents-fail-on-the-third-commit": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nplan-review-slices: cannot read parents of 743a289d993a\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-parents-lookup-empty-reads-as-root": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=251 base=ROOT\nSLICE 2 c233fb0c1f7c..c233fb0c1f7c commits=1 UNSPLITTABLE lines=501 base=ROOT\nSLICE 3 743a289d993a..743a289d993a commits=1 UNSPLITTABLE lines=751 base=ROOT\nPLAN: 3 slice(s) commits=3 lines=1503 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "git-parents-lookup-fails": {
+  "out": "plan-review-slices: cannot read parents of e4a445b833bd\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-rev-list-fails": {
+  "out": "plan-review-slices: git rev-list failed for 135eec91923d6d0d0d1522718fa5171a10f236d6..HEAD\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-short-fails-first-call": {
+  "out": "plan-review-slices: cannot abbreviate e4a445b833bd90a90d7be83229b61fdd5cdabd72\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-short-fails-on-the-parent": {
+  "out": "plan-review-slices: cannot abbreviate parent of aa718b896f9b\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-stderr-noise-is-never-printed": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nSLICE 2 c233fb0c1f7c..c233fb0c1f7c commits=1 lines=250 base=e4a445b833bd\nSLICE 3 743a289d993a..743a289d993a commits=1 lines=250 base=c233fb0c1f7c\nPLAN: 3 slice(s) commits=3 lines=750 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "git-stderr-noise-on-failure": {
+  "out": "plan-review-slices: '\u003cROOT\u003e/r' is not a git repository\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-two-kinds-of-failure-the-earlier-commit-wins": {
+  "out": "plan-review-slices: cannot read parents of c233fb0c1f7c\n",
+  "err": "",
+  "rc": 2
+ },
+ "git-verify-fails": {
+  "out": "plan-review-slices: base ref 'base' does not resolve to a commit (pass --base-ref)\n",
+  "err": "",
+  "rc": 2
+ },
+ "greedy-4x150": {
+  "out": "SLICE 1 b3ee31835818..472dcd887493 commits=2 lines=300 base=135eec91923d\nSLICE 2 21dfd3e1fc9b..7b9ce6243a41 commits=2 lines=300 base=472dcd887493\nPLAN: 2 slice(s) commits=4 lines=600 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "greedy-default-max": {
+  "out": "SLICE 1 b3ee31835818..472dcd887493 commits=2 lines=300 base=135eec91923d\nSLICE 2 21dfd3e1fc9b..7b9ce6243a41 commits=2 lines=300 base=472dcd887493\nPLAN: 2 slice(s) commits=4 lines=600 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "max-1": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 UNSPLITTABLE lines=250 base=135eec91923d\nSLICE 2 c233fb0c1f7c..c233fb0c1f7c commits=1 UNSPLITTABLE lines=250 base=e4a445b833bd\nSLICE 3 743a289d993a..743a289d993a commits=1 UNSPLITTABLE lines=250 base=c233fb0c1f7c\nPLAN: 3 slice(s) commits=3 lines=750 max=1\n",
+  "err": "",
+  "rc": 0
+ },
+ "max-checked-before-cwd": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got 'abc')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-checked-before-cwd-reversed": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got 'abc')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-00": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '0')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-01": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got 'abc')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-02": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '-5')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-03": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '5x')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-04": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '05')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-05": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '00')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-06": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '007')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-07": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '1.5')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-08": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got ' 5')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-09": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '5 ')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-10": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '+5')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-11": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '0x10')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-12": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-13": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '5\n')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-14": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '٣')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-15": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '1e3')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-invalid-16": {
+  "out": "plan-review-slices: --max-lines must be a positive integer (got '5;echo')\n",
+  "err": "",
+  "rc": 2
+ },
+ "max-large": {
+  "out": "SLICE 1 e4a445b833bd..743a289d993a commits=3 lines=750 base=135eec91923d\nPLAN: 1 slice(s) commits=3 lines=750 max=999999\n",
+  "err": "",
+  "rc": 0
+ },
+ "merge-first-parent": {
+  "out": "SLICE 1 8ec8266705ae..177eb318254d commits=2 lines=90 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=90 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "mixed-1": {
+  "out": "SLICE 1 adffe87026b8..adffe87026b8 commits=1 UNSPLITTABLE lines=10 base=135eec91923d\nSLICE 2 1216f91a98a0..1216f91a98a0 commits=1 UNSPLITTABLE lines=390 base=adffe87026b8\nSLICE 3 7e64d5ea5f8c..7e64d5ea5f8c commits=1 UNSPLITTABLE lines=5 base=1216f91a98a0\nSLICE 4 fa7683660d57..fa7683660d57 commits=1 UNSPLITTABLE lines=400 base=7e64d5ea5f8c\nSLICE 5 9b94c29be8b4..9b94c29be8b4 commits=1 UNSPLITTABLE lines=401 base=fa7683660d57\nSLICE 6 548da12cf5ba..548da12cf5ba commits=1 lines=1 base=9b94c29be8b4\nSLICE 7 460c2c352dc2..460c2c352dc2 commits=1 UNSPLITTABLE lines=399 base=548da12cf5ba\nSLICE 8 3423597c5117..3423597c5117 commits=1 UNSPLITTABLE lines=2 base=460c2c352dc2\nSLICE 9 7a9b505241a9..7a9b505241a9 commits=1 UNSPLITTABLE lines=2 base=3423597c5117\nSLICE 10 5007520cf025..5007520cf025 commits=1 UNSPLITTABLE lines=398 base=7a9b505241a9\nSLICE 11 5c9582b1846a..5c9582b1846a commits=1 lines=1 base=5007520cf025\nPLAN: 11 slice(s) commits=11 lines=2009 max=1\n",
+  "err": "",
+  "rc": 0
+ },
+ "mixed-10": {
+  "out": "SLICE 1 adffe87026b8..adffe87026b8 commits=1 lines=10 base=135eec91923d\nSLICE 2 1216f91a98a0..1216f91a98a0 commits=1 UNSPLITTABLE lines=390 base=adffe87026b8\nSLICE 3 7e64d5ea5f8c..7e64d5ea5f8c commits=1 lines=5 base=1216f91a98a0\nSLICE 4 fa7683660d57..fa7683660d57 commits=1 UNSPLITTABLE lines=400 base=7e64d5ea5f8c\nSLICE 5 9b94c29be8b4..9b94c29be8b4 commits=1 UNSPLITTABLE lines=401 base=fa7683660d57\nSLICE 6 548da12cf5ba..548da12cf5ba commits=1 lines=1 base=9b94c29be8b4\nSLICE 7 460c2c352dc2..460c2c352dc2 commits=1 UNSPLITTABLE lines=399 base=548da12cf5ba\nSLICE 8 3423597c5117..7a9b505241a9 commits=2 lines=4 base=460c2c352dc2\nSLICE 9 5007520cf025..5007520cf025 commits=1 UNSPLITTABLE lines=398 base=7a9b505241a9\nSLICE 10 5c9582b1846a..5c9582b1846a commits=1 lines=1 base=5007520cf025\nPLAN: 10 slice(s) commits=11 lines=2009 max=10\n",
+  "err": "",
+  "rc": 0
+ },
+ "mixed-399": {
+  "out": "SLICE 1 adffe87026b8..adffe87026b8 commits=1 lines=10 base=135eec91923d\nSLICE 2 1216f91a98a0..7e64d5ea5f8c commits=2 lines=395 base=adffe87026b8\nSLICE 3 fa7683660d57..fa7683660d57 commits=1 UNSPLITTABLE lines=400 base=7e64d5ea5f8c\nSLICE 4 9b94c29be8b4..9b94c29be8b4 commits=1 UNSPLITTABLE lines=401 base=fa7683660d57\nSLICE 5 548da12cf5ba..548da12cf5ba commits=1 lines=1 base=9b94c29be8b4\nSLICE 6 460c2c352dc2..460c2c352dc2 commits=1 lines=399 base=548da12cf5ba\nSLICE 7 3423597c5117..7a9b505241a9 commits=2 lines=4 base=460c2c352dc2\nSLICE 8 5007520cf025..5c9582b1846a commits=2 lines=399 base=7a9b505241a9\nPLAN: 8 slice(s) commits=11 lines=2009 max=399\n",
+  "err": "",
+  "rc": 0
+ },
+ "mixed-400": {
+  "out": "SLICE 1 adffe87026b8..1216f91a98a0 commits=2 lines=400 base=135eec91923d\nSLICE 2 7e64d5ea5f8c..7e64d5ea5f8c commits=1 lines=5 base=1216f91a98a0\nSLICE 3 fa7683660d57..fa7683660d57 commits=1 lines=400 base=7e64d5ea5f8c\nSLICE 4 9b94c29be8b4..9b94c29be8b4 commits=1 UNSPLITTABLE lines=401 base=fa7683660d57\nSLICE 5 548da12cf5ba..460c2c352dc2 commits=2 lines=400 base=9b94c29be8b4\nSLICE 6 3423597c5117..7a9b505241a9 commits=2 lines=4 base=460c2c352dc2\nSLICE 7 5007520cf025..5c9582b1846a commits=2 lines=399 base=7a9b505241a9\nPLAN: 7 slice(s) commits=11 lines=2009 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "mixed-401": {
+  "out": "SLICE 1 adffe87026b8..1216f91a98a0 commits=2 lines=400 base=135eec91923d\nSLICE 2 7e64d5ea5f8c..7e64d5ea5f8c commits=1 lines=5 base=1216f91a98a0\nSLICE 3 fa7683660d57..fa7683660d57 commits=1 lines=400 base=7e64d5ea5f8c\nSLICE 4 9b94c29be8b4..9b94c29be8b4 commits=1 lines=401 base=fa7683660d57\nSLICE 5 548da12cf5ba..460c2c352dc2 commits=2 lines=400 base=9b94c29be8b4\nSLICE 6 3423597c5117..7a9b505241a9 commits=2 lines=4 base=460c2c352dc2\nSLICE 7 5007520cf025..5c9582b1846a commits=2 lines=399 base=7a9b505241a9\nPLAN: 7 slice(s) commits=11 lines=2009 max=401\n",
+  "err": "",
+  "rc": 0
+ },
+ "mixed-9223372036854775807": {
+  "out": "SLICE 1 adffe87026b8..5c9582b1846a commits=11 lines=2009 base=135eec91923d\nPLAN: 1 slice(s) commits=11 lines=2009 max=9223372036854775807\n",
+  "err": "",
+  "rc": 0
+ },
+ "mode-change-only": {
+  "out": "SLICE 1 669233b92958..32e21f2eec96 commits=2 lines=5 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=5 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-binary-empty-path": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=0 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=0 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-binary-then-text": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=0 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=0 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-blank-line-between": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=36 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=36 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-blank-lines-only": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=0 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=0 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-cr-in-count": {
+  "out": "plan-review-slices: malformed numstat row for aa718b896f9b\n",
+  "err": "",
+  "rc": 2
+ },
+ "numstat-crlf-tail": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=14 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=14 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-dash-and-number": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=0 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=0 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-empty-count": {
+  "out": "plan-review-slices: malformed numstat row for aa718b896f9b\n",
+  "err": "",
+  "rc": 2
+ },
+ "numstat-extra-field": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=14 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=14 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-garbage": {
+  "out": "plan-review-slices: malformed numstat row for aa718b896f9b\n",
+  "err": "",
+  "rc": 2
+ },
+ "numstat-leading-space": {
+  "out": "plan-review-slices: malformed numstat row for aa718b896f9b\n",
+  "err": "",
+  "rc": 2
+ },
+ "numstat-leading-zeros": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=20 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=20 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-nothing": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=0 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=0 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-number-and-dash": {
+  "out": "plan-review-slices: malformed numstat row for aa718b896f9b\n",
+  "err": "",
+  "rc": 2
+ },
+ "numstat-one-word": {
+  "out": "plan-review-slices: malformed numstat row for aa718b896f9b\n",
+  "err": "",
+  "rc": 2
+ },
+ "numstat-only-tabs": {
+  "out": "plan-review-slices: malformed numstat row for aa718b896f9b\n",
+  "err": "",
+  "rc": 2
+ },
+ "numstat-plain": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=14 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=14 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-plus-sign": {
+  "out": "plan-review-slices: malformed numstat row for aa718b896f9b\n",
+  "err": "",
+  "rc": 2
+ },
+ "numstat-two-binaries": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=6 binary=4 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=6 max=400 binary=4\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-two-dashes-two-fields": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=0 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=0 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "numstat-two-fields": {
+  "out": "plan-review-slices: malformed numstat row for aa718b896f9b\n",
+  "err": "",
+  "rc": 2
+ },
+ "numstat-zero-counts": {
+  "out": "SLICE 1 aa718b896f9b..036d1fa55879 commits=2 lines=0 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=0 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "odd-path-names": {
+  "out": "SLICE 1 f08bca47c9d6..f08bca47c9d6 commits=1 lines=10 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=10 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "options-in-other-order": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nSLICE 2 c233fb0c1f7c..c233fb0c1f7c commits=1 lines=250 base=e4a445b833bd\nSLICE 3 743a289d993a..743a289d993a commits=1 lines=250 base=c233fb0c1f7c\nPLAN: 3 slice(s) commits=3 lines=750 max=300\n",
+  "err": "",
+  "rc": 0
+ },
+ "parents-are-the-real-bases": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nSLICE 2 c233fb0c1f7c..c233fb0c1f7c commits=1 lines=250 base=e4a445b833bd\nSLICE 3 743a289d993a..743a289d993a commits=1 lines=250 base=c233fb0c1f7c\nPLAN: 3 slice(s) commits=3 lines=750 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "renames": {
+  "out": "SLICE 1 9795da92815c..9d14ed06f6ca commits=3 lines=31 base=135eec91923d\nPLAN: 1 slice(s) commits=3 lines=31 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "repeated-base-last-wins": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nSLICE 2 c233fb0c1f7c..c233fb0c1f7c commits=1 lines=250 base=e4a445b833bd\nSLICE 3 743a289d993a..743a289d993a commits=1 lines=250 base=c233fb0c1f7c\nPLAN: 3 slice(s) commits=3 lines=750 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "repeated-cwd-last-wins": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nSLICE 2 c233fb0c1f7c..c233fb0c1f7c commits=1 lines=250 base=e4a445b833bd\nSLICE 3 743a289d993a..743a289d993a commits=1 lines=250 base=c233fb0c1f7c\nPLAN: 3 slice(s) commits=3 lines=750 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "repeated-max-last-wins": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nSLICE 2 c233fb0c1f7c..c233fb0c1f7c commits=1 lines=250 base=e4a445b833bd\nSLICE 3 743a289d993a..743a289d993a commits=1 lines=250 base=c233fb0c1f7c\nPLAN: 3 slice(s) commits=3 lines=750 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "report-only-no-refs": {
+  "out": "SLICE 1 e4a445b833bd..e4a445b833bd commits=1 lines=250 base=135eec91923d\nSLICE 2 c233fb0c1f7c..c233fb0c1f7c commits=1 lines=250 base=e4a445b833bd\nSLICE 3 743a289d993a..743a289d993a commits=1 lines=250 base=c233fb0c1f7c\nPLAN: 3 slice(s) commits=3 lines=750 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "rewrite-counts-both-sides": {
+  "out": "SLICE 1 25ad3c6b7070..22a91603467c commits=2 lines=30 base=135eec91923d\nPLAN: 1 slice(s) commits=2 lines=30 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "root-commit-base-root": {
+  "out": "SLICE 1 4149df7304cc..900c0cc1b02e commits=2 lines=12 base=ROOT\nPLAN: 1 slice(s) commits=2 lines=12 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "root-commit-small-budget": {
+  "out": "SLICE 1 4149df7304cc..4149df7304cc commits=1 lines=1 base=ROOT\nSLICE 2 900c0cc1b02e..900c0cc1b02e commits=1 UNSPLITTABLE lines=11 base=4149df7304cc\nPLAN: 2 slice(s) commits=2 lines=12 max=5\n",
+  "err": "",
+  "rc": 0
+ },
+ "unsplittable-alone": {
+  "out": "SLICE 1 899b1043aba1..899b1043aba1 commits=1 UNSPLITTABLE lines=500 base=135eec91923d\nPLAN: 1 slice(s) commits=1 lines=500 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "unsplittable-first": {
+  "out": "SLICE 1 899b1043aba1..899b1043aba1 commits=1 UNSPLITTABLE lines=500 base=135eec91923d\nSLICE 2 3a952fbbe112..3a952fbbe112 commits=1 lines=50 base=899b1043aba1\nPLAN: 2 slice(s) commits=2 lines=550 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "unsplittable-last": {
+  "out": "SLICE 1 dc66d27f3a5f..dc66d27f3a5f commits=1 lines=50 base=135eec91923d\nSLICE 2 0336420b8541..0336420b8541 commits=1 UNSPLITTABLE lines=500 base=dc66d27f3a5f\nPLAN: 2 slice(s) commits=2 lines=550 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "unsplittable-max-1": {
+  "out": "SLICE 1 dc66d27f3a5f..dc66d27f3a5f commits=1 UNSPLITTABLE lines=50 base=135eec91923d\nSLICE 2 0336420b8541..0336420b8541 commits=1 UNSPLITTABLE lines=500 base=dc66d27f3a5f\nSLICE 3 5b4e22714447..5b4e22714447 commits=1 UNSPLITTABLE lines=50 base=0336420b8541\nPLAN: 3 slice(s) commits=3 lines=600 max=1\n",
+  "err": "",
+  "rc": 0
+ },
+ "unsplittable-middle": {
+  "out": "SLICE 1 dc66d27f3a5f..dc66d27f3a5f commits=1 lines=50 base=135eec91923d\nSLICE 2 0336420b8541..0336420b8541 commits=1 UNSPLITTABLE lines=500 base=dc66d27f3a5f\nSLICE 3 5b4e22714447..5b4e22714447 commits=1 lines=50 base=0336420b8541\nPLAN: 3 slice(s) commits=3 lines=600 max=400\n",
+  "err": "",
+  "rc": 0
+ },
+ "usage-base-ref-without-value": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-before-max-check": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-cwd-without-value": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-equals-form": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-help": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-max-equals-form": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-max-lines-without-value": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-no-arguments-needs-base": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-positional": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-short-help": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-unknown-option": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ },
+ "usage-without-value-after-others": {
+  "out": "usage: plan-review-slices.sh [--cwd DIR] [--base-ref REF] [--max-lines N]\n",
+  "err": "",
+  "rc": 2
+ }
+}

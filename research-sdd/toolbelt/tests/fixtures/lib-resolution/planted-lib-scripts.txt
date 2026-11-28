@@ -22,6 +22,7 @@ merge-gate.sh
 migrate-backlogs.sh
 palette-lexicon-agents.sh
 pcap-flows.sh
+plan-review-slices.sh
 qnx6-read.sh
 reconcile-issues.sh
 research-sdd-archive.sh

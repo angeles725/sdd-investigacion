@@ -1,24 +1,59 @@
 #!/usr/bin/env bash
-# plan-review-slices.test.sh — harness for plan-review-slices.sh (kit issue #1276).
+# plan-review-slices.test.sh — black-box check of the plan-review-slices.sh compatibility shim (kit issue #1276).
 #
-# The tool walks merge-base..HEAD (first-parent, oldest first), counts authored changed lines per
-# commit (additions + deletions, binary files typed and excluded) and greedily groups consecutive
-# commits into slices of at most --max-lines, cutting only at commit boundaries. Cases pin: grouping,
-# the <= boundary (N fits, N+1 splits), UNSPLITTABLE commits at the first / middle / last position,
-# deletions counted, binary typed not counted, the base= field being a real reviewable parent,
-# EMPTY-RANGE, every exit code (2 bad ref / not a repo / bad usage, 3 git missing), merge commits,
-# default base origin/main, and that the run creates no refs. --prove-teeth mutates the tool and
-# requires each mutant to flip a specific assertion.
+# plan-review-slices.sh is a shim over the Go command `rsdd lint review-slices` (kit issue #2270). The behaviour is
+# pinned in Go: internal/lint/reviewslices runs the frozen legacy script (testdata/legacy) and the command over ~140
+# scenarios (stdout, stderr and exit code byte for byte) and keeps the answers as goldens; its units_test.go carries the
+# guards the old mutation controls of this suite proved (table at the head of that file) and `make teeth` mutation-checks
+# the package. This suite keeps the end-to-end path through the shim, with real git:
+#   empty range, greedy grouping, UNSPLITTABLE, binary typed not counted, base= being a real reviewable parent,
+#   every exit code a shell caller sees (2 bad ref / not a repo / bad usage / --max-lines), default base origin/main,
+#   a root commit, report-only (no refs, clean tree), arguments with spaces, and the shim run from another directory.
+# Moved to Go (the shim cannot run them): 8h git missing -> exit 3 (the shim itself needs dirname on PATH) is the
+# scenarios git-missing, git-missing-before-usage and git-missing-before-max-check.
+# Removed as duplicates of a Go differential scenario (the Go side is stronger: byte-identical to the legacy script):
+#   3 3b 3c 3d boundary-*   4b 4b2 4c 4c2 4d unsplittable-first/last/alone   5 5b deletions-counted, rewrite-counts-both-sides
+#   10 merge-first-parent   12 diverged-uses-merge-base   13 13b git-numstat-garbage   15 15b git-parents-lookup-fails
+#   16 16b git-empty-tree-fails-on-root
+# --prove-teeth mutates the SHIM (the Go behaviour's teeth are the Go tests'): it must dispatch to the sibling command
+# and hand over the caller's arguments.
 #
-# Usage: plan-review-slices.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
+# Usage: plan-review-slices.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness error.
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../plan-review-slices.sh"
+HERE="$(cd "$(dirname "$0")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; run from the kit checkout by path
+TB="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: as above
+SUT="$TB/plan-review-slices.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v git >/dev/null 2>&1 || { echo "FATAL: git required" >&2; exit 2; }
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 case "${1:-}" in ""|--prove-teeth) ;; *) echo "usage: plan-review-slices.test.sh [--prove-teeth]" >&2; exit 2 ;; esac
 [ $# -le 1 ] || { echo "usage: plan-review-slices.test.sh [--prove-teeth]" >&2; exit 2; }
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh" || exit 2
+mutant_bootstrap mutant_chain mutant_tooth mutant_cleanup_register || exit 2
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/prs-test.XXXXXX")" || exit 2
+mutant_cleanup_register "$TMP" || exit 2
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+
+# The SUT is a compatibility shim over the Go binary: `rsdd lint review-slices`. $RSDD_BIN wins; otherwise one binary is
+# built into the suite temp dir (never into the tree). The behaviour's mutation controls live in the Go tests
+# (internal/lint/reviewslices, `make teeth`); the controls at the end mutate the shim itself.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$TMP/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$TMP/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
+
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -45,7 +80,7 @@ mkrepo(){ local d="$1"; mkdir -p "$d"
 # add <dir> <file> <nlines> : commit that creates <file> with <nlines> lines (nlines authored changed lines).
 add(){ local d="$1" f="$2" n="$3"; seq 1 "$n" | sed "s/^/${f}-/" > "$d/$f"; git -C "$d" add -A; git -C "$d" commit -q -m "add $f $n"; }
 
-echo "-- plan-review-slices.sh --"
+echo "-- plan-review-slices.sh (shim -> rsdd lint review-slices) --"
 
 # 1. EMPTY-RANGE: HEAD == base -> that line only, exit 0.
 d="$TMP/empty"; mkrepo "$d"
@@ -58,35 +93,12 @@ run --cwd "$d" --base-ref base --max-lines 400
 expect "2  4x150 at N=400 groups 2+2" 0 "SLICE 1 " "commits=2 lines=300" "SLICE 2 " "PLAN: 2 slice(s) commits=4 lines=600 max=400"
 lacks "2b no third slice" "SLICE 3 "
 
-# 3. Boundary: exactly N fits, N+1 splits.
-d="$TMP/edge"; mkrepo "$d"; add "$d" a 200; add "$d" b 200
-run --cwd "$d" --base-ref base --max-lines 400; expect "3  200+200 at N=400 is ONE slice (<= N)" 0 "PLAN: 1 slice(s) commits=2 lines=400 max=400"
-run --cwd "$d" --base-ref base --max-lines 399; expect "3b 200+200 at N=399 splits into two" 0 "PLAN: 2 slice(s) commits=2 lines=400 max=399"
-run --cwd "$d" --base-ref base --max-lines 200; expect "3c a commit equal to N is not UNSPLITTABLE" 0 "PLAN: 2 slice(s)"
-lacks "3d no UNSPLITTABLE at equality" "UNSPLITTABLE"
-
-# 4. UNSPLITTABLE in the middle, first, last, and alone.
+# 4. UNSPLITTABLE in the middle.
 d="$TMP/unsp"; mkrepo "$d"; add "$d" a 50; add "$d" big 500; add "$d" c 50
 run --cwd "$d" --base-ref base --max-lines 400
 expect "4  oversized middle commit: three slices, plan totals" 0 "PLAN: 3 slice(s) commits=3 lines=600 max=400"
 slice_has 2 "commits=1 UNSPLITTABLE lines=500" && ok "4a UNSPLITTABLE tag sits on slice 2" || no "4a slice 2 lacks UNSPLITTABLE: $(printf '%s' "$OUT" | tr '\n' '~')"
 { slice_lacks 1 UNSPLITTABLE && slice_lacks 3 UNSPLITTABLE; } && ok "4a2 slices 1 and 3 carry no UNSPLITTABLE tag" || no "4a2 UNSPLITTABLE leaked onto a normal slice"
-d="$TMP/unsp-first"; mkrepo "$d"; add "$d" big 500; add "$d" a 50
-run --cwd "$d" --base-ref base --max-lines 400; expect "4b UNSPLITTABLE first, then a normal slice" 0 "PLAN: 2 slice(s)"
-{ slice_has 1 "UNSPLITTABLE lines=500" && slice_lacks 2 UNSPLITTABLE; } && ok "4b2 tag on slice 1 only" || no "4b2 tag misplaced: $(printf '%s' "$OUT" | tr '\n' '~')"
-d="$TMP/unsp-last"; mkrepo "$d"; add "$d" a 50; add "$d" big 500
-run --cwd "$d" --base-ref base --max-lines 400; expect "4c UNSPLITTABLE last, preceded by a normal slice" 0 "PLAN: 2 slice(s)"
-{ slice_lacks 1 UNSPLITTABLE && slice_has 2 "UNSPLITTABLE lines=500"; } && ok "4c2 tag on slice 2 only" || no "4c2 tag misplaced: $(printf '%s' "$OUT" | tr '\n' '~')"
-d="$TMP/unsp-one"; mkrepo "$d"; add "$d" big 500
-run --cwd "$d" --base-ref base --max-lines 400; expect "4d single oversized commit: one UNSPLITTABLE slice" 0 "PLAN: 1 slice(s) commits=1 lines=500" "UNSPLITTABLE"
-
-# 5. Deletions count (additions + deletions).
-d="$TMP/del"; mkrepo "$d"; add "$d" a 100
-seq 1 30 | sed 's/^/a-/' > "$d/a"; git -C "$d" add -A; git -C "$d" commit -q -m shrink   # -70 lines
-run --cwd "$d" --base-ref base --max-lines 400; expect "5  additions + deletions: 100 + 70" 0 "PLAN: 1 slice(s) commits=2 lines=170"
-d="$TMP/mod"; mkrepo "$d"; add "$d" a 10
-seq 1 10 | sed 's/^/zz-/' > "$d/a"; git -C "$d" add -A; git -C "$d" commit -q -m rewrite  # 10 add + 10 del
-run --cwd "$d" --base-ref base --max-lines 400; expect "5b a 10-line rewrite counts 20 (10 added + 10 deleted)" 0 "PLAN: 1 slice(s) commits=2 lines=30"
 
 # 6. Binary files: typed, excluded from the count.
 d="$TMP/bin"; mkrepo "$d"; add "$d" a 40
@@ -108,7 +120,7 @@ tot="$(git -C "$d" diff --numstat "$b2" "$s2" | awk '{a+=$1+$2} END{print a+0}')
 rep="$(grep '^SLICE 2 ' <<<"$OUT" | sed -n 's/.* lines=\([0-9]*\).*/\1/p')"
 [ -n "$rep" ] && [ "$tot" = "$rep" ] && ok "7d git diff of base..last of slice 2 ($tot) equals the reported lines ($rep)" || no "7d base diff is $tot, reported '$rep'"
 
-# 8. Exit codes.
+# 8. Exit codes through the shim (8h, git missing, is a Go scenario: see the header).
 run --cwd "$d" --base-ref no-such-ref; expect "8  unknown base ref exits 2" 2 "no-such-ref"
 run --cwd "$TMP" --base-ref base; expect "8b not a git repository exits 2" 2 "not a git repository"
 run --cwd "$TMP/does-not-exist" --base-ref base; expect "8c absent --cwd exits 2" 2 "does-not-exist"
@@ -116,36 +128,15 @@ run --cwd "$d" --base-ref base --max-lines 0; expect "8d --max-lines 0 exits 2" 
 run --cwd "$d" --base-ref base --max-lines abc; expect "8e --max-lines abc exits 2" 2 "max-lines"
 run --cwd "$d" --base-ref base --bogus; expect "8f unknown option exits 2" 2 "usage"
 run --cwd "$d"; expect "8g default base origin/main absent exits 2 and names it" 2 "origin/main"
-mkdir -p "$TMP/nogit"; OUT="$(PATH="$TMP/nogit" "$BASH" "$SUT" --cwd "$d" --base-ref base 2>&1)"; RC=$?
-expect "8h git missing exits 3 DEGRADED" 3 "DEGRADED"
 
 # 9. Default base origin/main.
 d="$TMP/origin"; mkrepo "$d"; git -C "$d" update-ref refs/remotes/origin/main "$(git -C "$d" rev-parse base)"; add "$d" a 120
 run --cwd "$d"; expect "9  default base is origin/main, default max is 400" 0 "PLAN: 1 slice(s) commits=1 lines=120 max=400"
 
-# 10. Merge commit: first-parent walk counts the merge against its first parent.
-d="$TMP/merge"; mkrepo "$d"; add "$d" m1 60
-git -C "$d" checkout -q -b side base; add "$d" s1 30
-git -C "$d" checkout -q main; git -C "$d" merge -q --no-ff -m merge side
-run --cwd "$d" --base-ref base --max-lines 400; expect "10 first-parent walk: m1 (60) + merge (30 from side)" 0 "PLAN: 1 slice(s) commits=2 lines=90"
-
 # 11. Report-only: refs unchanged.
 d="$TMP/refs"; mkrepo "$d"; add "$d" a 10; before="$(git -C "$d" for-each-ref; git -C "$d" status --porcelain)"
 run --cwd "$d" --base-ref base; after="$(git -C "$d" for-each-ref; git -C "$d" status --porcelain)"
 [ "$before" = "$after" ] && ok "11 run creates no refs and dirties nothing" || no "11 refs/worktree changed by the run"
-
-# 12. Diverged base: merge-base is used, only the HEAD side counts.
-d="$TMP/mb"; mkrepo "$d"; add "$d" a 20
-git -C "$d" checkout -q -b other base; add "$d" o 33
-run --cwd "$d" --base-ref main; expect "12 base on a diverged branch uses the merge-base (only HEAD side counted)" 0 "PLAN: 1 slice(s) commits=1 lines=33"
-
-# 13. A malformed numstat row fails loudly (exit 2), never counts as 0. A git shim corrupts numstat output.
-d="$TMP/malformed"; mkrepo "$d"; add "$d" a 20
-mkdir -p "$TMP/shim"; REALGIT="$(command -v git)"
-printf '#!/bin/sh\ncase "$*" in *--numstat*) echo garbage-row; exit 0;; esac\nexec %s "$@"\n' "$REALGIT" > "$TMP/shim/git"; chmod +x "$TMP/shim/git"
-OUT="$(PATH="$TMP/shim:$PATH" timeout 30 bash "$SUT" --cwd "$d" --base-ref base 2>&1)"; RC=$?
-expect "13 malformed numstat row exits 2 and names it" 2 "malformed numstat"
-lacks "13b no PLAN line is printed for a malformed measurement" "PLAN:"
 
 # 14. Root commit on the first-parent walk (unrelated history merged in): typed base=ROOT, never a guess.
 d="$TMP/root"; mkrepo "$d"; add "$d" a 10
@@ -154,63 +145,35 @@ git -C "$d" merge -q --allow-unrelated-histories -m merge main
 run --cwd "$d" --base-ref main; expect "14 root commit on the first-parent walk: plan printed" 0 "PLAN:"
 rs="$(git -C "$d" rev-parse --short=12 "$(git -C "$d" rev-list --first-parent --max-parents=0 unrelated)")"
 slice_has 1 "SLICE 1 $rs.." "base=ROOT" && ok "14b base=ROOT is tied to the slice starting at the root commit" || no "14b base=ROOT not on the slice starting at $rs: $(printf '%s' "$OUT" | tr '\n' '~')"
-# shim <name> <pattern>: a git wrapper that fails (exit 1, no output) for any invocation matching the case pattern.
-shim(){ mkdir -p "$TMP/$1"; printf '#!/bin/sh\ncase "$*" in %s) exit 1;; esac\nexec %s "$@"\n' "$2" "$REALGIT" > "$TMP/$1/git"; chmod +x "$TMP/$1/git"; }
-# 15. A failed parent lookup is an error, never silently treated as a root commit.
-shim shim-parents '*"rev-list --parents"*'
-OUT="$(PATH="$TMP/shim-parents:$PATH" timeout 30 bash "$SUT" --cwd "$TMP/parents" --base-ref base 2>&1)"; RC=$?
-expect "15 parent lookup failure exits 2 and names it" 2 "cannot read parents"
-lacks "15b no PLAN / base=ROOT after a parent lookup failure" "PLAN:" "base=ROOT"
-# 16. A failed empty-tree computation for a root commit is its own typed error.
-shim shim-hash '*"hash-object"*'
-OUT="$(PATH="$TMP/shim-hash:$PATH" timeout 30 bash "$SUT" --cwd "$TMP/root" --base-ref main 2>&1)"; RC=$?
-expect "16 empty-tree failure on a root commit exits 2 and names it" 2 "cannot compute the empty tree"
-lacks "16b no PLAN / base=ROOT after an empty-tree failure" "PLAN:" "base=ROOT"
 
-# --- mutation controls ---
+# 17. What only the shim can break: arguments reach the command intact (a space in --cwd), and the default --cwd is the
+# caller's directory, whatever directory the script lives in.
+d="$TMP/with space"; mkrepo "$d"; add "$d" a 12
+run --cwd "$d" --base-ref base; expect "17  a --cwd with a space reaches the command intact" 0 "PLAN: 1 slice(s) commits=1 lines=12 max=400"
+OUT="$(cd "$d" && timeout 30 bash "$SUT" --base-ref base 2>&1)"; RC=$?
+expect "17b the default --cwd is the caller's directory" 0 "PLAN: 1 slice(s) commits=1 lines=12 max=400"
+OUT="$(cd "$d" && timeout 30 bash "$SUT" --base-ref base 2>&1 >/dev/null)"; RC=$?
+[ -z "$OUT" ] && ok "17c a plan prints nothing on stderr" || no "17c stderr was: $OUT"
+
+# --- mutation controls: the SHIM itself (the Go behaviour's controls are the Go tests') ---
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: plan-review-slices mutants --"
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  mkdir -p "$TMP/mut"
-  # tooth <name> <sed-expr> <good rc> <needle GOOD prints> <repo> [args...]: the mutant must lose the needle or change rc.
-  tooth(){ local name="$1" expr="$2" grc="$3" needle="$4" repo="$5"; shift 5
-    local m="$TMP/mut/$name.sh"
-    if ! mutant_sed "$SUT" "$m" "$expr" 2>/dev/null; then no "teeth $name: could not build mutant (pattern absent / refused by lib/mutant.sh)"; return; fi
-    local mo mrc go grcr
-    mo="$(timeout 30 bash "$m" --cwd "$repo" "$@" 2>&1)"; mrc=$?
-    go="$(timeout 30 bash "$SUT" --cwd "$repo" "$@" 2>&1)"; grcr=$?
-    if [ "$grcr" != "$grc" ] || ! grep -qF -- "$needle" <<<"$go"; then no "teeth $name: ORIGINAL does not satisfy the assertion (rc=$grcr)"; return; fi
-    if [ "$mrc" != "$grc" ] || ! grep -qF -- "$needle" <<<"$mo"; then ok "teeth $name: mutant flips the assertion (rc=$mrc)"
-    else no "teeth $name: mutant still satisfies the assertion — THEATER"; fi; }
-  tooth fits-at-equal 's/-le "\$max"/-lt "$max"/' 0 "PLAN: 1 slice(s) commits=2 lines=400 max=400" "$TMP/edge" --base-ref base --max-lines 400
-  tooth unsplittable-gate 's/-gt "\$max"/-gt 99999999/' 0 "UNSPLITTABLE lines=500" "$TMP/unsp" --base-ref base --max-lines 400
-  tooth deletions-counted 's/a += \$1 + \$2/a += $1/' 0 "lines=170" "$TMP/del" --base-ref base --max-lines 400
-  tooth binary-detected 's/\$1 == "-"/$1 == "NEVER"/' 0 "binary=1" "$TMP/bin" --base-ref base --max-lines 400
-  tooth binary-typed 's/binary=%d/bin=%d/' 0 "binary=1" "$TMP/bin" --base-ref base --max-lines 400
-  tooth base-is-parent 's/base=%s/base=%.0s/' 0 "base=$b1" "$TMP/parents" --base-ref base --max-lines 400
-  tooth flush-final 's/^emit_slice # FINAL$/:/' 0 "PLAN: 2 slice(s) commits=4 lines=600 max=400" "$TMP/greedy" --base-ref base --max-lines 400
-  tooth empty-range 's/^  echo "EMPTY-RANGE/  echo "NOPE/' 0 "EMPTY-RANGE" "$TMP/empty" --base-ref base
-  tooth first-parent 's/--first-parent //' 0 "PLAN: 1 slice(s) commits=2 lines=90" "$TMP/merge" --base-ref base --max-lines 400
-  tooth merge-base-used 's/g merge-base "\$BASE"/g rev-parse "$BASE"/' 0 "PLAN: 1 slice(s) commits=1 lines=33" "$TMP/mb" --base-ref main
-  # shim tooth: the original exits 2 on the corrupted numstat; the mutant must not.
-  shimtooth(){ local name="$1" expr="$2" m="$TMP/mut/$1.sh" mo mrc
-    if ! mutant_sed "$SUT" "$m" "$expr" 2>/dev/null; then no "teeth $name: could not build mutant"; return; fi
-    mo="$(PATH="$TMP/shim:$PATH" timeout 30 bash "$m" --cwd "$TMP/malformed" --base-ref base 2>&1)"; mrc=$?
-    if [ "$mrc" != 2 ]; then ok "teeth $name: mutant flips the assertion (rc=$mrc)"; else no "teeth $name: mutant still exits 2 — THEATER"; fi; }
-  shimtooth malformed-check 's/NF > 0 { bad = 1 }/NF > 0 { bad = 0 }/'
-  tooth root-typed 's/pshort="ROOT"/pshort="NONE"/' 0 "base=ROOT" "$TMP/root" --base-ref main
-  tooth unsplit-flag 's/s_unsplit=1$/s_unsplit=0/' 0 "UNSPLITTABLE lines=500" "$TMP/unsp" --base-ref base --max-lines 400
-  # shimtooth2 <name> <sed-expr> <shim dir> <repo> <base>: the original exits 2 under the shim; the mutant must not.
-  # An optional <needle> must also vanish from the mutant output (a mutant that still exits 2 for another reason is not caught by rc alone).
-  shimtooth2(){ local name="$1" expr="$2" shimdir="$3" repo="$4" ref="$5" needle="${6:-}" m="$TMP/mut/$1.sh" mo mrc
-    if ! mutant_sed "$SUT" "$m" "$expr" 2>/dev/null; then no "teeth $name: could not build mutant"; return; fi
-    mo="$(PATH="$shimdir:$PATH" timeout 30 bash "$m" --cwd "$repo" --base-ref "$ref" 2>&1)"; mrc=$?
-    if [ "$mrc" != 2 ] || { [ -n "$needle" ] && ! grep -qF -- "$needle" <<<"$mo"; }; then ok "teeth $name: mutant flips the assertion (rc=$mrc)"; else no "teeth $name: mutant still satisfies the assertion — THEATER"; fi; }
-  shimtooth2 parents-checked 's/ || { echo .*; exit 2; } # PARENTS$/ || true # PARENTS/' "$TMP/shim-parents" "$TMP/parents" base "cannot read parents"
-  shimtooth2 emptytree-checked 's/ || { echo .*; exit 2; } # EMPTYTREE$/ || true # EMPTYTREE/' "$TMP/shim-hash" "$TMP/root" main "cannot compute the empty tree"
-  tooth bad-ref-exit 's/exit 2 # BADREF/exit 0 # BADREF/' 2 "no-such-ref" "$TMP/parents" --base-ref no-such-ref
-  tooth max-validation 's/^\[\[ "\$max" =~ \^\[1-9\]\[0-9\]\*\$ \]\] || /true || /' 2 "max-lines" "$TMP/parents" --base-ref base --max-lines abc
+  echo "-- teeth: the shim must dispatch to rsdd lint review-slices with the caller's arguments --"
+  # a mutant of the shim must still find lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
+  KC="$TMP/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib"
+  cat >"$TMP/runner.sh" <<'EOS'
+cd "$1" || exit 99
+shift
+exec bash "$@"
+EOS
+  mk() { mutant_chain "$@" || { fail=$((fail + 1)); return 1; }; }
+  tt() { if mutant_tooth "$@"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+  # shellcheck disable=SC2016  # the sed expressions are literal text
+  {
+    mk "s1 dispatch" "$SUT" "$KC/s1.sh" 's/^rsdd_exec lint review-slices /rsdd_exec lint block /' \
+      && tt "s1 shim dispatches to the sibling command" 0 2 "$KC/s1.sh" --good-has "lines=40 max=400" --bad-lacks "lines=40 max=400" -- bash "$TMP/runner.sh" "$TMP/bin2" @SUT@ --cwd "$TMP/bin2" --base-ref base
+    mk "s2 arguments" "$SUT" "$KC/s2.sh" 's/^rsdd_exec lint review-slices "\$@"$/rsdd_exec lint review-slices/' \
+      && tt "s2 shim drops the caller's arguments" 0 2 "$KC/s2.sh" --good-has "lines=40 max=400" --bad-lacks "lines=40 max=400" -- bash "$TMP/runner.sh" "$TMP/bin2" @SUT@ --base-ref base
+  }
 fi
 
 echo "== $pass passed · $fail failed =="

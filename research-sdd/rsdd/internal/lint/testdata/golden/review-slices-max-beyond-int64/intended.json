@@ -1,0 +1,14 @@
+[
+ {
+  "field": "stdout",
+  "reason": "the script accepted a --max-lines above int64: its [ -gt ] failed ('integer expression expected'), no commit was ever UNSPLITTABLE and every commit became its own slice, so it printed a wrong plan ending 'max=9223372036854775807'; the Go command refuses the value"
+ },
+ {
+  "field": "stderr",
+  "reason": "the script printed bash's 'integer expression expected' and 'Numerical result out of range' warnings on stderr; the refusal has none"
+ },
+ {
+  "field": "exit",
+  "reason": "the script exited 0 with that wrong plan; the Go command exits 2"
+ }
+]

@@ -1,0 +1,1 @@
+{"args":["lint","review-slices","--cwd"],"env":{"PATH":"/usr/bin:/bin"}}
